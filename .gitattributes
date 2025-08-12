@@ -1,0 +1,11 @@
+﻿* text=auto
+
+# Scripts / YAML / Docker
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+**/Dockerfile text eol=lf
+
+# Python (laisse Git gérer, mais tu peux forcer LF si tu veux)
+*.py text eol=lf
