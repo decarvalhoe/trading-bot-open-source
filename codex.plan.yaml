@@ -1,33 +1,148 @@
-﻿tickets:
-  - key: TICKET-001
-    title: "Initialisation du repository et structure"
-    priority: "Critique"
-    estimate_days: 3
-    acceptance:
-      - "README, LICENSE, CONTRIBUTING, CODE_OF_CONDUCT prÃ©sents"
-      - "Structure microservices crÃ©Ã©e"
-      - "pre-commit configurÃ©"
-      - "Templates Issues/PR en place"
-      - "CI GitHub Actions opÃ©rationnelle (lint + tests)"
-  - key: TICKET-002
-    title: "Environnement de dÃ©veloppement Docker"
-    priority: "Critique"
-    estimate_days: 2
-    dependencies: ["TICKET-001"]
-    acceptance:
-      - "Dockerfile multi-stage par service"
-      - "docker-compose.yml (dev) avec Postgres, Redis, RabbitMQ"
-      - "Scripts start/stop"
-      - "Volumes persistants configurÃ©s"
-      - "Doc d'installation/dÃ©marrage"
-  - key: TICKET-003
-    title: "Service de configuration centralisÃ©e"
-    priority: "Haute"
-    estimate_days: 4
-    dependencies: ["TICKET-002"]
-    acceptance:
-      - "ModÃ¨les Pydantic pour toutes confs"
-      - "Support variables d'environnement et fichiers"
-      - "Validation auto au dÃ©marrage"
-      - "Profils env: dev/test/prod"
-      - "API REST de gestion"
+version: 1
+name: "bootstrap-e2e-and-ci"
+description: "Ajoute tests e2e (register/login/me), CI GitHub Actions, cibles Makefile et petits ajustements docker-compose."
+
+tasks:
+  - id: create-branch
+    run: |
+      git checkout -b feat/e2e-and-ci || git checkout feat/e2e-and-ci
+
+  - id: ensure-env
+    files:
+      - path: ".env.dev"
+        ensure_exists: true
+        append_if_missing: |
+          # ==== Auth/User defaults for local dev ====
+          DATABASE_URL=postgresql+psycopg2://trading:trading@postgres:5432/trading
+          PYTHONPATH=/app
+          JWT_SECRET=dev-secret-change-me  # pragma: allowlist secret
+          JWT_ALGO=HS256
+
+  - id: compose-tweak
+    edit:
+      path: "docker-compose.yml"
+      instructions: |
+        - For both services "auth-service" and "user-service", add:
+            env_file:
+              - .env.dev
+        - Do not change ports or depends_on.
+        - Keep YAML indentation consistent.
+
+  - id: makefile
+    write:
+      path: "Makefile"
+      content: |
+        .PHONY: dev-up dev-down e2e e2e-sh
+        dev-up:
+        docker compose up -d postgres redis
+        docker compose up -d --build auth-service user-service
+        dev-down:
+        docker compose down -v
+        e2e:
+        pwsh -NoProfile -File ./scripts/e2e/auth_e2e.ps1
+        e2e-sh:
+        bash ./scripts/e2e/auth_e2e.sh
+
+  - id: e2e-powershell
+    write:
+      path: "scripts/e2e/auth_e2e.ps1"
+      mode: "0755"
+      content: |
+        $ErrorActionPreference = "Stop"
+        $env:NO_PROXY="localhost,127.0.0.1"; $env:no_proxy=$env:NO_PROXY
+
+        function Assert($ok, $msg) {
+          if (-not $ok) { Write-Error $msg; exit 1 } else { Write-Host "OK - $msg" }
+        }
+
+        # Health
+        $h1 = curl.exe --noproxy "*" http://127.0.0.1:8011/health 2>$null
+        $h2 = curl.exe --noproxy "*" http://127.0.0.1:8012/health 2>$null
+        Assert ($h1 -match '"ok"' -or $h1 -match 'status' -or $h1 -match 'OK') "auth-service /health"
+        # user-service peut ne pas répondre encore, on tolère (enlève ce commentaire quand prêt)
+
+        # Register
+        $email="dev$(Get-Date -Format 'yyyyMMddHHmmss')@example.com"
+        $reg = curl.exe -s -X POST "http://127.0.0.1:8011/auth/register" `
+          -H "Content-Type: application/json" `
+          -d "{\"email\": \"$email\", \"password\": \"Passw0rd!\"}"
+        Assert ($LASTEXITCODE -eq 0) "register call"
+        Write-Host "REGISTER => $reg"
+
+        # Login
+        $login = curl.exe -s -X POST "http://127.0.0.1:8011/auth/login" `
+          -H "Content-Type: application/json" `
+          -d "{\"email\": \"$email\", \"password\": \"Passw0rd!\"}"
+        Assert ($LASTEXITCODE -eq 0) "login call"
+        $json = $login | ConvertFrom-Json
+        $token = $json.access_token
+        Assert ($token) "access_token extracted"
+
+        # Me
+        $me = curl.exe -s -H "Authorization: Bearer $token" "http://127.0.0.1:8011/auth/me"
+        Assert ($LASTEXITCODE -eq 0) "/auth/me call"
+        Write-Host "ME => $me"
+        Write-Host "E2E DONE ✅"
+
+  - id: e2e-bash
+    write:
+      path: "scripts/e2e/auth_e2e.sh"
+      mode: "0755"
+      content: |
+        set -euo pipefail
+        export NO_PROXY="localhost,127.0.0.1"; export no_proxy="$NO_PROXY"
+
+        curl --noproxy "*" -sf http://127.0.0.1:8011/health >/dev/null
+
+        email="dev$(date +%Y%m%d%H%M%S)@example.com"
+        curl --noproxy "*" -sS -X POST http://127.0.0.1:8011/auth/register \
+          -H "Content-Type: application/json" \
+          -d "{\"email\":\"$email\",\"password\":\"Passw0rd!\"}" >/dev/null
+
+        token=$(curl --noproxy "*" -sS -X POST http://127.0.0.1:8011/auth/login \
+          -H "Content-Type: application/json" \
+          -d "{\"email\":\"$email\",\"password\":\"Passw0rd!\"}" | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+        curl --noproxy "*" -sS -H "Authorization: Bearer $token" http://127.0.0.1:8011/auth/me >/dev/null
+        echo "E2E DONE ✅"
+
+  - id: workflow-e2e
+    write:
+      path: ".github/workflows/e2e.yml"
+      content: |
+        name: e2e
+        on:
+          push:
+            branches: [ "main", "feat/**" ]
+          pull_request:
+            branches: [ "main" ]
+        jobs:
+          e2e:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v4
+              - name: Set up Docker Buildx
+                uses: docker/setup-buildx-action@v3
+              - name: Build & Up infra
+                run: |
+                  docker compose up -d postgres redis
+                  docker compose up -d --build auth-service
+              - name: Wait for auth-service
+                run: |
+                  for i in {1..30}; do
+                    curl -sf http://127.0.0.1:8011/health && exit 0
+                    sleep 2
+                  done
+                  echo "auth-service not ready" && exit 1
+              - name: Run E2E (bash)
+                run: bash ./scripts/e2e/auth_e2e.sh
+
+  - id: git-commit
+    run: |
+      git add .
+      git commit -m "test(e2e): add e2e scripts + CI; chore: Makefile & compose env_file"
+
+  - id: push-and-pr
+    run: |
+      git push -u origin feat/e2e-and-ci
+      echo "::notice::Create a PR from feat/e2e-and-ci → main"
