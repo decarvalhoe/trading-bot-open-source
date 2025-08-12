@@ -1,0 +1,22 @@
+﻿name: Bug report
+description: Signaler un bug
+title: "[bug] <titre>"
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Quoi
+      description: DÃ©cris le bug
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Ã‰tapes
+      description: Ã‰tapes pour reproduire
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: shell

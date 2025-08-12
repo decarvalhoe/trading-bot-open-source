@@ -1,0 +1,17 @@
+﻿name: Feature request
+description: Proposer une fonctionnalitÃ©
+title: "[feat] <titre>"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: value
+    attributes:
+      label: Valeur
+      description: Quel problÃ¨me cela rÃ©sout ?
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: SpÃ©cification
+      description: Acceptance criteria / Definition of Done

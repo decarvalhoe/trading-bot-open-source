@@ -1,0 +1,7 @@
+{
+  "APP_NAME": "trading-bot-config",
+  "ENVIRONMENT": "dev",
+  "POSTGRES_DSN": "postgresql+psycopg2://trading:trading@postgres:5432/trading",
+  "REDIS_URL": "redis://redis:6379/0",
+  "RABBITMQ_URL": "amqp://guest:guest@rabbitmq:5672//"
+}

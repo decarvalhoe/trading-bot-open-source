@@ -1,0 +1,45 @@
+﻿version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: trading
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: trading
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8011:8000"
+
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+    depends_on:
+      - postgres
+    ports:
+      - "8012:8000"
+
+volumes:
+  pgdata: {}

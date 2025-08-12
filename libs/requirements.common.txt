@@ -1,0 +1,14 @@
+﻿
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+passlib[bcrypt]>=1.7
+PyJWT>=2.8
+pyotp>=2.9
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+email-validator
+alembic
+'@ | Set-Content services\auth-service\requirements.txt

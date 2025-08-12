@@ -1,0 +1,33 @@
+﻿tickets:
+  - key: TICKET-001
+    title: "Initialisation du repository et structure"
+    priority: "Critique"
+    estimate_days: 3
+    acceptance:
+      - "README, LICENSE, CONTRIBUTING, CODE_OF_CONDUCT prÃ©sents"
+      - "Structure microservices crÃ©Ã©e"
+      - "pre-commit configurÃ©"
+      - "Templates Issues/PR en place"
+      - "CI GitHub Actions opÃ©rationnelle (lint + tests)"
+  - key: TICKET-002
+    title: "Environnement de dÃ©veloppement Docker"
+    priority: "Critique"
+    estimate_days: 2
+    dependencies: ["TICKET-001"]
+    acceptance:
+      - "Dockerfile multi-stage par service"
+      - "docker-compose.yml (dev) avec Postgres, Redis, RabbitMQ"
+      - "Scripts start/stop"
+      - "Volumes persistants configurÃ©s"
+      - "Doc d'installation/dÃ©marrage"
+  - key: TICKET-003
+    title: "Service de configuration centralisÃ©e"
+    priority: "Haute"
+    estimate_days: 4
+    dependencies: ["TICKET-002"]
+    acceptance:
+      - "ModÃ¨les Pydantic pour toutes confs"
+      - "Support variables d'environnement et fichiers"
+      - "Validation auto au dÃ©marrage"
+      - "Profils env: dev/test/prod"
+      - "API REST de gestion"
