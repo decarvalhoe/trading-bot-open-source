@@ -1,56 +1,130 @@
-# Trading Bot Open Source
+[Français](README.md) | [English](README.en.md)
 
-Un projet de bot de trading open-source, construit avec une architecture de microservices moderne.
+# 🤖 Trading Bot Open Source
 
-## Statut du Projet
+Un bot de trading automatisé et intelligent, conçu pour être **transparent**, **sécurisé** et **évolutif**. Ce projet open-source permet aux traders de tous niveaux d'automatiser leurs stratégies de trading avec une technologie moderne et fiable.
 
-- **Sprint 1 (Terminé)** : Infrastructure, fondations, CI/CD, et service de configuration.
-- **Sprint 2 (En cours)** : Authentification, gestion des utilisateurs, et migrations de base de données.
+## 🎯 Qu'est-ce que ce projet ?
 
-## Démarrage Rapide (Développement)
+Ce trading bot est une plateforme complète qui permet de :
+
+- **Automatiser vos stratégies de trading** sur différents marchés financiers
+- **Gérer vos risques** avec des paramètres personnalisables
+- **Suivre vos performances** en temps réel avec des tableaux de bord détaillés
+- **Collaborer** avec une communauté de traders et développeurs
+
+### Pourquoi choisir ce bot ?
+
+- ✅ **100% Open Source** : Code transparent et auditable
+- ✅ **Sécurité renforcée** : Authentification robuste et protection des données
+- ✅ **Architecture moderne** : Microservices scalables et maintenables
+- ✅ **Facilité d'utilisation** : Interface intuitive et documentation complète
+- ✅ **Communauté active** : Support et contributions continues
+
+## 🚀 État d'avancement du projet
+
+### Phase 1 : Fondations (✅ Terminée)
+**Objectif** : Mettre en place l'infrastructure technique de base
+
+- ✅ **Configuration du projet** : Repository, outils de développement, CI/CD
+- ✅ **Environnement de développement** : Docker, base de données, services
+- ✅ **Service de configuration** : Gestion centralisée des paramètres
+
+*Résultat* : L'infrastructure technique est opérationnelle et prête pour le développement.
+
+### Phase 2 : Authentification et Utilisateurs (🔄 En cours)
+**Objectif** : Permettre aux utilisateurs de créer des comptes et se connecter de manière sécurisée
+
+- 🔄 **Système d'authentification** : Inscription, connexion, sécurité JWT
+- 🔄 **Gestion des profils** : Création et modification des profils utilisateurs
+- 🔄 **Base de données** : Structure pour stocker les informations utilisateurs
+
+*Résultat attendu* : Les utilisateurs pourront créer des comptes sécurisés et gérer leurs profils.
+
+### Phase 3 : Stratégies de Trading (📋 Planifiée)
+**Objectif** : Permettre la création et l'exécution de stratégies de trading
+
+- 📋 **Moteur de stratégies** : Création et configuration de stratégies personnalisées
+- 📋 **Connecteurs de marché** : Intégration avec les plateformes de trading
+- 📋 **Gestion des ordres** : Placement et suivi des ordres automatiques
+
+### Phase 4 : Monitoring et Analytics (📋 Planifiée)
+**Objectif** : Fournir des outils d'analyse et de suivi des performances
+
+- 📋 **Tableaux de bord** : Visualisation des performances en temps réel
+- 📋 **Alertes et notifications** : Système d'alertes personnalisables
+- 📋 **Rapports détaillés** : Analyses approfondies des résultats
+
+## 🛠️ Pour les développeurs
+
+### Démarrage rapide
 
 ```bash
-# 1. Installer les dépendances et configurer l'environnement
+# 1. Cloner le projet
+git clone https://github.com/decarvalhoe/trading-bot-open-source.git
+cd trading-bot-open-source
+
+# 2. Installer les outils de développement
 make setup
 
-# 2. Démarrer l'environnement de développement
+# 3. Démarrer l'environnement de développement
 make dev-up
 
-# 3. Vérifier que les services fonctionnent
-curl http://localhost:8000/health  # config-service
-curl http://localhost:8011/health  # auth-service (après TICKET-004)
+# 4. Vérifier que tout fonctionne
+curl http://localhost:8000/health
 
-# 4. Arrêter l'environnement
+# 5. Arrêter l'environnement
 make dev-down
 ```
 
-## Architecture
+### Architecture technique
 
-- **`services/`** : Contient les microservices (FastAPI).
-  - `config-service` : Gère la configuration centralisée.
-  - `auth-service` : Gère l'authentification et les tokens JWT.
-  - `user-service` : Gère les profils utilisateurs.
-- **`infra/`** : Gère l'infrastructure (Docker, migrations Alembic).
-- **`libs/`** : Bibliothèques partagées entre les services.
+Le projet utilise une **architecture microservices** moderne :
 
-## Roadmap des Sprints
+- **Services métier** : Chaque fonctionnalité est un service indépendant
+- **Base de données** : PostgreSQL pour la persistance des données
+- **Cache** : Redis pour les performances
+- **API** : FastAPI pour des interfaces rapides et documentées
+- **Conteneurisation** : Docker pour un déploiement simplifié
 
-### Sprint 1 (Terminé)
+### Structure du projet
 
-- **TICKET-001** : Repository, templates, et CI minimal ✅
-- **TICKET-002** : Environnement Docker + Compose ✅
-- **TICKET-003** : Config-service avec Pydantic + API ✅
+```
+trading-bot-open-source/
+├── services/           # Services métier (authentification, trading, etc.)
+├── infra/             # Infrastructure (base de données, migrations)
+├── libs/              # Bibliothèques partagées
+├── scripts/           # Scripts d'automatisation
+└── docs/              # Documentation
+```
 
-### Sprint 2 (En cours)
+## 🤝 Comment contribuer ?
 
-- **TICKET-004** : Auth-service - Inscription et Connexion des Utilisateurs
-- **TICKET-005** : User-service - Gestion des Profils Utilisateurs (CRUD)
-- **TICKET-006** : Infrastructure - Migrations de Base de Données avec Alembic
+Nous accueillons toutes les contributions ! Que vous soyez :
 
-## Contribution
+- **Trader expérimenté** : Partagez vos stratégies et votre expertise
+- **Développeur** : Améliorez le code et ajoutez de nouvelles fonctionnalités
+- **Testeur** : Aidez-nous à identifier et corriger les bugs
+- **Designer** : Améliorez l'expérience utilisateur
 
-Consultez `CONTRIBUTING.md` pour plus de détails sur la manière de contribuer au projet.
+### Étapes pour contribuer
+
+1. **Consultez** les [issues ouvertes](https://github.com/decarvalhoe/trading-bot-open-source/issues)
+2. **Lisez** le guide de contribution dans `CONTRIBUTING.md`
+3. **Créez** une branche pour votre contribution
+4. **Soumettez** une pull request avec vos améliorations
+
+## 📞 Support et communauté
+
+- **Issues GitHub** : Pour signaler des bugs ou proposer des fonctionnalités
+- **Discussions** : Pour échanger avec la communauté
+- **Documentation** : Guide complet dans le dossier `docs/`
+
+## 📄 Licence
+
+Ce projet est sous licence MIT - voir le fichier `LICENSE` pour plus de détails.
 
 ---
 
-> Auteur: Manus AI — Date: 20 janvier 2025 — Version: 2.0
+> **Développé avec ❤️ par decarvalhoe et la communauté open-source**
+> Dernière mise à jour : Septembre 2025
