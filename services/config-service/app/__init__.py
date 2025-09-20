@@ -1,0 +1,156 @@
+EOF
+
+cat <<'EOF' > services/config-service/app/schemas.py
+from pydantic import BaseModel, AnyUrl
+
+
+class ConfigUpdate(BaseModel):
+    APP_NAME: str | None = None
+    ENVIRONMENT: str | None = None
+    POSTGRES_DSN: str | None = None
+    REDIS_URL: AnyUrl | str | None = None
+    RABBITMQ_URL: AnyUrl | str | None = None
+EOF
+
+cat <<'EOF' > services/config-service/app/settings.py
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, AnyUrl
+
+from .persistence import read_config_for_env
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env.dev", env_prefix="", case_sensitive=False)
+
+    APP_NAME: str = "trading-bot-config"
+    ENVIRONMENT: str = Field(default="dev", pattern="^(dev|test|prod)$")
+    POSTGRES_DSN: str = "postgresql+psycopg2://trading:trading@postgres:5432/trading"
+    REDIS_URL: AnyUrl | str = "redis://redis:6379/0"
+    RABBITMQ_URL: AnyUrl | str = "amqp://guest:guest@rabbitmq:5672//"
+
+
+def load_settings() -> Settings:
+    env_settings = Settings()
+    file_data = read_config_for_env(env_settings.ENVIRONMENT)
+    if file_data:
+        merged_data = {**env_settings.model_dump(), **file_data}
+        return Settings(**merged_data)
+    return env_settings
+EOF
+
+cat <<'EOF' > services/config-service/app/persistence.py
+import json
+import os
+from typing import Any, Dict
+
+DATA_DIR = os.environ.get("CONFIG_DATA_DIR", "/data")
+CONFIG_FILES: Dict[str, str] = {
+    "dev": os.path.join(DATA_DIR, "config.dev.json"),
+    "test": os.path.join(DATA_DIR, "config.test.json"),
+    "prod": os.path.join(DATA_DIR, "config.prod.json"),
+}
+
+
+def read_config_for_env(env: str) -> Dict[str, Any] | None:
+    path = CONFIG_FILES.get(env)
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def persist_config(settings) -> None:
+    env = settings.ENVIRONMENT
+    path = CONFIG_FILES.get(env)
+    if not path:
+        raise ValueError(f"Environnement inconnu : {env}")
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(settings.model_dump_json(indent=2))
+EOF
+
+cat <<'EOF' > services/config-service/app/main.py
+from fastapi import FastAPI, HTTPException
+
+from .settings import load_settings, Settings
+from .schemas import ConfigUpdate
+from .persistence import persist_config
+
+app = FastAPI(title="Config Service", version="1.0.0")
+
+
+@app.get("/health", tags=["Monitoring"])
+def health() -> dict:
+    return {"status": "ok"}
+
+
+@app.get("/config/current", response_model=Settings, tags=["Configuration"])
+def get_current_config():
+    return load_settings()
+
+
+@app.post("/config/update", response_model=Settings, tags=["Configuration"])
+def update_config(payload: ConfigUpdate):
+    current_settings = load_settings()
+    updated_data = current_settings.model_dump()
+    updated_data.update(payload.model_dump(exclude_unset=True))
+
+    try:
+        new_settings = Settings(**updated_data)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    persist_config(new_settings)
+    return new_settings
+EOF
+
+cat <<'EOF' > services/config-service/tests/test_config_service.py
+import importlib.util
+import os
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+_service_root = Path(__file__).resolve().parents[1]
+_main_path = _service_root / "app" / "main.py"
+_spec = importlib.util.spec_from_file_location("config_service_main", _main_path)
+_module = importlib.util.module_from_spec(_spec)
+assert _spec and _spec.loader
+_spec.loader.exec_module(_module)  # type: ignore[arg-type]
+app = _module.app  # type: ignore[attr-defined]
+
+client = TestClient(app)
+
+
+def test_health_check():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_get_current_config():
+    response = client.get("/config/current")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["APP_NAME"] == "trading-bot-config"
+
+
+def test_update_config(tmp_path):
+    os.environ["ENVIRONMENT"] = "test"
+    os.environ["CONFIG_DATA_DIR"] = str(tmp_path)
+
+    update_payload = {"APP_NAME": "My-Awesome-Trading-Bot"}
+    response = client.post("/config/update", json=update_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["APP_NAME"] == "My-Awesome-Trading-Bot"
+    assert data["ENVIRONMENT"] == "test"
+
+    test_config_path = tmp_path / "config.test.json"
+    assert test_config_path.exists()
+    assert "My-Awesome-Trading-Bot" in test_config_path.read_text(encoding="utf-8")
+
+    del os.environ["ENVIRONMENT"]
+    del os.environ["CONFIG_DATA_DIR"]
+EOF

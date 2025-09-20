@@ -1,40 +1,56 @@
-# Trading Bot Open Source — Sprint 1 Pack
+# Trading Bot Open Source
 
-**Phase 1 / Sprint 1** — Infrastructure & Fondations (TICKET-001 à TICKET-003).
+Un projet de bot de trading open-source, construit avec une architecture de microservices moderne.
 
-## TL;DR (dev)
+## Statut du Projet
+
+- **Sprint 1 (Terminé)** : Infrastructure, fondations, CI/CD, et service de configuration.
+- **Sprint 2 (En cours)** : Authentification, gestion des utilisateurs, et migrations de base de données.
+
+## Démarrage Rapide (Développement)
 
 ```bash
-# 0) (optionnel) activer pre-commit localement
-pipx install pre-commit || pip install pre-commit
-pre-commit install
+# 1. Installer les dépendances et configurer l'environnement
+make setup
 
-# 1) Lancer l'env de dev
+# 2. Démarrer l'environnement de développement
 make dev-up
 
-# 2) Vérifier le service de configuration
-curl http://localhost:8000/health
-curl http://localhost:8000/config/current
+# 3. Vérifier que les services fonctionnent
+curl http://localhost:8000/health  # config-service
+curl http://localhost:8011/health  # auth-service (après TICKET-004)
 
-# 3) Arrêter
+# 4. Arrêter l'environnement
 make dev-down
 ```
 
-## Architecture (Sprint 1)
-- `services/config-service` : Service FastAPI pour **configuration centralisée** (validation Pydantic, env par environnement, API REST).
-- `infra` : Docker Compose (PostgreSQL, Redis, RabbitMQ).
+## Architecture
 
-## Décisions
-- **Python 3.12**. FastAPI + Pydantic Settings.
-- **Docker multi-stage** et `docker-compose.yml` pour le dev local.
-- **CI GitHub Actions** (lint + tests).
-- **pre-commit** : black, isort, flake8, mypy, bandit, detect-secrets.
+- **`services/`** : Contient les microservices (FastAPI).
+  - `config-service` : Gère la configuration centralisée.
+  - `auth-service` : Gère l'authentification et les tokens JWT.
+  - `user-service` : Gère les profils utilisateurs.
+- **`infra/`** : Gère l'infrastructure (Docker, migrations Alembic).
+- **`libs/`** : Bibliothèques partagées entre les services.
 
-## Prochaines étapes (Sprint 1)
-- TICKET-001 : Repo + templates + CI minimal ✅ (inclus ici).
-- TICKET-002 : Environnement Docker + Compose ✅ (inclus ici).
-- TICKET-003 : Config-service avec Pydantic + API ✅ (MVP ici, extensible DB plus tard).
+## Roadmap des Sprints
+
+### Sprint 1 (Terminé)
+
+- **TICKET-001** : Repository, templates, et CI minimal ✅
+- **TICKET-002** : Environnement Docker + Compose ✅
+- **TICKET-003** : Config-service avec Pydantic + API ✅
+
+### Sprint 2 (En cours)
+
+- **TICKET-004** : Auth-service - Inscription et Connexion des Utilisateurs
+- **TICKET-005** : User-service - Gestion des Profils Utilisateurs (CRUD)
+- **TICKET-006** : Infrastructure - Migrations de Base de Données avec Alembic
+
+## Contribution
+
+Consultez `CONTRIBUTING.md` pour plus de détails sur la manière de contribuer au projet.
 
 ---
 
-> Auteur: Manus AI — Date: 20 janvier 2025 — Version: 1.0
+> Auteur: Manus AI — Date: 20 janvier 2025 — Version: 2.0
