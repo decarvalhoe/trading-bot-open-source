@@ -22,3 +22,4 @@ plugins = ["pydantic.mypy"]
 testpaths = ["services"]
 addopts = "-q"
 pythonpath = ["services/config-service"]
+
