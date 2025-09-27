@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=2
+httpx
+pydantic>=2
