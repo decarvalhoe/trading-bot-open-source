@@ -21,5 +21,7 @@ if os.environ["DATABASE_URL"].startswith("sqlite"):
     Path(TEST_DB).touch()
 
 from infra import EntitlementsBase  # noqa: E402
+from infra import ScreenerBase  # noqa: E402
 
 EntitlementsBase.metadata.create_all(bind=db.engine)
+ScreenerBase.metadata.create_all(bind=db.engine)
