@@ -1,16 +1,31 @@
+import importlib
 import importlib.util
 import os
+import sys
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 _service_root = Path(__file__).resolve().parents[1]
-_main_path = _service_root / "app" / "main.py"
-_spec = importlib.util.spec_from_file_location("config_service_main", _main_path)
-_module = importlib.util.module_from_spec(_spec)
-assert _spec and _spec.loader
-_spec.loader.exec_module(_module)  # type: ignore[arg-type]
-app = _module.app  # type: ignore[attr-defined]
+_package_name = "config_service_app"
+
+if str(_service_root.parents[1]) not in sys.path:
+    sys.path.append(str(_service_root.parents[1]))
+
+if _package_name not in sys.modules:
+    _package_spec = importlib.util.spec_from_file_location(
+        _package_name,
+        _service_root / "app" / "__init__.py",
+        submodule_search_locations=[str(_service_root / "app")],
+    )
+    assert _package_spec and _package_spec.loader
+    _package_module = importlib.util.module_from_spec(_package_spec)
+    sys.modules[_package_name] = _package_module
+    _package_spec.loader.exec_module(_package_module)  # type: ignore[arg-type]
+
+main = importlib.import_module(f"{_package_name}.main")
+_persistence = importlib.import_module(f"{_package_name}.persistence")
+app = main.app  # type: ignore[attr-defined]
 
 client = TestClient(app)
 
@@ -31,6 +46,7 @@ def test_get_current_config():
 def test_update_config(tmp_path):
     os.environ["ENVIRONMENT"] = "test"
     os.environ["CONFIG_DATA_DIR"] = str(tmp_path)
+    _persistence.CONFIG_FILES["test"] = os.path.join(str(tmp_path), "config.test.json")
 
     update_payload = {"APP_NAME": "My-Awesome-Trading-Bot"}
     response = client.post("/config/update", json=update_payload)
