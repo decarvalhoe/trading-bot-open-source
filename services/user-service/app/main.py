@@ -1,9 +1,11 @@
-﻿from fastapi import FastAPI, Depends, HTTPException, Header
+import os
+
+from fastapi import FastAPI, Depends, HTTPException, Header
 from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import Integer, String, JSON, ForeignKey, text, select
 from libs.db.db import get_db
+from libs.entitlements import install_entitlements_middleware
 from jose import jwt
-import os
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
 JWT_ALG = "HS256"
@@ -21,6 +23,7 @@ class UserPreferences(Base):
     preferences: Mapped[dict] = mapped_column(JSON, server_default=text("'{}'::json"))
 
 app = FastAPI(title="User Service", version="0.1.0")
+install_entitlements_middleware(app, required_capabilities=["can.use_users"], required_quotas={})
 
 def require_auth(authorization: str = Header(default=None)):
     if not authorization or not authorization.lower().startswith("bearer "):

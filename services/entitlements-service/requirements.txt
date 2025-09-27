@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=2
+httpx
+psycopg2-binary
+pydantic>=2

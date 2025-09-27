@@ -3,8 +3,10 @@ from fastapi import FastAPI, HTTPException
 from .persistence import persist_config
 from .schemas import ConfigUpdate
 from .settings import Settings, load_settings
+from libs.entitlements import install_entitlements_middleware
 
 app = FastAPI(title="Config Service", version="1.0.0")
+install_entitlements_middleware(app, required_capabilities=["can.use_config"], required_quotas={})
 
 
 @app.get("/health", tags=["Monitoring"])
