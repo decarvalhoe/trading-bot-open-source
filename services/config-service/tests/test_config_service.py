@@ -61,3 +61,18 @@ def test_update_config(tmp_path):
 
     del os.environ["ENVIRONMENT"]
     del os.environ["CONFIG_DATA_DIR"]
+
+
+def test_read_config_for_env_reads_json(tmp_path):
+    config_path = tmp_path / "config.custom.json"
+    config_path.write_text("{\"APP_NAME\": \"Custom-Bot\"}", encoding="utf-8")
+
+    original_config_files = dict(_persistence.CONFIG_FILES)
+    _persistence.CONFIG_FILES["custom"] = str(config_path)
+
+    try:
+        data = _persistence.read_config_for_env("custom")
+        assert data == {"APP_NAME": "Custom-Bot"}
+    finally:
+        _persistence.CONFIG_FILES.clear()
+        _persistence.CONFIG_FILES.update(original_config_files)
