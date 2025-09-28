@@ -4,13 +4,23 @@ import hmac
 import json
 from hashlib import sha256
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+)
 
 from ..adapters import BinanceMarketDataAdapter, IBKRMarketDataAdapter
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
 from .schemas import PersistedTick, TradingViewSignal
+from providers.limits import build_orderbook, build_quote, get_pair_limit
+from schemas.market import ExecutionVenue, OrderBookSnapshot, Quote
 
 app = FastAPI(title="Market Data Service", version="0.1.0")
 
@@ -88,6 +98,28 @@ async def tradingview_webhook(
     signal = TradingViewSignal(**payload)
     background_tasks.add_task(_persist_tradingview_tick, signal)
     return {"status": "accepted"}
+
+
+@app.get("/spot/{symbol}", response_model=Quote, tags=["quotes"])
+async def get_spot_quote(
+    symbol: str,
+    venue: ExecutionVenue = Query(ExecutionVenue.BINANCE_SPOT, description="Market data venue"),
+) -> Quote:
+    limit = get_pair_limit(venue, symbol.upper())
+    if limit is None:
+        raise HTTPException(status_code=404, detail="Unsupported trading pair")
+    return build_quote(limit)
+
+
+@app.get("/orderbook/{symbol}", response_model=OrderBookSnapshot, tags=["orderbook"])
+async def get_orderbook(
+    symbol: str,
+    venue: ExecutionVenue = Query(ExecutionVenue.BINANCE_SPOT, description="Market data venue"),
+) -> OrderBookSnapshot:
+    limit = get_pair_limit(venue, symbol.upper())
+    if limit is None:
+        raise HTTPException(status_code=404, detail="Unsupported trading pair")
+    return build_orderbook(limit)
 
 
 __all__ = ["app", "get_binance_adapter", "get_ibkr_adapter"]

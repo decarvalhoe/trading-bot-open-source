@@ -119,3 +119,21 @@ def test_enforce_entitlements_respects_limit():
     with pytest.raises(Exception) as exc:
         _enforce_entitlements(dummy_request, True)
     assert "limit" in str(exc.value)
+
+def test_build_execution_plan():
+    client = TestClient(app)
+    response = client.post(
+        "/mvp/plan",
+        json={
+            "broker": "binance",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 0.5,
+            "price": 30_000,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["order"]["broker"] == "binance"
+    assert body["orderbook"]["symbol"] == "BTCUSDT"

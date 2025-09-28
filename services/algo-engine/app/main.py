@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from libs.entitlements import install_entitlements_middleware
+from providers.limits import build_plan, get_pair_limit
+from schemas.market import ExecutionPlan, ExecutionVenue, OrderRequest, OrderSide, OrderType, TimeInForce
 
 from .orchestrator import Orchestrator
 from .strategies import base  # noqa: F401 - ensures registry initialised
@@ -102,6 +104,19 @@ class OrchestratorStatePayload(BaseModel):
     mode: Optional[str] = Field(default=None, pattern="^(paper|live)$")
     daily_trade_limit: Optional[int] = Field(default=None, ge=1)
     trades_submitted: Optional[int] = Field(default=None, ge=0)
+
+
+class ExecutionIntent(BaseModel):
+    broker: str
+    venue: ExecutionVenue = ExecutionVenue.BINANCE_SPOT
+    symbol: str
+    side: OrderSide
+    order_type: OrderType
+    quantity: float = Field(gt=0)
+    price: Optional[float] = Field(default=None, gt=0)
+    time_in_force: TimeInForce = TimeInForce.GTC
+    estimated_loss: Optional[float] = None
+    tags: List[str] = Field(default_factory=list)
 
 
 @app.get("/health")
@@ -213,6 +228,28 @@ def update_state(payload: OrchestratorStatePayload) -> Dict[str, Any]:
             trades_submitted=updates.get("trades_submitted"),
         )
     return orchestrator.get_state().as_dict()
+
+
+@app.post("/mvp/plan", response_model=ExecutionPlan)
+def build_execution_plan(payload: ExecutionIntent) -> ExecutionPlan:
+    limit = get_pair_limit(payload.venue, payload.symbol)
+    if limit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported trading pair")
+    if payload.quantity > limit.max_order_size:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order size exceeds sandbox limit")
+    order = OrderRequest(
+        broker=payload.broker,
+        venue=payload.venue,
+        symbol=payload.symbol,
+        side=payload.side,
+        order_type=payload.order_type,
+        quantity=payload.quantity,
+        price=payload.price,
+        time_in_force=payload.time_in_force,
+        estimated_loss=payload.estimated_loss,
+        tags=payload.tags,
+    )
+    return build_plan(order)
 
 
 __all__ = ["app"]

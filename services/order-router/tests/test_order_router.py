@@ -47,19 +47,28 @@ def test_route_order_and_logging():
     client = TestClient(app)
     response = client.post(
         "/orders",
-        json={"broker": "binance", "symbol": "BTCUSDT", "quantity": 0.5, "price": 30_000},
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 0.5,
+            "price": 30_000,
+        },
     )
     assert response.status_code == 201
     order = response.json()
     assert order["order_id"].startswith("BN-")
+    assert order["status"] in {"filled", "partially_filled"}
 
     log_resp = client.get("/orders/log")
     assert log_resp.status_code == 200
-    assert len(log_resp.json()["orders"]) == 1
+    assert len(log_resp.json()) == 1
 
     exec_resp = client.get("/executions")
     assert exec_resp.status_code == 200
-    assert exec_resp.json()["executions"]
+    assert exec_resp.json()
 
 
 def test_daily_notional_limit_enforced():
@@ -68,13 +77,29 @@ def test_daily_notional_limit_enforced():
 
     response = client.post(
         "/orders",
-        json={"broker": "ibkr", "symbol": "AAPL", "quantity": 200, "price": 100},
+        json={
+            "broker": "ibkr",
+            "venue": "ibkr.paper",
+            "symbol": "AAPL",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 200,
+            "price": 100,
+        },
     )
     assert response.status_code == 201
 
     second = client.post(
         "/orders",
-        json={"broker": "ibkr", "symbol": "AAPL", "quantity": 200, "price": 100},
+        json={
+            "broker": "ibkr",
+            "venue": "ibkr.paper",
+            "symbol": "AAPL",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 200,
+            "price": 100,
+        },
     )
     assert second.status_code == 403
     assert "Daily notional" in second.json()["detail"]
@@ -84,7 +109,34 @@ def test_risk_rule_rejection():
     client = TestClient(app)
     response = client.post(
         "/orders",
-        json={"broker": "binance", "symbol": "BTCUSDT", "quantity": 30, "price": 25_000},
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 0.6,
+            "price": 200_000,
+        },
     )
     assert response.status_code == 400
     assert "Notional" in response.json()["detail"]
+
+
+def test_preview_execution_plan():
+    client = TestClient(app)
+    response = client.post(
+        "/plans",
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 0.5,
+            "price": 30_000,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["plan"]["order"]["symbol"] == "BTCUSDT"
