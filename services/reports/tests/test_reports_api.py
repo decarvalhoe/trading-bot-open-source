@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from services.reports.app import config
 from services.reports.app.database import get_engine, reset_engine, session_scope
 from services.reports.app.main import app
-from services.reports.app.tables import Base, Outcome, ReportDaily, ReportIntraday, ReportSnapshot
-from schemas.report import StrategyName
+from services.reports.app.tables import Base, ReportDaily, ReportIntraday, ReportSnapshot
+from schemas.report import StrategyName, TradeOutcome
 
 
 def _configure_database(tmp_path: Path) -> None:
@@ -31,21 +31,23 @@ def _seed_sample_data() -> None:
                 ReportDaily(
                     symbol="AAPL",
                     session_date=date(2024, 3, 18),
+                    account="default",
                     strategy=StrategyName.ORB,
                     entry_price=190.0,
                     target_price=192.0,
                     stop_price=188.5,
-                    outcome=Outcome.WIN,
+                    outcome=TradeOutcome.WIN,
                     pnl=2.0,
                 ),
                 ReportDaily(
                     symbol="AAPL",
                     session_date=date(2024, 3, 19),
+                    account="default",
                     strategy=StrategyName.ORB,
                     entry_price=191.0,
                     target_price=193.0,
                     stop_price=189.5,
-                    outcome=Outcome.LOSS,
+                    outcome=TradeOutcome.LOSS,
                     pnl=-1.2,
                 ),
                 ReportIntraday(
@@ -55,7 +57,7 @@ def _seed_sample_data() -> None:
                     entry_price=191.5,
                     target_price=194.0,
                     stop_price=190.0,
-                    outcome=Outcome.WIN,
+                    outcome=TradeOutcome.WIN,
                     pnl=2.5,
                 ),
                 ReportIntraday(
@@ -65,7 +67,7 @@ def _seed_sample_data() -> None:
                     entry_price=191.7,
                     target_price=194.5,
                     stop_price=190.2,
-                    outcome=Outcome.WIN,
+                    outcome=TradeOutcome.WIN,
                     pnl=2.0,
                 ),
             ]
@@ -108,3 +110,22 @@ def test_refresh_reports_creates_snapshots(tmp_path: Path) -> None:
 
     assert count
     assert strategies == {StrategyName.ORB, StrategyName.IB}
+
+
+def test_daily_risk_report_endpoint(tmp_path: Path) -> None:
+    _configure_database(tmp_path)
+    _seed_sample_data()
+
+    with TestClient(app) as client:
+        response = client.get("/reports/daily")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload
+        summary = payload[0]
+        assert {"session_date", "account", "pnl", "max_drawdown", "incidents"} <= set(summary.keys())
+        if summary["session_date"] == "2024-03-19":
+            assert summary["incidents"], "Expected losing trade to be flagged as incident"
+
+        csv_response = client.get("/reports/daily", params={"export": "csv"})
+        assert csv_response.status_code == 200
+        assert "session_date" in csv_response.text

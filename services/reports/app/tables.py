@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
 
 from sqlalchemy import Date, DateTime, Enum as SAEnum, Float, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from schemas.report import StrategyName, Timeframe
+from schemas.report import StrategyName, Timeframe, TradeOutcome
 
 
 class Base(DeclarativeBase):
     pass
-
-
-class Outcome(str, Enum):
-    WIN = "win"
-    LOSS = "loss"
-    BREAK_EVEN = "breakeven"
 
 
 class ReportDaily(Base):
@@ -25,11 +18,12 @@ class ReportDaily(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     session_date: Mapped[date] = mapped_column(Date, nullable=False)
+    account: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     strategy: Mapped[StrategyName] = mapped_column(SAEnum(StrategyName), nullable=False)
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     target_price: Mapped[float] = mapped_column(Float, nullable=False)
     stop_price: Mapped[float] = mapped_column(Float, nullable=False)
-    outcome: Mapped[Outcome] = mapped_column(SAEnum(Outcome), nullable=False)
+    outcome: Mapped[TradeOutcome] = mapped_column(SAEnum(TradeOutcome), nullable=False)
     pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -44,7 +38,7 @@ class ReportIntraday(Base):
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     target_price: Mapped[float] = mapped_column(Float, nullable=False)
     stop_price: Mapped[float] = mapped_column(Float, nullable=False)
-    outcome: Mapped[Outcome] = mapped_column(SAEnum(Outcome), nullable=False)
+    outcome: Mapped[TradeOutcome] = mapped_column(SAEnum(TradeOutcome), nullable=False)
     pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -65,7 +59,6 @@ class ReportSnapshot(Base):
 
 __all__ = [
     "Base",
-    "Outcome",
     "ReportDaily",
     "ReportIntraday",
     "ReportSnapshot",

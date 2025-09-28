@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
-from typing import Iterable
+from typing import Iterable, List
 
 from pydantic import BaseModel, Field, validator
 
@@ -12,6 +12,14 @@ class StrategyName(str, Enum):
     IB = "IB"
     GAP_FILL = "Gap-Fill"
     ENGULFING = "Engulfing"
+
+
+class TradeOutcome(str, Enum):
+    """Normalized trade outcomes shared across analytics tables."""
+
+    WIN = "win"
+    LOSS = "loss"
+    BREAK_EVEN = "breakeven"
 
 
 class StrategyMetrics(BaseModel):
@@ -51,3 +59,29 @@ class ReportResponse(BaseModel):
 
     class Config:
         json_encoders = {datetime: lambda value: value.isoformat()}
+
+
+class DailyRiskIncident(BaseModel):
+    """Describe an incident contributing to a drawdown."""
+
+    symbol: str
+    strategy: StrategyName
+    pnl: float
+    outcome: TradeOutcome
+    note: str | None = None
+
+
+class DailyRiskReport(BaseModel):
+    """Aggregated daily risk summary used by the reporting service."""
+
+    session_date: date
+    account: str
+    pnl: float
+    max_drawdown: float = Field(..., ge=0.0)
+    incidents: List[DailyRiskIncident] = Field(default_factory=list)
+
+    class Config:
+        json_encoders = {
+            datetime: lambda value: value.isoformat(),
+            date: lambda value: value.isoformat(),
+        }
