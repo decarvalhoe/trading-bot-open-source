@@ -14,6 +14,7 @@ class StrategyConfig:
     parameters: Dict[str, Any] = field(default_factory=dict)
     enabled: bool = False
     tags: Iterable[str] | None = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class StrategyBase(abc.ABC):

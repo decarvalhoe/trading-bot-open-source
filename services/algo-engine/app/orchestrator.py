@@ -11,12 +11,14 @@ class OrchestratorState:
     mode: str = "paper"
     daily_trade_limit: int = 100
     trades_submitted: int = 0
+    last_simulation: Dict[str, object] | None = None
 
-    def as_dict(self) -> Dict[str, int | str]:
+    def as_dict(self) -> Dict[str, object]:
         return {
             "mode": self.mode,
             "daily_trade_limit": self.daily_trade_limit,
             "trades_submitted": self.trades_submitted,
+            "last_simulation": self.last_simulation,
         }
 
 
@@ -32,8 +34,8 @@ class Orchestrator:
             return OrchestratorState(**self._state.__dict__)
 
     def set_mode(self, mode: str) -> OrchestratorState:
-        if mode not in {"paper", "live"}:
-            raise ValueError("mode must be either 'paper' or 'live'")
+        if mode not in {"paper", "live", "simulation"}:
+            raise ValueError("mode must be either 'paper', 'live' or 'simulation'")
         with self._lock:
             self._state.mode = mode
             return self.get_state()
@@ -59,6 +61,12 @@ class Orchestrator:
             if not self.can_submit_trade(quantity=quantity):
                 raise RuntimeError("daily trade limit exceeded")
             self._state.trades_submitted += quantity
+            return self.get_state()
+
+    def record_simulation(self, summary: Dict[str, object]) -> OrchestratorState:
+        with self._lock:
+            self._state.last_simulation = summary
+            self._state.mode = "simulation"
             return self.get_state()
 
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from libs.entitlements import install_entitlements_middleware
@@ -15,10 +15,12 @@ from libs.observability.metrics import setup_metrics
 from providers.limits import build_plan, get_pair_limit
 from schemas.market import ExecutionPlan, ExecutionVenue, OrderRequest, OrderSide, OrderType, TimeInForce
 
+from .backtest import Backtester
+from .declarative import DeclarativeStrategyError, load_declarative_definition
 from .orchestrator import Orchestrator
 from .strategies import base  # noqa: F401 - ensures registry initialised
 from .strategies.base import StrategyConfig, registry
-from .strategies import gap_fill, orb  # noqa: F401 - register plugins
+from .strategies import declarative, gap_fill, orb  # noqa: F401 - register plugins
 
 
 @dataclass
@@ -29,6 +31,10 @@ class StrategyRecord:
     parameters: Dict[str, Any] = field(default_factory=dict)
     enabled: bool = False
     tags: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    source_format: Optional[str] = None
+    source: Optional[str] = None
+    last_backtest: Optional[Dict[str, Any]] = None
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -79,6 +85,7 @@ class StrategyStore:
 
 store = StrategyStore()
 orchestrator = Orchestrator()
+backtester = Backtester()
 
 configure_logging("algo-engine")
 
@@ -97,6 +104,9 @@ class StrategyPayload(BaseModel):
     parameters: Dict[str, Any] = Field(default_factory=dict)
     enabled: bool = False
     tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    source_format: Optional[str] = Field(default=None, pattern="^(yaml|python)$")
+    source: Optional[str] = None
 
 
 class StrategyUpdatePayload(BaseModel):
@@ -104,12 +114,30 @@ class StrategyUpdatePayload(BaseModel):
     parameters: Optional[Dict[str, Any]] = None
     enabled: Optional[bool] = None
     tags: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    source_format: Optional[str] = Field(default=None, pattern="^(yaml|python)$")
+    source: Optional[str] = None
 
 
 class OrchestratorStatePayload(BaseModel):
-    mode: Optional[str] = Field(default=None, pattern="^(paper|live)$")
+    mode: Optional[str] = Field(default=None, pattern="^(paper|live|simulation)$")
     daily_trade_limit: Optional[int] = Field(default=None, ge=1)
     trades_submitted: Optional[int] = Field(default=None, ge=0)
+
+
+class StrategyImportPayload(BaseModel):
+    name: Optional[str] = None
+    format: Literal["yaml", "python"]
+    content: str
+    enabled: bool = False
+    tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BacktestPayload(BaseModel):
+    market_data: List[Dict[str, Any]]
+    initial_balance: float = Field(default=10_000.0, gt=0)
 
 
 class ExecutionIntent(BaseModel):
@@ -162,6 +190,7 @@ def create_strategy(payload: StrategyPayload, request: Request) -> Dict[str, Any
         parameters=payload.parameters,
         enabled=payload.enabled,
         tags=payload.tags,
+        metadata=payload.metadata,
     )
     registry.create(payload.strategy_type, config)  # instantiation validates plugin
     record = StrategyRecord(
@@ -171,6 +200,9 @@ def create_strategy(payload: StrategyPayload, request: Request) -> Dict[str, Any
         parameters=payload.parameters,
         enabled=payload.enabled,
         tags=payload.tags,
+        metadata=payload.metadata,
+        source_format=payload.source_format,
+        source=payload.source,
     )
     store.create(record)
     return record.as_dict()
@@ -185,6 +217,47 @@ def get_strategy(strategy_id: str) -> Dict[str, Any]:
     return record.as_dict()
 
 
+@app.post("/strategies/import", status_code=status.HTTP_201_CREATED)
+def import_strategy(payload: StrategyImportPayload, request: Request) -> Dict[str, Any]:
+    _enforce_entitlements(request, payload.enabled)
+    try:
+        definition = load_declarative_definition(payload.content, payload.format)
+    except DeclarativeStrategyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    name = payload.name or definition.name
+    base_parameters = definition.to_parameters()
+    parameters = {**base_parameters, **payload.parameters}
+    parameters["definition"] = base_parameters["definition"]
+    metadata = {**definition.metadata, **payload.metadata}
+
+    config = StrategyConfig(
+        name=name,
+        parameters=parameters,
+        enabled=payload.enabled,
+        tags=payload.tags,
+        metadata=metadata,
+    )
+    try:
+        registry.create("declarative", config)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    record = StrategyRecord(
+        id=str(uuid.uuid4()),
+        name=name,
+        strategy_type="declarative",
+        parameters=parameters,
+        enabled=payload.enabled,
+        tags=payload.tags,
+        metadata=metadata,
+        source_format=payload.format,
+        source=payload.content,
+    )
+    store.create(record)
+    return record.as_dict()
+
+
 @app.put("/strategies/{strategy_id}")
 def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: Request) -> Dict[str, Any]:
     try:
@@ -196,15 +269,17 @@ def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: R
     if "enabled" in updates:
         _enforce_entitlements(request, bool(updates["enabled"]))
 
-    if "parameters" in updates:
-        parameters = updates["parameters"] or {}
-        StrategyConfig(
+    if any(key in updates for key in ("parameters", "metadata", "name", "tags", "enabled")):
+        parameters = updates.get("parameters", existing.parameters) or {}
+        metadata = updates.get("metadata", existing.metadata) or {}
+        config = StrategyConfig(
             name=updates.get("name", existing.name),
             parameters=parameters,
             enabled=updates.get("enabled", existing.enabled),
             tags=updates.get("tags", existing.tags),
+            metadata=metadata,
         )
-        registry.create(existing.strategy_type, StrategyConfig(name=existing.name, parameters=parameters))
+        registry.create(existing.strategy_type, config)
 
     record = store.update(strategy_id, **updates)
     return record.as_dict()
@@ -216,6 +291,66 @@ def delete_strategy(strategy_id: str) -> None:
         store.delete(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+
+
+@app.get("/strategies/{strategy_id}/export")
+def export_strategy(strategy_id: str, fmt: Literal["yaml", "python"] = Query("yaml")) -> Dict[str, Any]:
+    try:
+        record = store.get(strategy_id)
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+
+    if record.source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy source unavailable")
+    if record.source_format and record.source_format != fmt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Strategy stored as {record.source_format}; request the matching format",
+        )
+
+    return {
+        "id": record.id,
+        "name": record.name,
+        "format": record.source_format or fmt,
+        "content": record.source,
+    }
+
+
+@app.post("/strategies/{strategy_id}/backtest")
+def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, Any]:
+    try:
+        record = store.get(strategy_id)
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+
+    try:
+        strategy = registry.create(
+            record.strategy_type,
+            StrategyConfig(
+                name=record.name,
+                parameters=record.parameters,
+                enabled=record.enabled,
+                tags=record.tags,
+                metadata=record.metadata,
+            ),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        summary = backtester.run(
+            strategy,
+            payload.market_data,
+            initial_balance=payload.initial_balance,
+        )
+    except Exception as exc:  # pragma: no cover - simulation errors surface to API
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    store.update(strategy_id, last_backtest=summary.as_dict())
+    orchestrator.record_simulation(summary.as_dict())
+    return summary.as_dict()
 
 
 @app.get("/state")
