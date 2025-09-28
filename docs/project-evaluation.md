@@ -58,36 +58,65 @@ clés d'orchestration de stratégies, d'intégration marchés et d'observabilit�
 
 ## 7. Recommandations à court terme (0-3 mois)
 
-1. **Livrer un parcours utilisateur complet** : finaliser le `user-service`, relier les entitlements et
-   exposer une API cohérente pour la gestion des profils.
-2. **Définir le MVP trading** : cadrer les services `algo-engine`, `market_data` et `order-router`
-   autour d'un cas d'usage prioritaire (ex. exécution spot sur un exchange supporté).
-3. **Renforcer les tests** : ajouter des tests unitaires sur les modèles et services auth/config,
-   intégrer des tests contractuels pour les API publiques et étendre l'E2E au TOTP.
-4. **Mettre en place l'observabilité** : standardiser la journalisation (structurée), exposer `/metrics`
-   et ajouter une stack de monitoring (ex. Prometheus + Grafana) dans `docker-compose`.
-5. **Sécuriser la configuration** : introduire un gestionnaire de secrets (Vault, Doppler, AWS SM) et
-   documenter la rotation des clés JWT/TOTP.
+1. **Livrer un parcours utilisateur complet** :
+   - Finaliser le `user-service` (création, lecture, mise à jour et suppression de profils).
+   - Relier les entitlements partagés pour appliquer les droits d'accès aux attributs sensibles.
+   - Exposer une API publique cohérente et documentée (OpenAPI + exemples d'intégration front).
+   - Cartographier le workflow complet dans les tests E2E (inscription ➜ activation ➜ gestion du profil).
+2. **Définir le MVP trading** :
+   - Cadrer les services `algo-engine`, `market_data` et `order-router` autour d'un cas d'usage unique :
+     exécution au comptant sur un exchange prioritaire (Binance/OKX).
+   - Décrire le contrat de données minimal (quote, orderbook, exécution) et les formats d'ordres supportés.
+   - Etablir les limites initiales (pairs traitées, taille maximale de position, fréquences de rafraîchissement).
+   - Démo interne : script CLI déclenchant la stratégie MVP en environnement de sandbox.
+3. **Renforcer les tests** :
+   - Ajouter des tests unitaires pour les modèles/configurations critiques (`auth-service`, `config-service`).
+   - Compléter des tests contractuels (pydantic + schemathesis) pour les API publiques.
+   - Etendre le scénario E2E pour inclure le cycle complet TOTP (enrôlement, vérification, régénération).
+   - Suivre la couverture via un rapport mutualisé (coverage.py ➜ artefact CI).
+4. **Mettre en place l'observabilité** :
+   - Standardiser la journalisation structurée (format JSON + corrélation des requêtes).
+   - Exposer un endpoint `/metrics` Prometheus sur chaque service critique.
+   - Ajouter une stack de monitoring (Prometheus + Grafana) dans `docker-compose` et documenter les dashboards clés.
+   - Définir une première alerte (latence API > seuil, taux d'erreur 5xx) avec procédure d'escalade.
+5. **Sécuriser la configuration** :
+   - Introduire un gestionnaire de secrets (Vault, Doppler, AWS Secrets Manager selon l'environnement).
+   - Documenter la rotation des clés JWT/TOTP (fréquence, procédure de déploiement, plan de retour arrière).
+   - Vérifier l'isolation des secrets en local (fichiers `.env` chiffrés ou variables d'environnement éphémères).
+   - Ajouter des checklists de revue sécurité dans le process de release.
 
 ## 8. Feuille de route moyen terme (3-9 mois)
 
-- **Automatisation de stratégies** : implémenter un moteur de stratégies scriptables avec backtesting
-  basique et sandbox de simulation.
-- **Connecteurs marchés** : prioriser 1-2 brokers/exchanges, établir des abstractions communes et des
-  tests d'intégration isolés.
-- **Gestion des risques** : ajouter limites d'exposition, stop-loss automatiques et reporting quotidien.
-- **Expérience utilisateur** : prévoir une interface web minimale pour visualiser portefeuilles et
-  alertes.
-- **Gouvernance open-source** : instaurer un calendrier de releases, un backlog public et des sessions
-  communautaires régulières.
+- **Automatisation de stratégies** :
+  - Implémenter un moteur de stratégies scriptables (YAML/Python) avec backtesting basique et sandbox de simulation.
+  - Capitaliser sur les résultats de backtesting via un stockage historisé (performance, drawdown, logs d'exécution).
+  - Autoriser l'import/export de stratégies pour favoriser la contribution communautaire.
+- **Connecteurs marchés** :
+  - Prioriser 1-2 brokers/exchanges et définir des abstractions communes (`MarketConnector`, `ExecutionClient`).
+  - Créer des tests d'intégration isolés par connecteur (fixtures dockerisées ou mocks reproductibles).
+  - Documenter les limites de rate limiting et les procédures de gestion d'erreur (retries, circuit breaker).
+- **Gestion des risques** :
+  - Ajouter des limites d'exposition dynamiques (par instrument, par compte) et des stop-loss automatiques.
+  - Générer un reporting quotidien (P&L, drawdown, incidents) exportable (CSV/JSON) et consultable via API.
+  - Mettre en place un moteur de règles configurable (alertes de dépassement, verrouillage des stratégies).
+- **Expérience utilisateur** :
+  - Prévoir une interface web minimale pour visualiser portefeuilles, transactions et alertes critiques.
+  - Exposer un webhook/notification (email ou Slack) pour les alertes majeures.
+  - Aligner l'UX avec un design system léger (composants partagés, guidelines d'accessibilité).
+- **Gouvernance open-source** :
+  - Instaurer un calendrier de releases trimestrielles et publier un changelog détaillé.
+  - Maintenir un backlog public (projects GitHub) avec étiquettes claires (good first issue, help wanted).
+  - Organiser des sessions communautaires régulières (AMA, live coding) et suivre les métriques de participation.
 
 ## 9. Indicateurs de succès
 
-- Temps moyen d'onboarding développeur < 1 journée (Makefile + docs).
-- Taux de succès des tests E2E > 95 % sur les branches principales.
-- Première stratégie de trading exécutée en sandbox d'ici 3 mois.
-- Couverture de tests unitaires > 60 % sur les services critiques d'ici 6 mois.
-- Communauté active : au moins 5 contributeurs externes ayant merge une PR sur 9 mois.
+| Indicateur | Cible | Horizon | Notes de suivi |
+| --- | --- | --- | --- |
+| Temps moyen d'onboarding développeur | < 1 journée | Court terme | Garder les guides Makefile/docs alignés avec l'état du code et mesurer via sondage de bienvenue. |
+| Taux de succès des tests E2E | > 95 % sur les branches principales | Continu | Intégrer le ratio dans les rapports CI et bloquer les merges en cas de dérive. |
+| Première stratégie de trading en sandbox | Stratégie MVP exécutée de bout en bout | 3 mois | Inclut la collecte de métriques de performance et un rapport de post-mortem. |
+| Couverture de tests unitaires | > 60 % sur les services critiques | 6 mois | Définir la liste des services critiques et monitorer via coverage report dans la CI. |
+| Communauté active | ≥ 5 contributeurs externes avec PR mergée | 9 mois | Publier un tableau de bord communautaire (issues ouvertes, PR, sessions live). |
 
 ---
 
