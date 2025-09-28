@@ -2,7 +2,58 @@
 
 Ce document décrit la mise en place du module de streaming temps réel couvrant les services `streaming_gateway`, `overlay_renderer`, `obs_controller` et `streaming_bus` ainsi que les intégrations OAuth et TradingView.
 
-## 1. Connexion aux plateformes (Twitch, YouTube, Discord)
+## 1. Service `services/streaming`
+
+Le dossier `services/streaming/` expose une API FastAPI dédiée à la diffusion en direct des tableaux de bord et indicateurs métiers.
+
+### 1.1 Fonctionnalités clés
+
+- WebSocket `/ws/rooms/{roomId}` permettant à un client (overlay, UI web, mobile) de rejoindre une room et de recevoir les évènements publiés en temps réel.
+- Endpoints REST pour gérer le cycle de vie d'une session live : planification (`POST /sessions`), démarrage (`POST /sessions/{id}/start`), arrêt (`POST /sessions/{id}/stop`), publication de replays (`POST /sessions/{id}/replay`).
+- Outils de modération en temps réel via `POST /moderation/rooms/{roomId}` qui propagent des commandes (`mute`, `ban`, `warn`) vers les spectateurs connectés.
+- Pipeline d'ingestion (`POST /ingest/reports`, `POST /ingest/inplay`) sécurisé par des jetons de service et relayant les signaux des modules `reports` et `inplay` sur les rooms correspondantes.
+- Vérification systématique des entitlements : les appels REST utilisent le middleware partagé (`libs.entitlements`) et le WebSocket valide la capacité `can.stream_public` avant d'accepter la connexion.
+
+### 1.2 Configuration
+
+Variables d'environnement disponibles :
+
+- `STREAMING_PIPELINE_BACKEND`: `memory` (par défaut), `redis` ou `nats` pour sélectionner le bus de diffusion.
+- `STREAMING_REDIS_URL` / `STREAMING_NATS_URL`: URLs des backends respectifs.
+- `STREAMING_SERVICE_TOKEN_REPORTS` et `STREAMING_SERVICE_TOKEN_INPLAY`: jetons partagés utilisés par les services producteurs lors des appels d'ingestion.
+- `STREAMING_ENTITLEMENTS_CAPABILITY`: capacité requise côté client (défaut `can.stream_public`).
+
+En développement/test, `ENTITLEMENTS_BYPASS=1` autorise les connexions sans contacter le service d'entitlements.
+
+### 1.3 Intégration UI
+
+Dans le frontend, la connexion se fait ainsi :
+
+```ts
+const ws = new WebSocket(`wss://streaming.example.com/ws/rooms/${roomId}`, {
+  headers: { 'X-Customer-Id': viewerId }
+});
+
+ws.onmessage = (event) => {
+  const payload = JSON.parse(event.data);
+  switch (payload.payload.type) {
+    case 'session_started':
+      dashboard.showLiveSession(payload.payload.session_id);
+      break;
+    case 'moderation':
+      moderation.apply(payload.payload);
+      break;
+    default:
+      indicators.update(payload.payload);
+  }
+};
+```
+
+Les cartes/charts du dashboard doivent se mettre à jour à chaque message. Les modules `reports` et `inplay` publient des payloads métier (`payload.indicator`, `payload.marketState`, etc.) qui sont directement routés vers la room concernée.
+
+Un enregistrement de session (`POST /sessions/{id}/replay`) déclenche un message `{"type": "session_replay", "replay_url": ...}` permettant à l'UI d'afficher le replay dans la page historique.
+
+## 2. Connexion aux plateformes (Twitch, YouTube, Discord)
 
 1. Rendez-vous dans le portail développeur de chaque plateforme pour récupérer l'identifiant et le secret OAuth.
 2. Configurez les variables d'environnement suivantes pour le service FastAPI `streaming_gateway` :
@@ -44,7 +95,8 @@ Ce document décrit la mise en place du module de streaming temps réel couvrant
 
 ## 4. Quotas & offres
 
-- `can.stream` : autorise l'accès aux endpoints.
+- `can.stream` : autorise l'accès aux endpoints historiques.
+- `can.stream_public` : autorise la consommation des flux temps réel exposés par `services/streaming`.
 - `limit.stream_overlays` : nombre maximum d'overlays actifs.
 - `limit.stream_bitrate` : limite la résolution/bitrate côté pipeline (à appliquer dans `streaming_bus`).
 - Les entitlements proviennent du service de billing (Stripe webhooks) et sont mis en cache dans `entitlements_cache`.
@@ -53,6 +105,7 @@ Ce document décrit la mise en place du module de streaming temps réel couvrant
 ## 5. Pipeline temps réel
 
 - `streaming_bus` publie les mises à jour sur `overlay.*` et `chat.*` via Redis Streams ou NATS JetStream.
+- `services/streaming` publie les payloads métier dans les rooms (`StreamEvent`) et peut se connecter à Redis Streams ou NATS via les adaptateurs `RedisStreamPublisher` et `NatsJetStreamPublisher`.
 - `streaming_gateway` consomme ces flux pour pousser les indicateurs dans `/ws/overlay/{id}`.
 - `overlay_renderer` agrège les messages et les rend via Lightweight Charts (Apache-2.0).
 - Les métriques clés : latence webhook → overlay, latence WS, nombre de reconnexions EventSub, débit JetStream/Redis.
