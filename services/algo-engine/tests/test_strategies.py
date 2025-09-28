@@ -3,12 +3,36 @@ import os
 import sys
 from pathlib import Path
 from typing import Dict
+import types
 
 import pytest
 from fastapi.testclient import TestClient
 from libs.entitlements.client import Entitlements
 
 os.environ.setdefault("ENTITLEMENTS_BYPASS", "1")
+
+prometheus_stub = types.ModuleType("prometheus_client")
+
+
+class _DummyMetric:
+    def __init__(self, *args, **kwargs):  # noqa: D401 - mimic Prometheus signature
+        """No-op metric"""
+
+    def labels(self, *args, **kwargs):
+        return self
+
+    def inc(self, *args, **kwargs) -> None:
+        return None
+
+    def observe(self, *args, **kwargs) -> None:
+        return None
+
+
+prometheus_stub.CONTENT_TYPE_LATEST = "text/plain"
+prometheus_stub.Counter = _DummyMetric
+prometheus_stub.Histogram = _DummyMetric
+prometheus_stub.generate_latest = lambda: b""  # type: ignore[assignment]
+sys.modules.setdefault("prometheus_client", prometheus_stub)
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,6 +68,7 @@ def reset_state():
     store._strategies.clear()  # type: ignore[attr-defined]
     orchestrator.update_daily_limit(trades_submitted=0)
     orchestrator.set_mode("paper")
+    orchestrator._state.last_simulation = None  # type: ignore[attr-defined]
     yield
 
 
@@ -119,6 +144,66 @@ def test_enforce_entitlements_respects_limit():
     with pytest.raises(Exception) as exc:
         _enforce_entitlements(dummy_request, True)
     assert "limit" in str(exc.value)
+
+
+def test_declarative_strategy_import_export_and_backtest():
+    client = TestClient(app)
+    content = """
+STRATEGY = {
+    "name": "Python Breakout",
+    "rules": [
+        {
+            "when": {"field": "close", "operator": "gt", "value": 100},
+            "signal": {"action": "buy", "size": 1}
+        },
+        {
+            "when": {"field": "close", "operator": "lt", "value": 95},
+            "signal": {"action": "sell", "size": 1}
+        }
+    ],
+    "parameters": {"timeframe": "1h"}
+}
+"""
+    resp = client.post(
+        "/strategies/import",
+        json={"format": "python", "content": content, "tags": ["declarative"]},
+    )
+    assert resp.status_code == 201
+    created = resp.json()
+    assert created["strategy_type"] == "declarative"
+    strategy_id = created["id"]
+
+    export = client.get(f"/strategies/{strategy_id}/export", params={"fmt": "python"})
+    assert export.status_code == 200
+    assert "STRATEGY" in export.json()["content"]
+
+    market_data = [
+        {"close": 101},
+        {"close": 103},
+        {"close": 90},
+        {"close": 96},
+    ]
+    backtest = client.post(
+        f"/strategies/{strategy_id}/backtest",
+        json={"market_data": market_data, "initial_balance": 1000},
+    )
+    assert backtest.status_code == 200
+    summary = backtest.json()
+    assert "total_return" in summary
+    assert summary["trades"] >= 1
+
+    strategy = client.get(f"/strategies/{strategy_id}")
+    assert strategy.status_code == 200
+    assert strategy.json()["last_backtest"]["metrics_path"]
+
+    state = client.get("/state")
+    assert state.status_code == 200
+    assert state.json()["mode"] == "simulation"
+    assert state.json()["last_simulation"]["strategy_name"] == "Python Breakout"
+
+    backtest_dir = PACKAGE_ROOT.parents[1] / "data" / "backtests"
+    assert backtest_dir.exists()
+    assert any(backtest_dir.iterdir())
 
 def test_build_execution_plan():
     client = TestClient(app)
