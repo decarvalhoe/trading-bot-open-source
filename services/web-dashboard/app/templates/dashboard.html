@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trading Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="layout__header">
+      <h1 class="heading heading--xl">Vue d'ensemble des portefeuilles</h1>
+      <p class="text text--muted">
+        Surveillez les portefeuilles, transactions récentes et alertes critiques en un coup d'œil.
+      </p>
+    </header>
+    <main class="layout__main">
+      <section class="card" aria-labelledby="portfolios-title">
+        <div class="card__header">
+          <h2 id="portfolios-title" class="heading heading--lg">Portefeuilles</h2>
+        </div>
+        <div class="card__body">
+          <ul class="portfolio-list">
+            {% for portfolio in context.portfolios %}
+            <li class="portfolio-list__item">
+              <div class="portfolio-list__title">
+                <span class="badge badge--neutral" aria-label="Nom du portefeuille">{{ portfolio.name }}</span>
+                <span class="text text--muted">Géré par {{ portfolio.owner }}</span>
+              </div>
+              <div class="portfolio-list__value" aria-label="Valeur totale">
+                {{ '%.2f' | format(portfolio.total_value) }} $
+              </div>
+              <table class="table" role="grid" aria-label="Positions du portefeuille {{ portfolio.name }}">
+                <thead>
+                  <tr>
+                    <th scope="col">Symbole</th>
+                    <th scope="col">Quantité</th>
+                    <th scope="col">Px. moyen</th>
+                    <th scope="col">Px. actuel</th>
+                    <th scope="col">Valeur</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for holding in portfolio.holdings %}
+                  <tr>
+                    <td data-label="Symbole">{{ holding.symbol }}</td>
+                    <td data-label="Quantité">{{ '%.2f' | format(holding.quantity) }}</td>
+                    <td data-label="Prix moyen">{{ '%.2f' | format(holding.average_price) }} $</td>
+                    <td data-label="Prix actuel">{{ '%.2f' | format(holding.current_price) }} $</td>
+                    <td data-label="Valeur">{{ '%.2f' | format(holding.market_value) }} $</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="transactions-title">
+        <div class="card__header">
+          <h2 id="transactions-title" class="heading heading--lg">Transactions récentes</h2>
+        </div>
+        <div class="card__body">
+          <table class="table" role="grid" aria-describedby="transactions-title">
+            <thead>
+              <tr>
+                <th scope="col">Horodatage</th>
+                <th scope="col">Portefeuille</th>
+                <th scope="col">Symbole</th>
+                <th scope="col">Sens</th>
+                <th scope="col">Quantité</th>
+                <th scope="col">Prix</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for tx in context.transactions %}
+              <tr>
+                <td data-label="Horodatage">{{ tx.timestamp.strftime('%d/%m %H:%M') }}</td>
+                <td data-label="Portefeuille">{{ tx.portfolio }}</td>
+                <td data-label="Symbole">{{ tx.symbol }}</td>
+                <td data-label="Sens">
+                  <span class="badge badge--{{ 'success' if tx.side == 'buy' else 'warning' }}">{{ tx.side|capitalize }}</span>
+                </td>
+                <td data-label="Quantité">{{ '%.2f' | format(tx.quantity) }}</td>
+                <td data-label="Prix">{{ '%.2f' | format(tx.price) }} $</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="alerts-title">
+        <div class="card__header">
+          <h2 id="alerts-title" class="heading heading--lg">Alertes</h2>
+        </div>
+        <div class="card__body">
+          <ul class="alert-list">
+            {% for alert in context.alerts %}
+            <li class="alert-list__item">
+              <div class="alert-list__status">
+                <span class="badge badge--{{ 'critical' if alert.risk.value == 'critical' else 'warning' if alert.risk.value == 'warning' else 'info' }}">
+                  {{ alert.risk.value | capitalize }}
+                </span>
+              </div>
+              <div class="alert-list__content">
+                <h3 class="heading heading--md">{{ alert.title }}</h3>
+                <p class="text">{{ alert.detail }}</p>
+                <p class="text text--muted">
+                  Créée {{ alert.created_at.strftime('%d/%m %H:%M') }} ·
+                  {% if alert.acknowledged %}
+                  <span class="badge badge--neutral" aria-label="Alerte confirmée">Accusée</span>
+                  {% else %}
+                  <span class="badge badge--info" aria-label="Alerte non confirmée">À traiter</span>
+                  {% endif %}
+                </p>
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
+    </main>
+    <footer class="layout__footer">
+      <p class="text text--muted">Données d'exemple pour la démonstration du service.</p>
+    </footer>
+  </body>
+</html>
