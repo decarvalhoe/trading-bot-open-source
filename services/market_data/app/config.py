@@ -5,6 +5,8 @@ import functools
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
+from libs.secrets import get_secret
+
 
 class Settings(BaseSettings):
     database_url: str = Field(
@@ -23,6 +25,23 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 
+_SECRET_KEYS = [
+    "MARKET_DATA_DATABASE_URL",
+    "TRADINGVIEW_HMAC_SECRET",
+    "BINANCE_API_KEY",
+    "BINANCE_API_SECRET",
+]
+
+
+def _secret_overrides() -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    for key in _SECRET_KEYS:
+        value = get_secret(key)
+        if value is not None:
+            overrides[key] = value
+    return overrides
+
+
 @functools.lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(**_secret_overrides())

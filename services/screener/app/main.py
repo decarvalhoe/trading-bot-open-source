@@ -15,6 +15,7 @@ from libs.entitlements import install_entitlements_middleware
 from libs.entitlements.client import Entitlements
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
+from libs.secrets import get_secret
 from providers import FinancialModelingPrepClient, FinancialModelingPrepError
 
 from .schemas import (
@@ -38,7 +39,7 @@ setup_metrics(app, service_name="screener")
 
 async def get_fmp_client() -> FinancialModelingPrepClient:
     base_url = os.getenv("FMP_BASE_URL", "https://financialmodelingprep.com/api/v3")
-    api_key = os.getenv("FMP_API_KEY")
+    api_key = get_secret("FMP_API_KEY", default=os.getenv("FMP_API_KEY"))
     client = FinancialModelingPrepClient(api_key=api_key, base_url=base_url)
     async with client as session:
         yield session
