@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, Request, status
 
 from libs.codex import CodexEvent, CodexEventPayload
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 
 from .config import Settings, get_settings
 from .deps import get_broker
@@ -17,7 +19,11 @@ from .security import (
     verify_tradingview_signature,
 )
 
+configure_logging("codex-gateway")
+
 app = FastAPI(title="Codex Gateway", version="0.1.0")
+app.add_middleware(RequestContextMiddleware, service_name="codex-gateway")
+setup_metrics(app, service_name="codex-gateway")
 
 
 def _extract_event_type(body: bytes) -> str | None:

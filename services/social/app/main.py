@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from infra import AuditBase, Leaderboard, SocialBase
 from libs.db.db import engine, get_db
 from libs.entitlements.fastapi import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 
 from .dependencies import (
     get_actor_id,
@@ -33,12 +35,16 @@ from .service import (
     upsert_profile,
 )
 
+configure_logging("social")
+
 app = FastAPI(title="Social Service", version="0.1.0")
 
 SocialBase.metadata.create_all(bind=engine)
 AuditBase.metadata.create_all(bind=engine)
 
 install_entitlements_middleware(app)
+app.add_middleware(RequestContextMiddleware, service_name="social")
+setup_metrics(app, service_name="social")
 
 router = APIRouter(prefix="/social", tags=["social"])
 

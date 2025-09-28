@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 
 from libs.entitlements import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 
 from .config import Settings, get_settings
 from .dependencies import WebsocketAuthorizer, get_bridge
@@ -28,10 +30,15 @@ async def lifespan(app: FastAPI):
         await bridge.aclose()
 
 
+configure_logging("streaming")
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Streaming Service", lifespan=lifespan)
     settings = get_settings()
     install_entitlements_middleware(app, required_capabilities=[settings.entitlements_capability])
+    app.add_middleware(RequestContextMiddleware, service_name="streaming")
+    setup_metrics(app, service_name="streaming")
     app.include_router(rooms.router)
     app.include_router(sessions.router)
     app.include_router(ingest.router)

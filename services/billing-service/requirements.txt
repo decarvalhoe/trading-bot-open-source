@@ -5,3 +5,4 @@ httpx
 stripe
 psycopg2-binary
 pydantic>=2
+prometheus-client>=0.20

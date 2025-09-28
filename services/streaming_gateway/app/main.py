@@ -6,15 +6,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from libs.entitlements import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 
 from .config import get_settings
 from .rate_limit import RateLimiter, rate_limit_middleware
 from .routers import oauth, overlays, sessions, tradingview, websocket
 
+configure_logging("streaming-gateway")
+
 settings = get_settings()
 
 app = FastAPI(title="Streaming Gateway", version="0.1.0")
 install_entitlements_middleware(app, required_capabilities=["can.stream"])
+app.add_middleware(RequestContextMiddleware, service_name="streaming-gateway")
+setup_metrics(app, service_name="streaming-gateway")
 
 app.add_middleware(
     CORSMiddleware,

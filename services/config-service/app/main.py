@@ -1,12 +1,20 @@
 from fastapi import FastAPI, HTTPException
 
+from fastapi import FastAPI, HTTPException
+
 from .persistence import persist_config
 from .schemas import ConfigUpdate
 from .settings import Settings, load_settings
 from libs.entitlements import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
+
+configure_logging("config-service")
 
 app = FastAPI(title="Config Service", version="1.0.0")
 install_entitlements_middleware(app, required_capabilities=["can.use_config"], required_quotas={})
+app.add_middleware(RequestContextMiddleware, service_name="config-service")
+setup_metrics(app, service_name="config-service")
 
 
 @app.get("/health", tags=["Monitoring"])

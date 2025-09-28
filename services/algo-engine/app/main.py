@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from libs.entitlements import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 from providers.limits import build_plan, get_pair_limit
 from schemas.market import ExecutionPlan, ExecutionVenue, OrderRequest, OrderSide, OrderType, TimeInForce
 
@@ -78,11 +80,15 @@ class StrategyStore:
 store = StrategyStore()
 orchestrator = Orchestrator()
 
+configure_logging("algo-engine")
+
 app = FastAPI(title="Algo Engine", version="0.1.0")
 install_entitlements_middleware(
     app,
     required_capabilities=["can.manage_strategies"],
 )
+app.add_middleware(RequestContextMiddleware, service_name="algo-engine")
+setup_metrics(app, service_name="algo-engine")
 
 
 class StrategyPayload(BaseModel):

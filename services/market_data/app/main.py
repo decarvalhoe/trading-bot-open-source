@@ -21,8 +21,14 @@ from .persistence import persist_ticks
 from .schemas import PersistedTick, TradingViewSignal
 from providers.limits import build_orderbook, build_quote, get_pair_limit
 from schemas.market import ExecutionVenue, OrderBookSnapshot, Quote
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
+
+configure_logging("market-data")
 
 app = FastAPI(title="Market Data Service", version="0.1.0")
+app.add_middleware(RequestContextMiddleware, service_name="market-data")
+setup_metrics(app, service_name="market-data")
 
 
 def get_binance_adapter(settings: Settings = Depends(get_settings)) -> BinanceMarketDataAdapter:

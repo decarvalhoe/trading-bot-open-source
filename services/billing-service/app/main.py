@@ -6,13 +6,19 @@ from sqlalchemy.orm import Session
 
 from infra import EntitlementsBase
 from libs.db.db import engine, get_db
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 
 from .config import settings
 from .schemas import FeatureIn, PlanFeatureIn, PlanIn
 from .service import attach_features, upsert_feature, upsert_plan
 from .stripe_utils import handle_stripe_event, parse_stripe_payload, verify_webhook_signature
 
+configure_logging("billing-service")
+
 app = FastAPI(title="Billing Service", version="0.1.0")
+app.add_middleware(RequestContextMiddleware, service_name="billing-service")
+setup_metrics(app, service_name="billing-service")
 
 EntitlementsBase.metadata.create_all(bind=engine)
 

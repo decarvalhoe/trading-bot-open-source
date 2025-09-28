@@ -9,6 +9,8 @@ from infra import AuditBase, MarketplaceBase, MarketplaceSubscription
 from libs.audit import record_audit
 from libs.db.db import engine, get_db
 from libs.entitlements.fastapi import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 
 from .dependencies import (
     get_actor_id,
@@ -19,12 +21,16 @@ from .dependencies import (
 from .schemas import CopyRequest, CopyResponse, ListingCreate, ListingOut, ListingVersionRequest
 from .service import add_version, create_listing, create_subscription, get_listing, list_listings
 
+configure_logging("marketplace")
+
 app = FastAPI(title="Marketplace Service", version="0.1.0")
 
 MarketplaceBase.metadata.create_all(bind=engine)
 AuditBase.metadata.create_all(bind=engine)
 
 install_entitlements_middleware(app)
+app.add_middleware(RequestContextMiddleware, service_name="marketplace")
+setup_metrics(app, service_name="marketplace")
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 
