@@ -1,0 +1,105 @@
+name: metrics-dashboard
+
+on:
+  push:
+    branches:
+      - main
+      - feat/**
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -r services/codex_gateway/requirements-dev.txt
+          pip install -r services/codex_worker/requirements-dev.txt
+
+      - name: Run unit tests with coverage
+        id: unit-tests
+        continue-on-error: true
+        run: make test
+
+      - name: Prepare docker environment
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start services for E2E
+        run: |
+          docker compose up -d postgres redis
+          docker compose up -d --build auth-service user-service
+
+      - name: Wait for services
+        run: |
+          for service in 8011 8012; do
+            ready=false
+            for i in {1..30}; do
+              if curl -sf "http://127.0.0.1:${service}/health" > /dev/null; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ready" = false ]; then
+              echo "Service ${service} non prêt" >&2
+              exit 1
+            fi
+          done
+
+      - name: Run E2E scenario
+        id: e2e-run
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          set -o pipefail
+          bash ./scripts/e2e/auth_e2e.sh 2>&1 | tee reports/e2e.log
+
+      - name: Aggregate KPI dashboard
+        if: always()
+        run: |
+          TEST_STATUS=${{ steps.unit-tests.outcome }}
+          E2E_STATUS=${{ steps.e2e-run.outcome }}
+          python scripts/metrics/build_dashboard.py \
+            --config docs/metrics/kpi-config.toml \
+            --coverage-xml coverage.xml \
+            --test-outcome "${TEST_STATUS:-success}" \
+            --e2e-log reports/e2e.log \
+            --e2e-outcome "${E2E_STATUS:-success}" \
+            --output-md docs/metrics/kpi-dashboard.md \
+            --output-json docs/metrics/kpi-dashboard.json
+
+      - name: Upload KPI artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpi-dashboard
+          retention-days: 30
+          path: |
+            docs/metrics/kpi-dashboard.md
+            docs/metrics/kpi-dashboard.json
+            coverage.xml
+            htmlcov
+            reports/e2e.log
+
+      - name: Tear down services
+        if: always()
+        run: docker compose down -v
+
+      - name: Fail if previous steps failed
+        if: steps.unit-tests.outcome == 'failure' || steps.e2e-run.outcome == 'failure'
+        run: exit 1
