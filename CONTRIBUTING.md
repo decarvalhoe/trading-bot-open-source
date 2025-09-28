@@ -44,6 +44,13 @@ make e2e             # optional but recommended to validate the auth flow
 
 Document new commands, environment variables, or schemas in `docs/`.
 
+### 4bis. Release Process & Changelog
+
+- Quarterly milestones are tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md) and mirrored as GitHub milestones.
+- Every release candidate must update [`CHANGELOG.md`](CHANGELOG.md) with features, fixes, and breaking changes.
+- Tag releases following semantic versioning (`vX.Y.Z`) and publish the associated notes on GitHub.
+- Reference the relevant milestone and changelog entry directly in the pull request description when preparing a release branch.
+
 ### 5. Submit a Pull Request
 
 1. Ensure tests pass locally and CI runs cleanly.
@@ -115,6 +122,13 @@ make e2e             # optionnel mais recommandé pour valider le parcours auth
 ```
 
 Documentez les nouvelles commandes, variables d'environnement ou schémas dans `docs/`.
+
+### 4bis. Processus de release & changelog
+
+- Les jalons trimestriels sont décrits dans [`docs/ROADMAP.md`](docs/ROADMAP.md) et synchronisés avec les jalons GitHub.
+- Chaque release candidate doit mettre à jour [`CHANGELOG.md`](CHANGELOG.md) avec les fonctionnalités, correctifs et ruptures.
+- Tagguez les releases selon le versionnage sémantique (`vX.Y.Z`) et publiez les notes associées sur GitHub.
+- Mentionnez le jalon et l'entrée du changelog correspondants dans la description de la pull request lors de la préparation d'une branche de release.
 
 ### 5. Soumettre une Pull Request
 
