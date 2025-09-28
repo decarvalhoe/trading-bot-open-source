@@ -1,12 +1,12 @@
-from .binance import BinanceMarketDataAdapter
+from .binance import BinanceMarketConnector
 from .dtc import DTCAdapter, DTCConfig
-from .ibkr import IBKRMarketDataAdapter
+from .ibkr import IBKRMarketConnector
 from .rate_limiter import AsyncRateLimiter
 
 __all__ = [
     "AsyncRateLimiter",
-    "BinanceMarketDataAdapter",
+    "BinanceMarketConnector",
     "DTCAdapter",
     "DTCConfig",
-    "IBKRMarketDataAdapter",
+    "IBKRMarketConnector",
 ]

@@ -14,7 +14,7 @@ from fastapi import (
     Request,
 )
 
-from ..adapters import BinanceMarketDataAdapter, IBKRMarketDataAdapter
+from ..adapters import BinanceMarketConnector, IBKRMarketConnector
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
@@ -31,15 +31,15 @@ app.add_middleware(RequestContextMiddleware, service_name="market-data")
 setup_metrics(app, service_name="market-data")
 
 
-def get_binance_adapter(settings: Settings = Depends(get_settings)) -> BinanceMarketDataAdapter:
-    return BinanceMarketDataAdapter(
+def get_binance_adapter(settings: Settings = Depends(get_settings)) -> BinanceMarketConnector:
+    return BinanceMarketConnector(
         api_key=settings.binance_api_key,
         api_secret=settings.binance_api_secret,
     )
 
 
-def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketDataAdapter:
-    return IBKRMarketDataAdapter(
+def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketConnector:
+    return IBKRMarketConnector(
         host=settings.ibkr_host,
         port=settings.ibkr_port,
         client_id=settings.ibkr_client_id,
