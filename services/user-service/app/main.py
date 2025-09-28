@@ -23,6 +23,7 @@ from libs.entitlements import install_entitlements_middleware
 from libs.entitlements.client import Entitlements
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
+from libs.secrets import get_secret
 
 from .schemas import (
     PreferencesResponse,
@@ -32,7 +33,8 @@ from .schemas import (
     UserUpdate,
 )
 
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
+_default_jwt_secret = os.getenv("JWT_SECRET", "dev-secret-change-me")
+JWT_SECRET = get_secret("JWT_SECRET", default=_default_jwt_secret) or _default_jwt_secret
 JWT_ALG = "HS256"
 
 

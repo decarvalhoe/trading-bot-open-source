@@ -6,6 +6,7 @@ from typing import Iterable
 from fastapi import HTTPException, Request, status
 
 from libs.entitlements.client import EntitlementsClient, EntitlementsError
+from libs.secrets import get_secret
 
 from .config import Settings, get_settings
 from .pipeline import StreamingBridge
@@ -44,7 +45,7 @@ class WebsocketAuthorizer:
         self._settings = settings
         self._bypass = os.getenv("ENTITLEMENTS_BYPASS", "0") == "1"
         base_url = os.getenv("ENTITLEMENTS_SERVICE_URL", "http://entitlements-service:8000")
-        api_key = os.getenv("ENTITLEMENTS_SERVICE_API_KEY")
+        api_key = get_secret("ENTITLEMENTS_SERVICE_API_KEY", default=os.getenv("ENTITLEMENTS_SERVICE_API_KEY"))
         self._client = EntitlementsClient(base_url, api_key=api_key)
 
     async def authorize(self, websocket) -> str:

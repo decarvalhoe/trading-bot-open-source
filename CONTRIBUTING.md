@@ -58,7 +58,17 @@ Document new commands, environment variables, or schemas in `docs/`.
 - Feedback must remain respectful and constructive; feel free to ask for clarifications.
 - At least two approvals are recommended for significant changes (services, data schemas, infrastructure).
 
-### 7. Non-Code Contributions
+### 7. Security Review Checklist
+
+Before merging or approving a pull request, ensure that:
+
+- [ ] Secrets and credentials are retrieved via `libs.secrets` (no secrets in git diffs or plaintext `.env`).
+- [ ] New environment variables or secret keys are documented in `docs/` or service READMEs.
+- [ ] JWT/TOTP changes follow the [rotation guide](docs/security/jwt-totp-key-rotation.md).
+- [ ] External dependencies introduced are vetted for licenses and minimum versions.
+- [ ] Logs or metrics added do not leak sensitive data (PII, secrets, access tokens).
+
+### 8. Non-Code Contributions
 
 Documentation, translations, project management, and testing are equally appreciated. Please surface them via dedicated issues or discussions.
 
@@ -120,7 +130,17 @@ Documentez les nouvelles commandes, variables d'environnement ou schémas dans `
 - Les retours doivent rester respectueux et constructifs ; n'hésitez pas à poser des questions.
 - Un minimum de deux approbations est recommandé pour les changements significatifs (services, schémas de données, infrastructure).
 
-### 7. Contribution non-code
+### 7. Checklist de revue sécurité
+
+Avant de fusionner ou d'approuver une pull request, vérifiez :
+
+- [ ] Les secrets et identifiants sont récupérés via `libs.secrets` (pas de secret en clair dans Git ou `.env`).
+- [ ] Les nouvelles variables d'environnement ou clés secrètes sont documentées dans `docs/` ou les READMEs de service.
+- [ ] Les modifications JWT/TOTP respectent le [guide de rotation](docs/security/jwt-totp-key-rotation.md).
+- [ ] Les dépendances externes ajoutées sont auditées (licence, version minimale, maintenance).
+- [ ] Les logs/metrics n'exposent aucune donnée sensible (PII, secrets, tokens).
+
+### 8. Contribution non-code
 
 Les contributions sur la documentation, les traductions, la gestion de projet et les tests sont tout autant appréciées. Signalez-les via des issues dédiées ou des discussions.
 
