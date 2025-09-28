@@ -32,21 +32,21 @@ Ce trading bot est une plateforme complète qui permet de :
 
 *Résultat* : L'infrastructure technique est opérationnelle et prête pour le développement.
 
-### Phase 2 : Authentification et Utilisateurs (🔄 En cours)
+### Phase 2 : Authentification et Utilisateurs (✅ Cœur fonctionnel prêt)
 **Objectif** : Permettre aux utilisateurs de créer des comptes et se connecter de manière sécurisée
 
-- 🔄 **Système d'authentification** : Inscription, connexion, sécurité JWT
-- 🔄 **Gestion des profils** : Création et modification des profils utilisateurs
-- 🔄 **Base de données** : Structure pour stocker les informations utilisateurs
+- ✅ **Système d'authentification** : Inscription, connexion, sécurité JWT, MFA TOTP
+- ✅ **Gestion des profils** : Création et modification des profils avec masquage selon les entitlements
+- 🔄 **Documentation parcours complet** : Consolider l'OpenAPI et un guide UX pour l'onboarding
 
-*Résultat attendu* : Les utilisateurs pourront créer des comptes sécurisés et gérer leurs profils.
+*Résultat* : Les utilisateurs peuvent créer un compte sécurisé, activer leur profil et préparer l'enrôlement MFA.
 
-### Phase 3 : Stratégies de Trading (📋 Planifiée)
+### Phase 3 : Stratégies de Trading (🔄 En cours)
 **Objectif** : Permettre la création et l'exécution de stratégies de trading
 
-- 📋 **Moteur de stratégies** : Création et configuration de stratégies personnalisées
-- 📋 **Connecteurs de marché** : Intégration avec les plateformes de trading
-- 📋 **Gestion des ordres** : Placement et suivi des ordres automatiques
+- 🔄 **Moteur de stratégies** : Catalogue en mémoire, import déclaratif et API de backtesting
+- 🔄 **Connecteurs de marché** : Adaptateurs sandbox Binance/IBKR avec limites partagées
+- 📋 **Gestion des ordres** : Persistance et historique d'exécutions à implémenter
 
 ### Phase 4 : Monitoring et Analytics (📋 Planifiée)
 **Objectif** : Fournir des outils d'analyse et de suivi des performances
@@ -57,13 +57,17 @@ Ce trading bot est une plateforme complète qui permet de :
 
 ## 📊 Évaluation 2025 & actions futures
 
-Une revue technique complète du dépôt a été réalisée en septembre 2025. Elle confirme la solidité de l'architecture actuelle (microservices FastAPI, middleware d'entitlements partagé) et identifie les chantiers prioritaires pour livrer un parcours de trading opérationnel.
+Une revue technique complète du dépôt a été réalisée en novembre 2025. Elle confirme la solidité de l'architecture actuelle (microservices FastAPI, middleware d'entitlements partagé) et identifie les chantiers prioritaires pour livrer un parcours de trading opérationnel.
 
-- **Points forts** : base d'authentification avancée (MFA TOTP, rôles), CI E2E, Makefile facilitant l'onboarding, documentation structurée.
-- **Points d'attention** : services de trading encore embryonnaires, couverture de tests limitée, manque d'observabilité et de gouvernance sécurité.
-- **Priorités recommandées (0-3 mois)** : finaliser le `user-service`, cadrer le MVP trading, étendre les tests (unitaires + E2E TOTP), introduire observabilité et gestion sécurisée des secrets.
+- **Points forts** : base d'authentification avancée (MFA TOTP, rôles), stack d'observabilité (logs + Prometheus/Grafana), Makefile facilitant l'onboarding, documentation structurée.
+- **Points d'attention** : services de trading encore en mémoire, couverture de tests multi-services limitée, procédures opérationnelles de gestion des secrets à formaliser.
+- **Priorités recommandées (0-3 mois)** : consolider la doc E2E auth/user, persister les artefacts trading, étendre les tests (unitaires + contractuels), publier les playbooks secrets et observabilité.
 
-Retrouvez le rapport détaillé et la feuille de route moyen terme dans [`docs/project-evaluation.md`](docs/project-evaluation.md).
+Retrouvez le rapport détaillé, la feuille de route et le backlog dans :
+
+- [`docs/reports/2025-11-code-review.md`](docs/reports/2025-11-code-review.md)
+- [`docs/project-evaluation.md`](docs/project-evaluation.md)
+- [`docs/tasks/2025-q4-backlog.md`](docs/tasks/2025-q4-backlog.md)
 
 ## 🛠️ Pour les développeurs
 
@@ -80,8 +84,8 @@ make setup
 # 3. Démarrer l'environnement de développement
 make dev-up
 
-# 4. Vérifier que tout fonctionne
-curl http://localhost:8000/health
+# 4. Vérifier que tout fonctionne (health auth-service)
+curl http://localhost:8011/health
 
 # 5. Arrêter l'environnement
 make dev-down
@@ -137,4 +141,4 @@ Ce projet est sous licence MIT - voir le fichier `LICENSE` pour plus de détails
 ---
 
 > **Développé avec ❤️ par decarvalhoe et la communauté open-source**
-> Dernière mise à jour : Septembre 2025
+> Dernière mise à jour : Novembre 2025

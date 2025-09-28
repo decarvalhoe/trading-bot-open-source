@@ -32,21 +32,21 @@ This trading bot is a complete platform that allows you to:
 
 *Result*: The technical infrastructure is operational and ready for development.
 
-### Phase 2: Authentication and Users (🔄 In Progress)
+### Phase 2: Authentication and Users (✅ Core features ready)
 **Objective**: To allow users to create accounts and log in securely
 
-- 🔄 **Authentication System**: Registration, login, JWT security
-- 🔄 **Profile Management**: Creation and modification of user profiles
-- 🔄 **Database**: Structure to store user information
+- ✅ **Authentication System**: Registration, login, JWT security, MFA TOTP
+- ✅ **Profile Management**: Creation and modification of user profiles with entitlement-based masking
+- 🔄 **End-to-End Documentation**: Consolidate OpenAPI specs and UX guides for a full onboarding path
 
-*Expected Result*: Users will be able to create secure accounts and manage their profiles.
+*Result*: Users can create secure accounts, activate their profile and prepare for MFA enrolment.
 
-### Phase 3: Trading Strategies (📋 Planned)
+### Phase 3: Trading Strategies (🔄 In Progress)
 **Objective**: To allow the creation and execution of trading strategies
 
-- 📋 **Strategy Engine**: Creation and configuration of custom strategies
-- 📋 **Market Connectors**: Integration with trading platforms
-- 📋 **Order Management**: Placement and tracking of automated orders
+- 🔄 **Strategy Engine**: In-memory catalogue, declarative import and backtesting API
+- 🔄 **Market Connectors**: Sandbox adapters for Binance/IBKR with shared limits
+- 📋 **Order Management**: Persistence layer and executions history to be implemented
 
 ### Phase 4: Monitoring and Analytics (📋 Planned)
 **Objective**: To provide tools for performance analysis and tracking
@@ -70,8 +70,8 @@ make setup
 # 3. Start the development environment
 make dev-up
 
-# 4. Check that everything is working
-curl http://localhost:8000/health
+# 4. Check that everything is working (auth-service health)
+curl http://localhost:8011/health
 
 # 5. Stop the environment
 make dev-down
@@ -116,13 +116,17 @@ We welcome all contributions! Whether you are:
 
 ## 📊 2025 Review & Next Steps
 
-A complete technical review of the repository was conducted in September 2025. It confirms the strength of the current architecture (FastAPI microservices, shared entitlements middleware) and highlights the priority initiatives needed to deliver an operational trading journey.
+A complete technical review of the repository was conducted in November 2025. It confirms the strength of the current architecture (FastAPI microservices, shared entitlements middleware) and highlights the priority initiatives needed to deliver an operational trading journey.
 
-- **Key strengths**: advanced authentication foundation (TOTP MFA, roles), E2E CI, onboarding-friendly Makefile, structured documentation.
-- **Watch points**: trading services still nascent, limited test coverage, lack of observability and security governance.
-- **Recommended priorities (0-3 months)**: finalize `user-service`, scope the trading MVP, expand testing (unit + TOTP E2E), introduce observability and secure secret management.
+- **Key strengths**: advanced authentication foundation (TOTP MFA, roles), observability stack (logs + Prometheus/Grafana), onboarding-friendly Makefile, structured documentation.
+- **Watch points**: trading services still rely on in-memory state, limited multi-service test coverage, secret-management operations to formalize.
+- **Recommended priorities (0-3 months)**: consolidate auth/user E2E documentation, persist trading artefacts, expand testing (unit + contract), publish secret rotation and observability playbooks.
 
-Find the detailed report and mid-term roadmap in [`docs/project-evaluation.md`](docs/project-evaluation.md).
+Find the detailed review, roadmap and backlog in:
+
+- [`docs/reports/2025-11-code-review.md`](docs/reports/2025-11-code-review.md)
+- [`docs/project-evaluation.md`](docs/project-evaluation.md)
+- [`docs/tasks/2025-q4-backlog.md`](docs/tasks/2025-q4-backlog.md)
 
 ## 📞 Support and Community
 
@@ -137,4 +141,4 @@ This project is licensed under the MIT License - see the `LICENSE` file for more
 ---
 
 > **Developed with ❤️ by decarvalhoe and the open-source community**
-> Last updated: September 2025
+> Last updated: November 2025
