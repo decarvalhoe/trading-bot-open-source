@@ -24,7 +24,7 @@ clés d'orchestration de stratégies, d'intégration marchés et d'observabilit�
 ## 3. Infrastructure et opérations
 
 - **Conteneurisation** : chaque service dispose de son `Dockerfile` et le `docker-compose.yml`
-  orchestre PostgreSQL, Redis et les services applicatifs (auth/user) pour le développement local.
+  orchestre PostgreSQL, Redis et les services applicatifs (auth/user) pour le développement local.【F:docker-compose.yml†L1-L44】
 - **CI/CD** : un workflow GitHub Actions dédié aux tests E2E vérifie l'enregistrement et la connexion,
   assurant un filet de sécurité fonctionnel minimal.【F:codex.plan.yaml†L1-L109】
 - **Gestion de la configuration** : un service centralisé permet de charger et de mettre à jour les
@@ -44,7 +44,7 @@ clés d'orchestration de stratégies, d'intégration marchés et d'observabilit�
 - **README** : fournit un aperçu détaillé, un plan de livraison par phases et des instructions de
   démarrage rapide.【F:README.md†L1-L99】
 - **Guides communautaires** : des documents dédiés au code de conduite, aux contributions et à la
-  licence existent mais nécessitaient un enrichissement (mis à jour dans cette itération).
+  licence existent mais nécessitaient un enrichissement (mis à jour dans cette itération).【F:CODE_OF_CONDUCT.md†L1-L60】【F:CONTRIBUTING.md†L1-L120】【F:LICENSE†L1-L32】
 
 ## 6. Risques et points d'attention
 
