@@ -1,11 +1,18 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 .env
+
+# Coverage
+.coverage
+htmlcov/
+coverage.xml
+
 # Docker
 *.log
+
 # OS
 .DS_Store
 Thumbs.db

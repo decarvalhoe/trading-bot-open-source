@@ -103,5 +103,8 @@ def test_refresh_reports_creates_snapshots(tmp_path: Path) -> None:
 
     with session_scope() as session:
         snapshots = session.query(ReportSnapshot).all()
-    assert snapshots
-    assert {snapshot.strategy for snapshot in snapshots} == {StrategyName.ORB, StrategyName.IB}
+        strategies = {snapshot.strategy for snapshot in snapshots}
+        count = len(snapshots)
+
+    assert count
+    assert strategies == {StrategyName.ORB, StrategyName.IB}

@@ -1,5 +1,6 @@
-﻿-r requirements.txt
+-r requirements.txt
 pytest>=8.2
 httpx>=0.27
 fastapi[all]>=0.115
 alembic>=1.13
+schemathesis>=4.1.0

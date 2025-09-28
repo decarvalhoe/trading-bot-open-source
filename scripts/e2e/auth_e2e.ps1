@@ -33,6 +33,57 @@ Assert ($token) "access_token extracted"
 $me = curl.exe -s -H "Authorization: Bearer $token" "http://127.0.0.1:8011/auth/me"
 Assert ($LASTEXITCODE -eq 0) "/auth/me call"
 
+# TOTP setup
+$setup = curl.exe -s -H "Authorization: Bearer $token" "http://127.0.0.1:8011/auth/totp/setup"
+$setupJson = $setup | ConvertFrom-Json
+$secret = $setupJson.secret
+Assert ($secret) "TOTP secret received"
+
+$invalidStatus = curl.exe --noproxy "*" -s -o $env:TEMP\totp-invalid.json -w "%{http_code}" `
+  -H "Authorization: Bearer $token" `
+  "http://127.0.0.1:8011/auth/totp/enable?code=000000"
+Assert ($invalidStatus -eq 400) "invalid TOTP rejected"
+
+$validCode = python -c "import sys,pyotp; print(pyotp.TOTP(sys.argv[1]).now())" $secret
+curl.exe -s -H "Authorization: Bearer $token" "http://127.0.0.1:8011/auth/totp/enable?code=$validCode" | Out-Null
+
+$missingStatus = curl.exe --noproxy "*" -s -o $env:TEMP\totp-missing.json -w "%{http_code}" `
+  -H "Content-Type: application/json" `
+  -d "{\"email\": \"$email\", \"password\": \"Passw0rd!\"}" `
+  -X POST "http://127.0.0.1:8011/auth/login"
+Assert ($missingStatus -eq 401) "login without TOTP rejected"
+
+$totpCode = python -c "import sys,pyotp; print(pyotp.TOTP(sys.argv[1]).now())" $secret
+$loginTotp = curl.exe -s -X POST "http://127.0.0.1:8011/auth/login" `
+  -H "Content-Type: application/json" `
+  -d "{\"email\": \"$email\", \"password\": \"Passw0rd!\", \"totp\": \"$totpCode\"}"
+$jsonTotp = $loginTotp | ConvertFrom-Json
+$token = $jsonTotp.access_token
+Assert ($token) "TOTP login succeeded"
+
+$regen = curl.exe -s -H "Authorization: Bearer $token" "http://127.0.0.1:8011/auth/totp/setup"
+$regenJson = $regen | ConvertFrom-Json
+$newSecret = $regenJson.secret
+Assert ($newSecret -and $newSecret -ne $secret) "TOTP secret regenerated"
+
+$oldCode = python -c "import sys,pyotp; print(pyotp.TOTP(sys.argv[1]).now())" $secret
+$oldStatus = curl.exe --noproxy "*" -s -o $env:TEMP\totp-old.json -w "%{http_code}" `
+  -H "Content-Type: application/json" `
+  -d "{\"email\": \"$email\", \"password\": \"Passw0rd!\", \"totp\": \"$oldCode\"}" `
+  -X POST "http://127.0.0.1:8011/auth/login"
+Assert ($oldStatus -eq 401) "stale TOTP rejected"
+
+$newCode = python -c "import sys,pyotp; print(pyotp.TOTP(sys.argv[1]).now())" $newSecret
+curl.exe -s -H "Authorization: Bearer $token" "http://127.0.0.1:8011/auth/totp/enable?code=$newCode" | Out-Null
+
+$finalCode = python -c "import sys,pyotp; print(pyotp.TOTP(sys.argv[1]).now())" $newSecret
+$finalLogin = curl.exe -s -X POST "http://127.0.0.1:8011/auth/login" `
+  -H "Content-Type: application/json" `
+  -d "{\"email\": \"$email\", \"password\": \"Passw0rd!\", \"totp\": \"$finalCode\"}"
+$finalJson = $finalLogin | ConvertFrom-Json
+$token = $finalJson.access_token
+Assert ($token) "final login after regeneration"
+
 # User service registration
 $userPayload = @{ email = $email; display_name = "Dev User" } | ConvertTo-Json
 $userResponse = curl.exe -s -X POST "http://127.0.0.1:8012/users/register" `
