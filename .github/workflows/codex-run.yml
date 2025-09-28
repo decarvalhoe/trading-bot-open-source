@@ -1,0 +1,51 @@
+name: codex-run
+
+on:
+  workflow_call:
+    inputs:
+      provider:
+        description: Source de l'événement (github|stripe|tradingview)
+        required: true
+        type: string
+      event-type:
+        description: Type d'événement (ex issue_comment)
+        required: true
+        type: string
+      event-payload:
+        description: Payload JSON de l'événement
+        required: true
+        type: string
+    secrets:
+      github-token:
+        description: Token GitHub pour les opérations API
+        required: true
+      codex-github-token:
+        description: Jeton d'installation pour le worker Codex
+        required: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -r services/codex_worker/requirements.txt
+      - name: Persist event payload
+        run: |
+          cat <<'JSON' > event.json
+          ${{ inputs.event-payload }}
+          JSON
+      - name: Execute Codex worker
+        env:
+          GITHUB_TOKEN: ${{ secrets.github-token }}
+          CODEX_WORKER_GITHUB_TOKEN: ${{ secrets.codex-github-token }}
+        run: |
+          python -m services.codex_worker.app.cli --provider "${{ inputs.provider }}" --event-type "${{ inputs['event-type'] }}" --event-path event.json

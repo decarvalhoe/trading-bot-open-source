@@ -1,0 +1,1 @@
+"""Codex gateway FastAPI application."""
