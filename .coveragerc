@@ -1,0 +1,13 @@
+[run]
+branch = True
+source =
+    services/auth-service/app
+    services/config-service/app
+    libs
+    scripts
+
+[report]
+omit =
+    */tests/*
+    */migrations/*
+show_missing = True

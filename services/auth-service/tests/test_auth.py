@@ -1,88 +1,44 @@
-import time
-
-import importlib
 import importlib.util
 import sys
+import time
 from pathlib import Path
+from types import ModuleType
 
 import pyotp
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from pydantic import ValidationError
+from sqlalchemy import select
 
-_service_root = Path(__file__).resolve().parents[1]
-_package_name = "auth_service_app"
-_repo_root = _service_root.parents[1]
+CURRENT_DIR = Path(__file__).resolve().parent
 
-if str(_repo_root) not in sys.path:
-    sys.path.append(str(_repo_root))
-
-if _package_name not in sys.modules:
-    _package_spec = importlib.util.spec_from_file_location(
-        _package_name,
-        _service_root / "app" / "__init__.py",
-        submodule_search_locations=[str(_service_root / "app")],
-    )
-    assert _package_spec and _package_spec.loader
-    _package_module = importlib.util.module_from_spec(_package_spec)
-    sys.modules[_package_name] = _package_module
-    _package_spec.loader.exec_module(_package_module)  # type: ignore[arg-type]
-
-main = importlib.import_module(f"{_package_name}.main")
-models = importlib.import_module(f"{_package_name}.models")
-security = importlib.import_module(f"{_package_name}.security")
-get_db = importlib.import_module("libs.db.db").get_db
-
-app = main.app  # type: ignore[attr-defined]
-Base = models.Base
-MFATotp = models.MFATotp
-Role = models.Role
-User = models.User
-UserRole = models.UserRole
-totp_now = security.totp_now
+HELPERS_NAME = "auth_service_test_helpers"
+HELPERS_PATH = CURRENT_DIR / "_helpers.py"
 
 
-@pytest.fixture()
-def session_factory():
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        future=True,
-    )
-    Base.metadata.create_all(engine)
-    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
-    yield TestingSessionLocal
-    Base.metadata.drop_all(engine)
+def _load_helpers(name: str, path: Path) -> ModuleType:
+    if name in sys.modules:
+        return sys.modules[name]
+
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)  # type: ignore[arg-type]
+    return module
 
 
-@pytest.fixture()
-def client(session_factory):
-    def override_get_db():
-        db = session_factory()
-        try:
-            yield db
-        finally:
-            db.close()
+helpers = _load_helpers(HELPERS_NAME, HELPERS_PATH)
 
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture(autouse=True)
-def mock_password_hashing(monkeypatch):
-    def _hash(password: str) -> str:
-        return f"hashed::{password}"
-
-    def _verify(password: str, hashed: str) -> bool:
-        return hashed == f"hashed::{password}"
-
-    monkeypatch.setattr(main, "hash_password", _hash)
-    monkeypatch.setattr(main, "verify_password", _verify)
+MFATotp = helpers.MFATotp
+Role = helpers.Role
+User = helpers.User
+UserRole = helpers.UserRole
+LoginRequest = helpers.LoginRequest
+RegisterRequest = helpers.RegisterRequest
+TokenPair = helpers.TokenPair
+create_user_with_role = helpers.create_user_with_role
+totp_now = helpers.totp_now
+Me = helpers.Me
 
 
 def test_register_creates_user_with_default_role(client, session_factory):
@@ -109,23 +65,9 @@ def test_register_creates_user_with_default_role(client, session_factory):
         assert user_role is not None
 
 
-def _create_user_with_role(session, email="user@example.com", password="secret"):
-    user = User(email=email, password_hash=main.hash_password(password))
-    session.add(user)
-    role = session.scalar(select(Role).where(Role.name == "user"))
-    if not role:
-        role = Role(name="user")
-        session.add(role)
-        session.flush()
-    session.add(UserRole(user_id=user.id, role_id=role.id))
-    session.commit()
-    session.refresh(user)
-    return user
-
-
 def test_login_without_mfa_returns_tokens(client, session_factory):
     with session_factory() as session:
-        user = _create_user_with_role(session)
+        user = create_user_with_role(session)
 
     response = client.post(
         "/auth/login",
@@ -133,15 +75,13 @@ def test_login_without_mfa_returns_tokens(client, session_factory):
     )
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["access_token"]
-    assert body["refresh_token"]
-    assert body["token_type"] == "bearer"
+    body = TokenPair.model_validate(response.json())
+    assert body.token_type == "bearer"
 
 
 def test_login_requires_totp_when_enabled(client, session_factory):
     with session_factory() as session:
-        user = _create_user_with_role(session, email="mfa@example.com", password="mfa-pass")
+        user = create_user_with_role(session, email="mfa@example.com", password="mfa-pass")
         secret = pyotp.random_base32()
         session.add(MFATotp(user_id=user.id, secret=secret, enabled=True))
         session.commit()
@@ -159,9 +99,9 @@ def test_login_requires_totp_when_enabled(client, session_factory):
         json={"email": "mfa@example.com", "password": "mfa-pass", "totp": code},
     )
     assert response.status_code == 200
-    body = response.json()
-    assert body["access_token"]
-    assert body["refresh_token"]
+    body = TokenPair.model_validate(response.json())
+    assert body.access_token
+    assert body.refresh_token
 
 
 def test_auth_me_returns_profile_information(client):
@@ -180,7 +120,43 @@ def test_auth_me_returns_profile_information(client):
 
     response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
-    body = response.json()
-    assert body["email"] == "profile@example.com"
-    assert body["roles"] == ["user"]
+    body = Me.model_validate(response.json())
+    assert body.email == "profile@example.com"
+    assert body.roles == ["user"]
 
+
+def test_user_flags_default_to_expected_values(session_factory):
+    with session_factory() as session:
+        user = User(email="defaults@example.com", password_hash="hash")
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+    assert user.is_active is True
+    assert user.is_superuser is False
+
+
+def test_mfa_totp_defaults_to_disabled(session_factory):
+    with session_factory() as session:
+        user = create_user_with_role(session, email="totp-default@example.com")
+        totp_entry = MFATotp(user_id=user.id, secret="A" * 32)
+        session.add(totp_entry)
+        session.commit()
+        session.refresh(totp_entry)
+
+    assert totp_entry.enabled is False
+
+
+def test_token_pair_default_type():
+    tokens = TokenPair(access_token="a", refresh_token="b")
+    assert tokens.token_type == "bearer"
+
+
+def test_register_request_validates_email():
+    with pytest.raises(ValidationError):
+        RegisterRequest(email="not-an-email", password="pass")
+
+
+def test_login_request_totp_optional():
+    request = LoginRequest(email="user@example.com", password="pass")
+    assert request.totp is None
