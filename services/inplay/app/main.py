@@ -6,6 +6,9 @@ from typing import Callable
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
+
 from .config import Settings, get_settings
 from .schemas import TickPayload, WatchlistSnapshot, WatchlistStreamEvent
 from .state import InPlayState
@@ -41,6 +44,9 @@ def _default_stream_factory() -> TickStream:
     return RedisTickStream()
 
 
+configure_logging("inplay")
+
+
 def create_app(
     settings: Settings | None = None,
     stream_factory: Callable[[], TickStream] | None = None,
@@ -71,6 +77,8 @@ def create_app(
                 await result
 
     app = FastAPI(title="In-Play Service", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(RequestContextMiddleware, service_name="inplay")
+    setup_metrics(app, service_name="inplay")
 
     async def get_state() -> InPlayState:
         return state

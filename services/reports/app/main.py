@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException
+
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 from sqlalchemy.orm import Session
 
 from schemas.report import ReportResponse
@@ -9,7 +12,11 @@ from .calculations import ReportCalculator, load_report_from_snapshots
 from .database import get_engine, get_session
 from .tables import Base
 
+configure_logging("reports")
+
 app = FastAPI(title="Reports Service", version="0.1.0")
+app.add_middleware(RequestContextMiddleware, service_name="reports")
+setup_metrics(app, service_name="reports")
 
 
 @app.on_event("startup")

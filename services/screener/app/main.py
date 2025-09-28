@@ -13,6 +13,8 @@ from infra import ScreenerPreset, ScreenerResult, ScreenerSnapshot
 from libs.db.db import get_db
 from libs.entitlements import install_entitlements_middleware
 from libs.entitlements.client import Entitlements
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 from providers import FinancialModelingPrepClient, FinancialModelingPrepError
 
 from .schemas import (
@@ -22,12 +24,16 @@ from .schemas import (
     ScreenerRunResponse,
 )
 
+configure_logging("screener")
+
 app = FastAPI(title="Screener Service", version="0.1.0")
 install_entitlements_middleware(
     app,
     required_capabilities=["can.use_screener"],
     required_quotas={},
 )
+app.add_middleware(RequestContextMiddleware, service_name="screener")
+setup_metrics(app, service_name="screener")
 
 
 async def get_fmp_client() -> FinancialModelingPrepClient:

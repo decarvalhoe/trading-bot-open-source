@@ -1,6 +1,6 @@
 import urllib.parse
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -10,9 +10,15 @@ from .models import User, Role, UserRole, MFATotp
 from .deps import get_current_user, require_roles
 from libs.db.db import get_db
 from libs.entitlements import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
+
+configure_logging("auth-service")
 
 app = FastAPI(title="Auth Service", version="0.1.0")
 install_entitlements_middleware(app, required_capabilities=["can.use_auth"], required_quotas={"quota.active_algos": 1})
+app.add_middleware(RequestContextMiddleware, service_name="auth-service")
+setup_metrics(app, service_name="auth-service")
 
 
 @app.get("/health")

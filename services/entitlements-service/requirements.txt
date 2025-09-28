@@ -4,3 +4,4 @@ SQLAlchemy>=2
 httpx
 psycopg2-binary
 pydantic>=2
+prometheus-client>=0.20

@@ -21,6 +21,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from libs.db.db import get_db
 from libs.entitlements import install_entitlements_middleware
 from libs.entitlements.client import Entitlements
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 
 from .schemas import (
     PreferencesResponse,
@@ -79,6 +81,8 @@ class UserPreferences(Base):
     )
 
 
+configure_logging("user-service")
+
 app = FastAPI(title="User Service", version="0.1.0")
 install_entitlements_middleware(
     app,
@@ -86,6 +90,8 @@ install_entitlements_middleware(
     required_quotas={},
     skip_paths=["/users/register"],
 )
+app.add_middleware(RequestContextMiddleware, service_name="user-service")
+setup_metrics(app, service_name="user-service")
 
 SENSITIVE_FIELDS = {"email", "full_name", "marketing_opt_in"}
 

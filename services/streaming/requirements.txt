@@ -5,3 +5,4 @@ pydantic-settings
 # Dépendances optionnelles pour les pipelines externes
 redis>=4.6.0
 nats-py>=2.3.0
+prometheus-client>=0.20

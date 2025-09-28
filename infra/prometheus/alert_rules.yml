@@ -1,0 +1,21 @@
+groups:
+  - name: fastapi.rules
+    rules:
+      - alert: FastAPIHighLatency
+        expr: sum(rate(http_request_latency_seconds_sum[5m])) / sum(rate(http_request_latency_seconds_count[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latence moyenne élevée"
+          description: |
+            La latence moyenne sur 5 minutes dépasse 500 ms (valeur actuelle: {{ printf "%.2f" $value }} s).
+      - alert: FastAPIHighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Taux de réponses 5xx élevé"
+          description: |
+            Plus de 5 % des requêtes retournent un statut 5xx sur 10 minutes (valeur actuelle: {{ printf "%.2f" ($value * 100) }} %).

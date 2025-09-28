@@ -9,6 +9,8 @@ from fastapi import FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from libs.entitlements import install_entitlements_middleware
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
 from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
 from schemas.market import ExecutionPlan, ExecutionReport, OrderRequest
 
@@ -110,8 +112,12 @@ router = OrderRouter(
     ),
 )
 
+configure_logging("order-router")
+
 app = FastAPI(title="Order Router", version="0.1.0")
 install_entitlements_middleware(app, required_capabilities=["can.route_orders"])
+app.add_middleware(RequestContextMiddleware, service_name="order-router")
+setup_metrics(app, service_name="order-router")
 
 
 class OrderPayload(OrderRequest):
