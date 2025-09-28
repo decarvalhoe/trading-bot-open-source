@@ -1,0 +1,29 @@
+name: codex-test
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Version de Python utilisée pour les tests
+        required: false
+        default: '3.12'
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -r services/codex_gateway/requirements-dev.txt
+          pip install -r services/codex_worker/requirements-dev.txt
+      - name: Run test suite
+        run: make test
