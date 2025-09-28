@@ -1,124 +1,100 @@
 # Évaluation du projet Trading Bot Open Source
 
-_Date de l'évaluation : septembre 2025_
+_Date de l'évaluation : novembre 2025_
 
 ## 1. Résumé exécutif
 
-Le projet **Trading Bot Open Source** est une plateforme multi-services orientée vers l'automatisation
-stratégique du trading. L'infrastructure et les premières capacités d'authentification sont bien
-avancées, avec une base technique moderne (FastAPI, SQLAlchemy, architecture microservices) et des
-librairies partagées déjà factorisées pour la configuration et les droits d'usage. Les fonctionnalités
-clés d'orchestration de stratégies, d'intégration marchés et d'observabilité restent à implémenter.
+Le projet **Trading Bot Open Source** consolide une architecture microservices moderne (FastAPI,
+SQLAlchemy) avec des briques de sécurité et d'observabilité déjà intégrées. Les fondations
+utilisateur (authentification, profils) sont opérationnelles et le socle trading (algo-engine,
+order-router, market-data) dispose d'un premier jeu de limites sandbox. Les prochaines itérations
+portent sur la persistance des stratégies, l'industrialisation des tests contractuels et la
+formalisation des procédures de gestion des secrets.
 
 ## 2. Architecture et code
 
-- **Microservices FastAPI** : les services `auth-service` et `config-service` exposent des API REST
-  claires avec gestion centralisée des entitlements via un middleware commun.【F:services/auth-service/app/main.py†L1-L76】【F:services/config-service/app/main.py†L1-L32】
-- **Sécurité** : l'authentification prend en charge l'inscription, la connexion, la MFA TOTP et une
-  gestion basique des rôles/quotas.【F:services/auth-service/app/main.py†L12-L72】
-- **Librairies partagées** : le module `libs/entitlements` fournit un client et des helpers pour
-  harmoniser les contrôles d'accès dans toute la plateforme.【F:libs/entitlements/__init__.py†L1-L10】
-- **Qualité du code** : la configuration `pyproject.toml` impose Black, isort, Flake8 strict, et Mypy
-  en mode strict, ce qui prépare une base maintenable à long terme.【F:pyproject.toml†L1-L21】
+- **Services d'identité** : `auth-service` gère l'inscription, la connexion JWT, la MFA TOTP et les rôles,
+  tandis que `user-service` fournit le CRUD complet sur les profils avec masquage des champs sensibles
+  selon les entitlements.【F:services/auth-service/app/main.py†L1-L88】【F:services/user-service/app/main.py†L1-L132】
+- **Moteur de stratégies** : `algo-engine` expose un catalogue in-memory avec orchestrateur, backtester et
+  import YAML/Python; les stratégies sont enregistrées via une API FastAPI dédiée.【F:services/algo-engine/app/main.py†L1-L136】
+- **Routage d'ordres** : `order-router` combine adaptateurs Binance/IBKR simulés, moteur de risque (limites
+  dynamiques, stop-loss, notional max) et journal en mémoire des exécutions.【F:services/order-router/app/main.py†L1-L143】
+- **Données de marché** : `market_data` fournit un webhook TradingView sécurisé (HMAC), expose quotes et
+  orderbooks basés sur les limites sandbox partagées dans `providers/limits.py`.【F:services/market_data/app/main.py†L1-L88】【F:providers/limits.py†L1-L120】
+- **Libs transverses** : entitlements middleware mutualisé, logs JSON corrélés, métriques Prometheus et
+  gestionnaire de secrets multi-providers sont disponibles pour tous les services.【F:libs/entitlements/__init__.py†L1-L34】【F:libs/observability/logging.py†L1-L123】【F:libs/observability/metrics.py†L1-L80】【F:libs/secrets/__init__.py†L1-L120】
 
 ## 3. Infrastructure et opérations
 
-- **Conteneurisation** : chaque service dispose de son `Dockerfile` et le `docker-compose.yml`
-  orchestre PostgreSQL, Redis et les services applicatifs (auth/user) pour le développement local.【F:docker-compose.yml†L1-L44】
-- **CI/CD** : un workflow GitHub Actions dédié aux tests E2E vérifie l'enregistrement et la connexion,
-  assurant un filet de sécurité fonctionnel minimal.【F:codex.plan.yaml†L1-L109】
-- **Gestion de la configuration** : un service centralisé permet de charger et de mettre à jour les
-  paramètres applicatifs via API.【F:services/config-service/app/main.py†L13-L32】
+- **Conteneurisation** : `docker-compose` orchestre Postgres, Redis, auth/user services et ajoute la stack
+  Prometheus/Grafana pré-configurée pour le monitoring local.【F:docker-compose.yml†L1-L56】
+- **Outillage** : le `Makefile` centralise setup, lint, tests, coverage et lancement de la stack locale, ce
+  qui facilite l'onboarding des contributeurs.【F:Makefile†L1-L28】
+- **Observabilité** : toutes les APIs installent le middleware de logs structurés et exposent `/metrics`,
+  permettant la collecte par Prometheus dès le démarrage.【F:services/auth-service/app/main.py†L12-L24】【F:services/user-service/app/main.py†L25-L52】
 
 ## 4. Tests et qualité
 
-- **Tests E2E** : scripts Bash et PowerShell exécutent un parcours complet d'inscription/connexion
-  contre l'`auth-service` pour prévenir les régressions critiques.【F:codex.plan.yaml†L45-L92】
-- **Tests unitaires** : la structure `services/.../tests` existe mais la couverture reste limitée, en
-  particulier pour les services autres que l'authentification (tests à compléter).
-- **Automatisation locale** : le `Makefile` expose des cibles pour monter l'environnement et lancer les
-  scénarios E2E, facilitant l'onboarding développeur.【F:codex.plan.yaml†L24-L44】
+- **Unitaires** : `user-service` dispose d'une suite couvrant le parcours complet (inscription, activation,
+  préférences, masquage entitlements).【F:services/user-service/tests/test_user.py†L1-L128】
+- **E2E** : des scripts Bash/PowerShell exécutent le flux auth (register/login/me) et sont intégrés à la CI
+  GitHub Actions via `codex.plan.yaml` (workflow `e2e`).【F:codex.plan.yaml†L45-L109】
+- **Qualité** : la configuration `pyproject.toml` impose Black, isort, Flake8, Mypy strict, garantissant un
+  socle cohérent pour de futures contributions.【F:pyproject.toml†L1-L35】
 
 ## 5. Documentation et communauté
 
-- **README** : fournit un aperçu détaillé, un plan de livraison par phases et des instructions de
-  démarrage rapide.【F:README.md†L1-L99】
-- **Guides communautaires** : des documents dédiés au code de conduite, aux contributions et à la
-  licence existent mais nécessitaient un enrichissement (mis à jour dans cette itération).【F:CODE_OF_CONDUCT.md†L1-L60】【F:CONTRIBUTING.md†L1-L120】【F:LICENSE†L1-L32】
+- **Guides** : README (EN/FR) détaillent l'architecture, les phases projet et l'onboarding. Les guides
+  complémentaires (`docs/`) couvrent stratégies, observabilité, sécurité, governance et roadmap.【F:README.md†L1-L120】【F:docs/ROADMAP.md†L1-L24】
+- **Gouvernance** : le comité KPI hebdomadaire est documenté (`docs/governance/kpi-review.md`) et la roadmap
+  2025→2026 aligne releases et backlog (`docs/tasks/2025-q4-backlog.md`).【F:docs/governance/kpi-review.md†L1-L40】【F:docs/tasks/2025-q4-backlog.md†L1-L56】
 
 ## 6. Risques et points d'attention
 
-1. **Fonctionnalités trading incomplètes** : les services de marché, d'ordonnancement et d'algo sont
-   présents mais peu implémentés. Priorité à définir les MVP pour éviter la dérive de périmètre.
-2. **Couverture de tests partielle** : absence de tests unitaires/intégrés sur la majorité des services.
-   Risque de régressions lors de l'ajout des fonctionnalités de trading.
-3. **Observabilité** : pas encore de stratégie de logs centralisés, métriques ou alerting documentés.
-4. **Sécurité opérationnelle** : secrets et gestion des clés (JWT, TOTP) doivent être alignés avec des
-   pratiques de rotation et de stockage sécurisé en production.
+1. **Persistance manquante** : `algo-engine` et `order-router` conservent l'état en mémoire, limitant la
+   scalabilité et la résilience. Prioriser l'externalisation vers Postgres/Redis.【F:services/algo-engine/app/main.py†L27-L74】【F:services/order-router/app/main.py†L33-L111】
+2. **Couverture tests hétérogène** : seuls auth/user disposent de tests solides; `market_data`,
+   `order-router`, `algo-engine` nécessitent des tests contractuels et unitaires additionnels.
+3. **Secrets & conformité** : le gestionnaire de secrets n'est pas encore accompagné de procédures
+   d'exploitation (Vault/Doppler/AWS), augmentant le risque opérationnel.【F:libs/secrets/__init__.py†L1-L120】
+4. **Experience utilisateur** : l'enchaînement auth ➜ profil ➜ TOTP n'est pas documenté via un parcours
+   complet (E2E ou guide), ce qui peut ralentir l'adoption.
 
-## 7. Recommandations à court terme (0-3 mois)
+## 7. Recommandations court terme (0-3 mois)
 
-1. **Livrer un parcours utilisateur complet** :
-   - Finaliser le `user-service` (création, lecture, mise à jour et suppression de profils).
-   - Relier les entitlements partagés pour appliquer les droits d'accès aux attributs sensibles.
-   - Exposer une API publique cohérente et documentée (OpenAPI + exemples d'intégration front).
-   - Cartographier le workflow complet dans les tests E2E (inscription ➜ activation ➜ gestion du profil).
-2. **Définir le MVP trading** :
-   - Cadrer les services `algo-engine`, `market_data` et `order-router` autour d'un cas d'usage unique :
-     exécution au comptant sur un exchange prioritaire (Binance/OKX).
-   - Décrire le contrat de données minimal (quote, orderbook, exécution) et les formats d'ordres supportés.
-   - Etablir les limites initiales (pairs traitées, taille maximale de position, fréquences de rafraîchissement).
-   - Démo interne : script CLI déclenchant la stratégie MVP en environnement de sandbox.
-3. **Renforcer les tests** :
-   - Ajouter des tests unitaires pour les modèles/configurations critiques (`auth-service`, `config-service`).
-   - Compléter des tests contractuels (pydantic + schemathesis) pour les API publiques.
-   - Etendre le scénario E2E pour inclure le cycle complet TOTP (enrôlement, vérification, régénération).
-   - Suivre la couverture via un rapport mutualisé (coverage.py ➜ artefact CI).
-4. **Mettre en place l'observabilité** :
-   - Standardiser la journalisation structurée (format JSON + corrélation des requêtes).
-   - Exposer un endpoint `/metrics` Prometheus sur chaque service critique.
-   - Ajouter une stack de monitoring (Prometheus + Grafana) dans `docker-compose` et documenter les dashboards clés.
-   - Définir une première alerte (latence API > seuil, taux d'erreur 5xx) avec procédure d'escalade.
-5. **Sécuriser la configuration** :
-   - Introduire un gestionnaire de secrets (Vault, Doppler, AWS Secrets Manager selon l'environnement).
-   - Documenter la rotation des clés JWT/TOTP (fréquence, procédure de déploiement, plan de retour arrière).
-   - Vérifier l'isolation des secrets en local (fichiers `.env` chiffrés ou variables d'environnement éphémères).
-   - Ajouter des checklists de revue sécurité dans le process de release.
+1. **Aligner les scénarios E2E** : fusionner les scripts auth et user-service, couvrir les cas d'erreur et
+   publier une documentation API front-friendly.
+2. **Persister l'état trading** : introduire des dépôts (SQL/Redis) pour les stratégies et journaux
+   d'ordres, ajouter les migrations nécessaires et mettre à jour les docs.
+3. **Playbook observabilité** : documenter l'utilisation de Prometheus/Grafana, configurer une alerte
+   latence/taux d'erreur et intégrer ces checks à la CI/CD.
+4. **Industrialiser les secrets** : fournir des guides pas-à-pas pour Vault, Doppler et AWS Secrets Manager,
+   ajouter des validations automatiques dans la CI.
 
-## 8. Feuille de route moyen terme (3-9 mois)
+## 8. Roadmap moyen terme (3-9 mois)
 
-- **Automatisation de stratégies** :
-  - Implémenter un moteur de stratégies scriptables (YAML/Python) avec backtesting basique et sandbox de simulation.
-  - Capitaliser sur les résultats de backtesting via un stockage historisé (performance, drawdown, logs d'exécution).
-  - Autoriser l'import/export de stratégies pour favoriser la contribution communautaire.
-- **Connecteurs marchés** :
-  - Prioriser 1-2 brokers/exchanges et définir des abstractions communes (`MarketConnector`, `ExecutionClient`).
-  - Créer des tests d'intégration isolés par connecteur (fixtures dockerisées ou mocks reproductibles).
-  - Documenter les limites de rate limiting et les procédures de gestion d'erreur (retries, circuit breaker).
-- **Gestion des risques** :
-  - Ajouter des limites d'exposition dynamiques (par instrument, par compte) et des stop-loss automatiques.
-  - Générer un reporting quotidien (P&L, drawdown, incidents) exportable (CSV/JSON) et consultable via API.
-  - Mettre en place un moteur de règles configurable (alertes de dépassement, verrouillage des stratégies).
-- **Expérience utilisateur** :
-  - Prévoir une interface web minimale pour visualiser portefeuilles, transactions et alertes critiques.
-  - Exposer un webhook/notification (email ou Slack) pour les alertes majeures.
-  - Aligner l'UX avec un design system léger (composants partagés, guidelines d'accessibilité).
-- **Gouvernance open-source** :
-  - Instaurer un calendrier de releases trimestrielles et publier un changelog détaillé.
-  - Maintenir un backlog public (projects GitHub) avec étiquettes claires (good first issue, help wanted).
-  - Organiser des sessions communautaires régulières (AMA, live coding) et suivre les métriques de participation.
+- **Trading sandbox avancé** : enrichir le backtesting, exposer un reporting P&L quotidien et intégrer le
+  moteur de règles de risque aux connecteurs live.
+- **Connecteurs marchés** : prioriser Binance/IBKR, ajouter des tests d'intégration et documenter la gestion
+  du rate limiting via `AsyncRateLimiter`.
+- **Expérience utilisateur** : livrer une première page `web-dashboard` listant positions/ordres et intégrer
+  des notifications critiques (webhooks, email, Slack).
+- **Gouvernance** : maintenir un changelog actif, publier un backlog GitHub Projects synchronisé avec la
+  roadmap trimestrielle et formaliser la checklist sécurité dans `CONTRIBUTING.md`.
 
 ## 9. Indicateurs de succès
 
-| Indicateur | Cible | Horizon | Notes de suivi |
+| Indicateur | Cible | Horizon | Notes |
 | --- | --- | --- | --- |
-| Temps moyen d'onboarding développeur | < 1 journée | Court terme | Garder les guides Makefile/docs alignés avec l'état du code et mesurer via sondage de bienvenue. |
-| Taux de succès des tests E2E | > 95 % sur les branches principales | Continu | Intégrer le ratio dans les rapports CI et bloquer les merges en cas de dérive. |
-| Première stratégie de trading en sandbox | Stratégie MVP exécutée de bout en bout | 3 mois | Inclut la collecte de métriques de performance et un rapport de post-mortem. |
-| Couverture de tests unitaires | > 60 % sur les services critiques | 6 mois | Définir la liste des services critiques et monitorer via coverage report dans la CI. |
-| Communauté active | ≥ 5 contributeurs externes avec PR mergée | 9 mois | Publier un tableau de bord communautaire (issues ouvertes, PR, sessions live). |
+| Taux de réussite E2E (auth + user) | > 95 % | Continu | Bloquer les merges si la pipeline échoue. |
+| Couverture tests services critiques | ≥ 60 % | Juin 2026 | Priorité sur auth, user, algo, order-router, market-data. |
+| Temps d'onboarding dev | < 1 journée | Continu | Garder README/Makefile à jour et mesurer via sondages. |
+| Stratégie sandbox démontrable | 1 parcours complet | Mars 2026 | Script CLI et rapport de performance publiés. |
+| Contributeurs externes actifs | ≥ 5 PR/trim | 2026 | Appuyer la gouvernance communautaire et la roadmap publique. |
 
 ---
 
-_Pour toute question ou pour planifier un audit technique approfondi, contactez l'équipe de
-mainteneurs via les issues GitHub._
+Pour la synthèse détaillée et le backlog priorisé, consulter :
+- Rapport de revue : `docs/reports/2025-11-code-review.md`.
+- Backlog : `docs/tasks/2025-q4-backlog.md`.
