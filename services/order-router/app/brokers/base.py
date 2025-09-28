@@ -4,6 +4,8 @@ from __future__ import annotations
 import abc
 from typing import Dict, List
 
+from schemas.market import ExecutionReport, ExecutionStatus, OrderRequest
+
 
 class BrokerAdapter(abc.ABC):
     """Abstract broker adapter."""
@@ -11,18 +13,34 @@ class BrokerAdapter(abc.ABC):
     name: str
 
     def __init__(self) -> None:
-        self.orders: List[Dict[str, float]] = []
-        self.executions: List[Dict[str, float]] = []
+        self._reports: Dict[str, ExecutionReport] = {}
 
     @abc.abstractmethod
-    def place_order(self, order: Dict[str, float]) -> Dict[str, float]:
+    def place_order(self, order: OrderRequest, *, reference_price: float) -> ExecutionReport:
         """Submit an order to the remote broker."""
 
-    def cancel_order(self, order_id: str) -> Dict[str, str]:
-        return {"order_id": order_id, "status": "cancelled"}
+    def cancel_order(self, order_id: str) -> ExecutionReport:
+        try:
+            report = self._reports[order_id]
+        except KeyError as exc:  # pragma: no cover - defensive branch
+            raise KeyError("Unknown order") from exc
+        cancelled = report.model_copy(update={"status": ExecutionStatus.CANCELLED})
+        self._reports[order_id] = cancelled
+        return cancelled
 
-    def fetch_executions(self) -> List[Dict[str, float]]:
-        return list(self.executions)
+    def fetch_executions(self) -> List[ExecutionReport]:
+        return [
+            report
+            for report in self._reports.values()
+            if report.status in {ExecutionStatus.FILLED, ExecutionStatus.PARTIALLY_FILLED}
+        ]
+
+    def _store_report(self, report: ExecutionReport) -> ExecutionReport:
+        self._reports[report.order_id] = report
+        return report
+
+    def reports(self) -> List[ExecutionReport]:
+        return list(self._reports.values())
 
 
 __all__ = ["BrokerAdapter"]

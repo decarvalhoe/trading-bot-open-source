@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from libs.entitlements import install_entitlements_middleware
+from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
+from schemas.market import ExecutionPlan, ExecutionReport, OrderRequest
 
 from .brokers import BinanceAdapter, BrokerAdapter, IBKRAdapter
 from .risk_rules import MaxDailyLossRule, MaxNotionalRule, RiskEngine
@@ -34,8 +36,8 @@ class OrderRouter:
     def __init__(self, adapters: List[BrokerAdapter], risk_engine: RiskEngine) -> None:
         self._adapters = {adapter.name: adapter for adapter in adapters}
         self._risk_engine = risk_engine
-        self._orders_log: List[Dict[str, float]] = []
-        self._executions: List[Dict[str, float]] = []
+        self._orders_log: List[ExecutionReport] = []
+        self._executions: List[ExecutionReport] = []
         self._lock = threading.RLock()
         self._state = RouterState()
 
@@ -65,33 +67,35 @@ class OrderRouter:
                 raise RuntimeError("Daily notional limit exceeded")
             self._state.notional_routed = projected
 
-    def route_order(self, order: Dict[str, Any], context: Dict[str, float]) -> Dict[str, Any]:
-        broker_name = order.get("broker")
-        if not broker_name or broker_name not in self._adapters:
+    def route_order(self, order: OrderRequest, context: Dict[str, float]) -> ExecutionReport:
+        broker_name = order.broker
+        if broker_name not in self._adapters:
             raise KeyError("Unknown broker")
         adapter = self._adapters[broker_name]
         self._risk_engine.validate(order, context)
-        notional = order.get("quantity", 0.0) * order.get("price", context.get("last_price", 0.0))
+        price_reference = order.price or context.get("last_price", 0.0)
+        notional = order.quantity * price_reference
         self._apply_daily_limit(notional)
-        response = adapter.place_order(order)
+        reference_price = price_reference if price_reference > 0 else 1.0
+        response = adapter.place_order(order, reference_price=reference_price)
         with self._lock:
             self._orders_log.append(response)
             self._executions.extend(adapter.fetch_executions())
         return response
 
-    def cancel(self, broker: str, order_id: str) -> Dict[str, str]:
+    def cancel(self, broker: str, order_id: str) -> ExecutionReport:
         if broker not in self._adapters:
             raise KeyError("Unknown broker")
         result = self._adapters[broker].cancel_order(order_id)
         with self._lock:
-            self._orders_log.append({"order_id": order_id, "status": result["status"], "broker": broker})
+            self._orders_log.append(result)
         return result
 
-    def orders_log(self) -> List[Dict[str, Any]]:
+    def orders_log(self) -> List[ExecutionReport]:
         with self._lock:
             return list(self._orders_log)
 
-    def executions(self) -> List[Dict[str, Any]]:
+    def executions(self) -> List[ExecutionReport]:
         with self._lock:
             return list(self._executions)
 
@@ -100,7 +104,7 @@ router = OrderRouter(
     adapters=[BinanceAdapter(), IBKRAdapter()],
     risk_engine=RiskEngine(
         [
-            MaxNotionalRule({"BTCUSDT": 500_000.0, "AAPL": 250_000.0}),
+            MaxNotionalRule({limit.symbol: limit.notional_limit() for limit in iter_supported_pairs()}),
             MaxDailyLossRule(max_loss=50_000.0),
         ]
     ),
@@ -110,12 +114,12 @@ app = FastAPI(title="Order Router", version="0.1.0")
 install_entitlements_middleware(app, required_capabilities=["can.route_orders"])
 
 
-class OrderPayload(BaseModel):
-    broker: str
-    symbol: str
-    quantity: float = Field(gt=0)
-    price: Optional[float] = Field(default=None, gt=0)
-    estimated_loss: Optional[float] = None
+class OrderPayload(OrderRequest):
+    """Request payload aligning with the shared order contract."""
+
+
+class ExecutionPlanResponse(BaseModel):
+    plan: ExecutionPlan
 
 
 class CancelPayload(BaseModel):
@@ -137,15 +141,30 @@ def list_brokers() -> Dict[str, List[str]]:
     return {"brokers": router.list_brokers()}
 
 
-@app.post("/orders", status_code=status.HTTP_201_CREATED)
-def create_order(payload: OrderPayload, request: Request) -> Dict[str, Any]:
+@app.post("/plans", response_model=ExecutionPlanResponse)
+def preview_execution_plan(payload: OrderPayload) -> ExecutionPlanResponse:
+    limit = get_pair_limit(payload.venue, payload.symbol)
+    if limit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported trading pair")
+    if payload.quantity > limit.max_order_size:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order size exceeds sandbox limit")
+    return ExecutionPlanResponse(plan=build_plan(payload))
+
+
+@app.post("/orders", response_model=ExecutionReport, status_code=status.HTTP_201_CREATED)
+def create_order(payload: OrderPayload, request: Request) -> ExecutionReport:
     entitlements = getattr(request.state, "entitlements", None)
     bypass = getattr(entitlements, "customer_id", None) == "anonymous"
     if entitlements and not bypass and not entitlements.has("can.route_orders"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing capability")
-    context = {"daily_loss": 0.0, "last_price": payload.price or 0.0}
+    limit = get_pair_limit(payload.venue, payload.symbol)
+    if limit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported trading pair")
+    if payload.quantity > limit.max_order_size:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order size exceeds sandbox limit")
+    context = {"daily_loss": 0.0, "last_price": payload.price or limit.reference_price}
     try:
-        result = router.route_order(payload.model_dump(), context)
+        result = router.route_order(payload, context)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -155,22 +174,22 @@ def create_order(payload: OrderPayload, request: Request) -> Dict[str, Any]:
     return result
 
 
-@app.post("/orders/{broker}/cancel")
-def cancel_order(broker: str, payload: CancelPayload) -> Dict[str, str]:
+@app.post("/orders/{broker}/cancel", response_model=ExecutionReport)
+def cancel_order(broker: str, payload: CancelPayload) -> ExecutionReport:
     try:
         return router.cancel(broker, payload.order_id)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@app.get("/orders/log")
-def get_orders_log() -> Dict[str, List[Dict[str, Any]]]:
-    return {"orders": router.orders_log()}
+@app.get("/orders/log", response_model=List[ExecutionReport])
+def get_orders_log() -> List[ExecutionReport]:
+    return router.orders_log()
 
 
-@app.get("/executions")
-def get_executions() -> Dict[str, List[Dict[str, Any]]]:
-    return {"executions": router.executions()}
+@app.get("/executions", response_model=List[ExecutionReport])
+def get_executions() -> List[ExecutionReport]:
+    return router.executions()
 
 
 @app.get("/state")
