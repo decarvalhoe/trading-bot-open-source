@@ -55,6 +55,22 @@ Ce trading bot est une plateforme complète qui permet de :
 - 📋 **Alertes et notifications** : Système d'alertes personnalisables
 - 📋 **Rapports détaillés** : Analyses approfondies des résultats
 
+## 📊 Évaluation 2025 & actions futures
+
+Une revue technique complète du dépôt a été réalisée en septembre 2025. Elle confirme la solidité de
+l'architecture actuelle (microservices FastAPI, middleware d'entitlements partagé) et identifie les
+chantiers prioritaires pour livrer un parcours de trading opérationnel.
+
+- **Points forts** : base d'authentification avancée (MFA TOTP, rôles), CI E2E, Makefile facilitant
+  l'onboarding, documentation structurée.
+- **Points d'attention** : services trading encore embryonnaires, couverture de tests limitée, manque
+  d'observabilité et de gouvernance sécurité.
+- **Priorités recommandées (0-3 mois)** : finaliser le `user-service`, cadrer le MVP trading, étendre
+  les tests (unitaires + E2E TOTP), introduire observabilité et gestion sécurisée des secrets.
+
+Retrouvez le rapport détaillé et la feuille de route moyen terme dans
+[`docs/project-evaluation.md`](docs/project-evaluation.md).
+
 ## 🛠️ Pour les développeurs
 
 ### Démarrage rapide
