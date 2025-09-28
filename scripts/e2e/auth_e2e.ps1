@@ -9,7 +9,7 @@ function Assert($ok, $msg) {
 $h1 = curl.exe --noproxy "*" http://127.0.0.1:8011/health 2>$null
 $h2 = curl.exe --noproxy "*" http://127.0.0.1:8012/health 2>$null
 Assert ($h1 -match '"ok"' -or $h1 -match 'status' -or $h1 -match 'OK') "auth-service /health"
-# user-service peut ne pas répondre encore, on tolère (enlève ce commentaire quand prêt)
+Assert ($h2 -match '"ok"' -or $h2 -match 'status' -or $h2 -match 'OK') "user-service /health"
 
 # Register
 $email="dev$(Get-Date -Format 'yyyyMMddHHmmss')@example.com"
@@ -17,7 +17,8 @@ $reg = curl.exe -s -X POST "http://127.0.0.1:8011/auth/register" `
   -H "Content-Type: application/json" `
   -d "{\"email\": \"$email\", \"password\": \"Passw0rd!\"}"
 Assert ($LASTEXITCODE -eq 0) "register call"
-Write-Host "REGISTER => $reg"
+$regJson = $reg | ConvertFrom-Json
+$authUserId = $regJson.id
 
 # Login
 $login = curl.exe -s -X POST "http://127.0.0.1:8011/auth/login" `
@@ -31,5 +32,49 @@ Assert ($token) "access_token extracted"
 # Me
 $me = curl.exe -s -H "Authorization: Bearer $token" "http://127.0.0.1:8011/auth/me"
 Assert ($LASTEXITCODE -eq 0) "/auth/me call"
-Write-Host "ME => $me"
+
+# User service registration
+$userPayload = @{ email = $email; display_name = "Dev User" } | ConvertTo-Json
+$userResponse = curl.exe -s -X POST "http://127.0.0.1:8012/users/register" `
+  -H "Content-Type: application/json" `
+  -d $userPayload
+Assert ($LASTEXITCODE -eq 0) "user-service register"
+$userJson = $userResponse | ConvertFrom-Json
+$userId = $userJson.id
+
+$userToken = python -c "import os,sys; from datetime import datetime, timezone; from jose import jwt; secret=os.getenv('JWT_SECRET','dev-secret-change-me'); now=int(datetime.now(timezone.utc).timestamp()); print(jwt.encode({'sub': sys.argv[1], 'iat': now}, secret, algorithm='HS256'))" $userId
+Assert ($LASTEXITCODE -eq 0 -and $userToken) "user token generation"
+
+$headers = @{ "Authorization" = "Bearer $userToken"; "x-customer-id" = "$userId" }
+
+# Activate
+$activate = curl.exe -s -X POST "http://127.0.0.1:8012/users/$userId/activate" `
+  -H "Authorization: Bearer $userToken" `
+  -H "x-customer-id: $userId"
+Assert ($LASTEXITCODE -eq 0) "user activation"
+
+# Profile update
+$profilePayload = @{ display_name = "Dev Trader"; full_name = "Developer Example"; locale = "fr_FR"; marketing_opt_in = $true } | ConvertTo-Json
+$profile = curl.exe -s -X PATCH "http://127.0.0.1:8012/users/$userId" `
+  -H "Authorization: Bearer $userToken" `
+  -H "x-customer-id: $userId" `
+  -H "Content-Type: application/json" `
+  -d $profilePayload
+Assert ($LASTEXITCODE -eq 0) "profile update"
+
+# Preferences
+$prefsPayload = @{ preferences = @{ theme = "dark"; currency = "EUR" } } | ConvertTo-Json
+$prefs = curl.exe -s -X PUT "http://127.0.0.1:8012/users/me/preferences" `
+  -H "Authorization: Bearer $userToken" `
+  -H "x-customer-id: $userId" `
+  -H "Content-Type: application/json" `
+  -d $prefsPayload
+Assert ($LASTEXITCODE -eq 0) "preferences update"
+
+# Me (user service)
+$meUser = curl.exe -s "http://127.0.0.1:8012/users/me" `
+  -H "Authorization: Bearer $userToken" `
+  -H "x-customer-id: $userId"
+Assert ($LASTEXITCODE -eq 0) "user-service /users/me"
+
 Write-Host "E2E DONE ✅"
