@@ -20,8 +20,16 @@ if str(db.engine.url) != os.environ["DATABASE_URL"]:
 if os.environ["DATABASE_URL"].startswith("sqlite"):
     Path(TEST_DB).touch()
 
-from infra import EntitlementsBase  # noqa: E402
-from infra import ScreenerBase  # noqa: E402
+from infra import (  # noqa: E402
+    AuditBase,
+    EntitlementsBase,
+    MarketplaceBase,
+    ScreenerBase,
+    SocialBase,
+)
 
 EntitlementsBase.metadata.create_all(bind=db.engine)
 ScreenerBase.metadata.create_all(bind=db.engine)
+MarketplaceBase.metadata.create_all(bind=db.engine)
+SocialBase.metadata.create_all(bind=db.engine)
+AuditBase.metadata.create_all(bind=db.engine)
