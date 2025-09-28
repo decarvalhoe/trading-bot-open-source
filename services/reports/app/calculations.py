@@ -1,16 +1,27 @@
 from __future__ import annotations
 
+import csv
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
+from io import StringIO
 from statistics import mean
-from typing import Iterable
+from typing import Iterable, List, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from schemas.report import ReportResponse, ReportSection, StrategyMetrics, StrategyName, Timeframe
+from schemas.report import (
+    DailyRiskIncident,
+    DailyRiskReport,
+    ReportResponse,
+    ReportSection,
+    StrategyMetrics,
+    StrategyName,
+    Timeframe,
+    TradeOutcome,
+)
 
-from .tables import Outcome, ReportDaily, ReportIntraday, ReportSnapshot
+from .tables import ReportDaily, ReportIntraday, ReportSnapshot
 
 
 class ReportCalculator:
@@ -25,10 +36,10 @@ class ReportCalculator:
         return self._session.scalars(statement)
 
     @staticmethod
-    def _success_ratio(outcomes: list[Outcome]) -> float:
+    def _success_ratio(outcomes: list[TradeOutcome]) -> float:
         if not outcomes:
             return 0.0
-        wins = sum(1 for outcome in outcomes if outcome is Outcome.WIN)
+        wins = sum(1 for outcome in outcomes if outcome is TradeOutcome.WIN)
         return wins / len(outcomes)
 
     def _build_section(
@@ -130,3 +141,98 @@ def load_report_from_snapshots(session: Session, symbol: str) -> ReportResponse 
         daily=sections.get(Timeframe.DAILY),
         intraday=sections.get(Timeframe.INTRADAY),
     )
+
+
+class DailyRiskCalculator:
+    """Aggregate daily P&L, drawdown and incident metadata."""
+
+    def __init__(self, session: Session):
+        self._session = session
+
+    def _fetch_rows(self, account: str | None) -> list[ReportDaily]:
+        statement = select(ReportDaily)
+        if account:
+            statement = statement.where(ReportDaily.account == account)
+        statement = statement.order_by(ReportDaily.account, ReportDaily.session_date, ReportDaily.id)
+        return list(self._session.scalars(statement))
+
+    @staticmethod
+    def _incidents(rows: Sequence[ReportDaily]) -> list[DailyRiskIncident]:
+        incidents: list[DailyRiskIncident] = []
+        for row in rows:
+            if row.outcome is not TradeOutcome.LOSS:
+                continue
+            incidents.append(
+                DailyRiskIncident(
+                    symbol=row.symbol,
+                    strategy=row.strategy,
+                    pnl=row.pnl,
+                    outcome=row.outcome,
+                    note="Loss recorded against stop or target",
+                )
+            )
+        return incidents
+
+    def generate(self, account: str | None = None, limit: int | None = 30) -> List[DailyRiskReport]:
+        rows = self._fetch_rows(account)
+        if not rows:
+            return []
+
+        grouped: dict[str, dict[date, list[ReportDaily]]] = defaultdict(dict)
+        for row in rows:
+            bucket = grouped.setdefault(row.account, {}).setdefault(row.session_date, [])
+            bucket.append(row)
+
+        summaries: list[DailyRiskReport] = []
+        for account_id, per_day in grouped.items():
+            ordered_dates = sorted(per_day.keys())
+            cumulative = 0.0
+            peak_equity = 0.0
+            max_drawdown_so_far = 0.0
+            drawdown_by_date: dict[date, float] = {}
+            for session_date in ordered_dates:
+                day_rows = per_day[session_date]
+                day_pnl = sum(row.pnl for row in day_rows)
+                cumulative += day_pnl
+                peak_equity = max(peak_equity, cumulative)
+                current_drawdown = max(0.0, peak_equity - cumulative)
+                max_drawdown_so_far = max(max_drawdown_so_far, current_drawdown)
+                drawdown_by_date[session_date] = max_drawdown_so_far
+
+            for session_date in ordered_dates:
+                day_rows = per_day[session_date]
+                summaries.append(
+                    DailyRiskReport(
+                        session_date=session_date,
+                        account=account_id,
+                        pnl=sum(row.pnl for row in day_rows),
+                        max_drawdown=drawdown_by_date[session_date],
+                        incidents=self._incidents(day_rows),
+                    )
+                )
+
+        summaries.sort(key=lambda report: (report.session_date, report.account), reverse=True)
+        if limit is not None and limit > 0:
+            summaries = summaries[:limit]
+        return summaries
+
+    @staticmethod
+    def export_csv(reports: Sequence[DailyRiskReport]) -> str:
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["session_date", "account", "pnl", "max_drawdown", "incidents"])
+        for report in reports:
+            incident_notes = ";".join(
+                f"{incident.symbol}:{incident.strategy.value}:{incident.outcome.value}" for incident in report.incidents
+            )
+            writer.writerow(
+                [
+                    report.session_date.isoformat(),
+                    report.account,
+                    f"{report.pnl:.2f}",
+                    f"{report.max_drawdown:.2f}",
+                    incident_notes,
+                ]
+            )
+        buffer.seek(0)
+        return buffer.getvalue()

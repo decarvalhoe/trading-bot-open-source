@@ -39,6 +39,10 @@ def reset_router_state():
     router._orders_log.clear()  # type: ignore[attr-defined]
     router._executions.clear()  # type: ignore[attr-defined]
     router._state.notional_routed = 0.0  # type: ignore[attr-defined]
+    router._risk_alerts.clear()  # type: ignore[attr-defined]
+    router._limit_store._positions.clear()  # type: ignore[attr-defined]
+    router._limit_store._stop_losses.clear()  # type: ignore[attr-defined]
+    router._limit_store.set_stop_loss("default", 50_000.0)  # type: ignore[attr-defined]
     router.update_state(mode="paper", limit=1_000_000.0)
     yield
 
@@ -120,7 +124,34 @@ def test_risk_rule_rejection():
         },
     )
     assert response.status_code == 400
-    assert "Notional" in response.json()["detail"]
+    assert "notional" in response.json()["detail"].lower()
+
+
+def test_stop_loss_alert_and_endpoint():
+    client = TestClient(app)
+    response = client.post(
+        "/orders",
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 0.2,
+            "price": 30_000,
+            "risk": {
+                "account_id": "alert-account",
+                "realized_pnl": -45_000,
+                "unrealized_pnl": -1_000,
+                "stop_loss": 50_000,
+            },
+        },
+    )
+    assert response.status_code == 201
+    alerts_resp = client.get("/risk/alerts")
+    assert alerts_resp.status_code == 200
+    alerts = alerts_resp.json()
+    assert any(alert["rule_id"] == "stop_loss" for alert in alerts)
 
 
 def test_preview_execution_plan():
