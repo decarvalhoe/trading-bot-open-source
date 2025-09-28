@@ -7,7 +7,7 @@ from typing import Callable, Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
-from ..adapters import BinanceMarketDataAdapter, IBKRMarketDataAdapter
+from ..adapters import BinanceMarketConnector, IBKRMarketConnector
 from ..app.persistence import persist_ohlcv, persist_ticks
 from ..app.schemas import PersistedBar, PersistedTick
 
@@ -18,8 +18,8 @@ class MarketDataCollector:
     def __init__(
         self,
         *,
-        binance: BinanceMarketDataAdapter,
-        ibkr: IBKRMarketDataAdapter,
+        binance: BinanceMarketConnector,
+        ibkr: IBKRMarketConnector,
         session_factory: Callable[[], AbstractContextManager[Session]],
     ) -> None:
         self._binance = binance
@@ -29,7 +29,7 @@ class MarketDataCollector:
 
     async def collect_binance_ohlcv(self, symbol: str, interval: str) -> None:
         while not self._stop_event.is_set():
-            bars = await self._binance.fetch_ohlcv(symbol, interval)
+            bars = await self._binance.fetch_ohlcv(symbol, interval=interval)
             rows = [
                 PersistedBar(
                     exchange="binance",
@@ -51,7 +51,7 @@ class MarketDataCollector:
             await asyncio.sleep(60)
 
     async def stream_ibkr_ticks(self, contract) -> None:
-        async for ticker in self._ibkr.stream_ticks(contract):
+        async for ticker in self._ibkr.stream_trades(contract):
             if self._stop_event.is_set():
                 break
             row = PersistedTick(

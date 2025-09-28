@@ -6,13 +6,15 @@ from typing import Any, AsyncIterator, Iterable
 
 from ib_async.ib import IB
 
+from libs.connectors import MarketConnector
+
 from .rate_limiter import AsyncRateLimiter
 
 
 logger = logging.getLogger(__name__)
 
 
-class IBKRMarketDataAdapter:
+class IBKRMarketConnector(MarketConnector):
     """Adapter that wraps the asynchronous interface exposed by ``ib_async``."""
 
     def __init__(
@@ -66,7 +68,7 @@ class IBKRMarketDataAdapter:
             formatDate=format_date,
         )
 
-    async def stream_ticks(self, contract: Any) -> AsyncIterator[Any]:
+    async def stream_trades(self, contract: Any) -> AsyncIterator[Any]:
         while True:
             try:
                 await self.ensure_connected()

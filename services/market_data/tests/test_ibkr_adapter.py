@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import asyncio
+from collections.abc import AsyncIterator
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, Iterable
 
-import pytest
-
-from services.market_data.adapters import IBKRMarketDataAdapter
+from libs.connectors import MarketConnector
+from services.market_data.adapters import IBKRMarketConnector
 
 
 class FakeEvent:
@@ -57,33 +59,50 @@ class FakeIB:
         return None
 
 
-@pytest.mark.asyncio
-async def test_ibkr_fetch_uses_rate_limit() -> None:
-    fake_ib = FakeIB()
-    adapter = IBKRMarketDataAdapter(host="127.0.0.1", port=4001, client_id=1, ib=fake_ib, request_rate=1, request_interval_seconds=0.2)
+def test_ibkr_fetch_uses_rate_limit() -> None:
+    async def run() -> None:
+        fake_ib = FakeIB()
+        adapter: MarketConnector = IBKRMarketConnector(
+            host="127.0.0.1",
+            port=4001,
+            client_id=1,
+            ib=fake_ib,
+            request_rate=1,
+            request_interval_seconds=0.2,
+        )
 
-    await adapter.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
-    await adapter.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
+        await adapter.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
+        await adapter.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
 
-    assert len(fake_ib.reqHistoricalData_calls) == 2
+        assert len(fake_ib.reqHistoricalData_calls) == 2
+
+    asyncio.run(run())
 
 
-@pytest.mark.asyncio
-async def test_ibkr_stream_reconnects() -> None:
-    fake_ib = FakeIB()
-    adapter = IBKRMarketDataAdapter(host="127.0.0.1", port=4001, client_id=1, ib=fake_ib, reconnect_delay=0.01)
+def test_ibkr_stream_reconnects() -> None:
+    async def run() -> None:
+        fake_ib = FakeIB()
+        adapter: MarketConnector = IBKRMarketConnector(
+            host="127.0.0.1",
+            port=4001,
+            client_id=1,
+            ib=fake_ib,
+            reconnect_delay=0.01,
+        )
 
-    async def collect(stream: AsyncIterator[Any]) -> list[Any]:
-        items: list[Any] = []
-        async for ticker in stream:
-            items.append(ticker)
-            if len(items) == 1:
-                break
-        return items
+        async def collect(stream: AsyncIterator[Any]) -> list[Any]:
+            items: list[Any] = []
+            async for ticker in stream:
+                items.append(ticker)
+                if len(items) == 1:
+                    break
+            return items
 
-    stream = adapter.stream_ticks("ES")
-    items = await collect(stream)
-    await stream.aclose()
+        stream = adapter.stream_trades("ES")
+        items = await collect(stream)
+        await stream.aclose()
 
-    assert fake_ib.reqMktData_calls == 2
-    assert items[0].last == 10.0
+        assert fake_ib.reqMktData_calls == 2
+        assert items[0].last == 10.0
+
+    asyncio.run(run())

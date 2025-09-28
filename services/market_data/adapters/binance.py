@@ -8,13 +8,15 @@ from typing import Any, AsyncIterator, Callable, Dict, Iterable
 from binance.spot import Spot
 from binance.websocket.websocket_client import BinanceWebsocketClient
 
+from libs.connectors import MarketConnector
+
 from .rate_limiter import AsyncRateLimiter
 
 
 logger = logging.getLogger(__name__)
 
 
-class BinanceMarketDataAdapter:
+class BinanceMarketConnector(MarketConnector):
     """Adapter that exposes a coroutine-based interface over Binance's APIs."""
 
     def __init__(

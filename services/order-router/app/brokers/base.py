@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import abc
-from typing import Dict, List
+from typing import Dict, Iterable, List
 
+from libs.connectors import ExecutionClient
 from schemas.market import ExecutionReport, ExecutionStatus, OrderRequest
 
 
-class BrokerAdapter(abc.ABC):
+class BrokerAdapter(ExecutionClient, abc.ABC):
     """Abstract broker adapter."""
 
     name: str
@@ -28,7 +29,7 @@ class BrokerAdapter(abc.ABC):
         self._reports[order_id] = cancelled
         return cancelled
 
-    def fetch_executions(self) -> List[ExecutionReport]:
+    def fetch_executions(self) -> Iterable[ExecutionReport]:
         return [
             report
             for report in self._reports.values()

@@ -5,9 +5,8 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any, Callable
 
-import pytest
-
-from services.market_data.adapters import BinanceMarketDataAdapter
+from libs.connectors import MarketConnector
+from services.market_data.adapters import BinanceMarketConnector
 
 
 class FakeSpotClient:
@@ -50,8 +49,7 @@ class FakeWebsocketClient:
         return None
 
 
-@pytest.mark.asyncio
-async def test_binance_fetch_respects_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_binance_fetch_respects_rate_limit() -> None:
     fake = FakeSpotClient()
     counter = {"value": 0}
 
@@ -59,32 +57,34 @@ async def test_binance_fetch_respects_rate_limit(monkeypatch: pytest.MonkeyPatch
         counter["value"] += 1
         return FakeWebsocketClient(sequence=counter["value"], **kwargs)
 
-    adapter = BinanceMarketDataAdapter(
+    adapter: MarketConnector = BinanceMarketConnector(
         rest_client=fake,
         websocket_client_factory=factory,
         request_rate=1,
         request_interval_seconds=0.2,
     )
 
-    first = asyncio.get_running_loop().time()
-    await adapter.fetch_ohlcv("BTCUSDT", "1m")
-    second = asyncio.get_running_loop().time()
-    await adapter.fetch_ohlcv("BTCUSDT", "1m")
-    third = asyncio.get_running_loop().time()
+    async def run() -> None:
+        first = asyncio.get_running_loop().time()
+        await adapter.fetch_ohlcv("BTCUSDT", "1m")
+        second = asyncio.get_running_loop().time()
+        await adapter.fetch_ohlcv("BTCUSDT", "1m")
+        third = asyncio.get_running_loop().time()
 
-    assert third - second >= 0.18
-    assert fake.calls[0]["symbol"] == "BTCUSDT"
+        assert third - second >= 0.18
+        assert fake.calls[0]["symbol"] == "BTCUSDT"
+
+    asyncio.run(run())
 
 
-@pytest.mark.asyncio
-async def test_binance_stream_reconnects(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_binance_stream_reconnects() -> None:
     counter = {"value": 0}
 
     def factory(**kwargs: Any) -> FakeWebsocketClient:
         counter["value"] += 1
         return FakeWebsocketClient(sequence=counter["value"], **kwargs)
 
-    adapter = BinanceMarketDataAdapter(
+    adapter: MarketConnector = BinanceMarketConnector(
         rest_client=FakeSpotClient(),
         websocket_client_factory=factory,
         reconnect_delay=0.01,
@@ -98,8 +98,11 @@ async def test_binance_stream_reconnects(monkeypatch: pytest.MonkeyPatch) -> Non
                 break
         return items
 
-    stream = adapter.stream_trades("BTCUSDT")
-    items = await take_two(stream)
-    await stream.aclose()
+    async def run() -> None:
+        stream = adapter.stream_trades("BTCUSDT")
+        items = await take_two(stream)
+        await stream.aclose()
 
-    assert [item["p"] for item in items] == ["42000", "42001"]
+        assert [item["p"] for item in items] == ["42000", "42001"]
+
+    asyncio.run(run())
