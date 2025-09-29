@@ -5,3 +5,4 @@ SQLAlchemy>=2
 psycopg2-binary
 python-jose[cryptography]
 prometheus-client>=0.20
+alembic
