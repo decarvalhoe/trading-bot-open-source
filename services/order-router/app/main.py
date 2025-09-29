@@ -24,19 +24,20 @@ from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
 from schemas.market import (
     ExecutionFill,
     ExecutionPlan,
-    ExecutionReport,
     ExecutionStatus,
     ExecutionVenue,
-    OrderRequest,
     OrderSide,
 )
 from schemas.order_router import (
+    ExecutionIntent,
     ExecutionRecord,
+    ExecutionReport,
     ExecutionsMetadata,
     OrderRecord,
     OrdersLogMetadata,
     PaginatedExecutions,
     PaginatedOrders,
+    RiskOverrides,
 )
 
 from .database import get_session
@@ -120,7 +121,7 @@ class OrderRouter:
 
     def route_order(
         self,
-        order: OrderRequest,
+        order: ExecutionIntent,
         context: Dict[str, Any],
         *,
         session: Session,
@@ -173,7 +174,7 @@ class OrderRouter:
     def _persist_order(
         self,
         session: Session,
-        order: OrderRequest,
+        order: ExecutionIntent,
         report: ExecutionReport,
         account_id: str,
     ) -> None:
@@ -474,20 +475,6 @@ app.add_middleware(RequestContextMiddleware, service_name="order-router")
 setup_metrics(app, service_name="order-router")
 
 
-class RiskOverrides(BaseModel):
-    account_id: str = Field(default="default", min_length=1, max_length=64)
-    realized_pnl: float | None = None
-    unrealized_pnl: float | None = None
-    stop_loss: float | None = Field(default=None, gt=0)
-
-
-class OrderPayload(OrderRequest):
-    """Request payload aligning with the shared order contract."""
-
-    account_id: str | None = Field(default=None, min_length=1, max_length=64)
-    risk: RiskOverrides | None = None
-
-
 class ExecutionPlanResponse(BaseModel):
     plan: ExecutionPlan
 
@@ -519,7 +506,7 @@ def list_brokers() -> Dict[str, List[str]]:
 
 
 @app.post("/plans", response_model=ExecutionPlanResponse)
-def preview_execution_plan(payload: OrderPayload) -> ExecutionPlanResponse:
+def preview_execution_plan(payload: ExecutionIntent) -> ExecutionPlanResponse:
     limit = get_pair_limit(payload.venue, payload.symbol)
     if limit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported trading pair")
@@ -530,7 +517,7 @@ def preview_execution_plan(payload: OrderPayload) -> ExecutionPlanResponse:
 
 @app.post("/orders", response_model=ExecutionReport, status_code=status.HTTP_201_CREATED)
 def create_order(
-    payload: OrderPayload,
+    payload: ExecutionIntent,
     request: Request,
     session: Session = Depends(get_session),
 ) -> ExecutionReport:
