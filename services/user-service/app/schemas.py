@@ -25,18 +25,18 @@ class UserCreate(BaseModel):
     """Payload required to create or register a user."""
 
     email: EmailStr
-    display_name: Optional[str] = Field(default=None, max_length=120)
-    full_name: Optional[str] = Field(default=None, max_length=255)
-    locale: Optional[str] = Field(default=None, max_length=16)
+    first_name: str = Field(max_length=120)
+    last_name: str = Field(max_length=120)
+    phone: Optional[str] = Field(default=None, max_length=32)
     marketing_opt_in: bool = Field(default=False)
 
 
 class UserUpdate(BaseModel):
     """Payload for updating user profile information."""
 
-    display_name: Optional[str] = Field(default=None, max_length=120)
-    full_name: Optional[str] = Field(default=None, max_length=255)
-    locale: Optional[str] = Field(default=None, max_length=16)
+    first_name: Optional[str] = Field(default=None, max_length=120)
+    last_name: Optional[str] = Field(default=None, max_length=120)
+    phone: Optional[str] = Field(default=None, max_length=32)
     marketing_opt_in: Optional[bool] = None
 
 
@@ -47,9 +47,9 @@ class UserResponse(BaseModel):
 
     id: int
     email: EmailStr | None = None
-    display_name: Optional[str] = None
-    full_name: Optional[str] = None
-    locale: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
     marketing_opt_in: Optional[bool] = None
     is_active: bool
     created_at: datetime

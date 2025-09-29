@@ -98,9 +98,15 @@ def _admin_entitlements():
 
 def test_signup_activation_profile_flow(client, session_factory):
     email = "flow@example.com"
+    register_payload = {
+        "email": email,
+        "first_name": "Flow",
+        "last_name": "Example",
+        "phone": "+33123456789",
+    }
     register_resp = client.post(
         "/users/register",
-        json={"email": email, "display_name": "Flow"},
+        json=register_payload,
         headers=_service_auth_header(),
     )
     assert register_resp.status_code == 201
@@ -120,9 +126,9 @@ def test_signup_activation_profile_flow(client, session_factory):
     assert activate_resp.json()["is_active"] is True
 
     profile_payload = {
-        "display_name": "Flow User",
-        "full_name": "Flow Example",
-        "locale": "fr_FR",
+        "first_name": "Flowy",
+        "last_name": "User",
+        "phone": "+33987654321",
         "marketing_opt_in": True,
     }
     update_resp = client.put(
@@ -132,8 +138,9 @@ def test_signup_activation_profile_flow(client, session_factory):
     )
     assert update_resp.status_code == 200
     body = update_resp.json()
-    assert body["display_name"] == "Flow User"
-    assert body["full_name"] == "Flow Example"
+    assert body["first_name"] == "Flowy"
+    assert body["last_name"] == "User"
+    assert body["phone"] == "+33987654321"
     assert body["marketing_opt_in"] is True
 
     prefs_payload = {"preferences": {"theme": "dark", "currency": "EUR"}}
@@ -149,13 +156,16 @@ def test_signup_activation_profile_flow(client, session_factory):
     assert me_resp.status_code == 200
     me_body = me_resp.json()
     assert me_body["email"] == email
+    assert me_body["first_name"] == "Flowy"
     assert me_body["preferences"] == prefs_payload["preferences"]
 
     with session_factory() as session:
         stored = session.get(User, user_id)
         assert stored is not None
         assert stored.is_active is True
-        assert stored.display_name == "Flow User"
+        assert stored.first_name == "Flowy"
+        assert stored.last_name == "User"
+        assert stored.phone == "+33987654321"
         prefs_row = session.get(UserPreferences, user_id)
         assert prefs_row is not None
         assert prefs_row.preferences == prefs_payload["preferences"]
@@ -169,7 +179,9 @@ def test_list_users_pagination(client, session_factory):
             session.add(
                 User(
                     email=f"user{index}@example.com",
-                    display_name=f"User {index}",
+                    first_name=f"User{index}",
+                    last_name="Tester",
+                    phone=f"+3300000000{index}",
                     is_active=True,
                 )
             )
@@ -224,8 +236,9 @@ def test_get_user_requires_manage_users_capability(client, session_factory):
     with session_factory() as session:
         target = User(
             email="target@example.com",
-            display_name="Target",
-            full_name="Target Name",
+            first_name="Target",
+            last_name="Name",
+            phone="+33101010101",
             marketing_opt_in=True,
             is_active=True,
         )
@@ -259,7 +272,9 @@ def test_get_user_requires_manage_users_capability(client, session_factory):
     assert admin_resp.status_code == 200
     admin_data = admin_resp.json()
     assert admin_data["email"] == "target@example.com"
-    assert admin_data["full_name"] == "Target Name"
+    assert admin_data["first_name"] == "Target"
+    assert admin_data["last_name"] == "Name"
+    assert admin_data["phone"] == "+33101010101"
     assert admin_data["marketing_opt_in"] is True
 
     app.dependency_overrides.pop(main.get_entitlements, None)
@@ -267,7 +282,7 @@ def test_get_user_requires_manage_users_capability(client, session_factory):
 
 def test_delete_me_performs_soft_delete(client, session_factory):
     with session_factory() as session:
-        user = User(email="self-delete@example.com", is_active=True)
+        user = User(email="self-delete@example.com", first_name="Self", last_name="Delete", is_active=True)
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -296,12 +311,17 @@ def test_delete_me_performs_soft_delete(client, session_factory):
 
 def test_user_cannot_modify_other_profile_without_rights(client, session_factory):
     with session_factory() as session:
-        target = User(email="target2@example.com", is_active=True)
+        target = User(
+            email="target2@example.com",
+            first_name="Other",
+            last_name="Target",
+            is_active=True,
+        )
         session.add(target)
         session.commit()
         session.refresh(target)
         target_id = target.id
-        actor = User(email="actor@example.com", is_active=True)
+        actor = User(email="actor@example.com", first_name="Actor", last_name="User", is_active=True)
         session.add(actor)
         session.commit()
         session.refresh(actor)
@@ -314,7 +334,7 @@ def test_user_cannot_modify_other_profile_without_rights(client, session_factory
 
     headers = _auth_header(actor_id)
     update_resp = client.patch(
-        f"/users/{target_id}", json={"display_name": "Hack"}, headers=headers
+        f"/users/{target_id}", json={"first_name": "Hack"}, headers=headers
     )
     assert update_resp.status_code == 403
 
@@ -328,7 +348,8 @@ def test_admin_can_update_and_soft_delete_user(client, session_factory):
     with session_factory() as session:
         user = User(
             email="admin-target@example.com",
-            display_name="Initial",
+            first_name="Initial",
+            last_name="Admin",
             is_active=True,
         )
         session.add(user)
@@ -347,15 +368,24 @@ def test_admin_can_update_and_soft_delete_user(client, session_factory):
 
     update_resp = client.patch(
         f"/users/{user_id}",
-        json={"display_name": "Admin Updated"},
+        json={"last_name": "Updated"},
         headers=headers,
     )
     assert update_resp.status_code == 200
-    assert update_resp.json()["display_name"] == "Admin Updated"
+    assert update_resp.json()["last_name"] == "Updated"
 
     list_resp = client.get("/users", headers=headers)
     assert list_resp.status_code == 200
-    assert len(list_resp.json()) == 1
+    list_data = list_resp.json()
+    assert list_data["pagination"] == {
+        "total": 1,
+        "count": 1,
+        "limit": 20,
+        "offset": 0,
+    }
+    assert [item["email"] for item in list_data["items"]] == [
+        "admin-target@example.com"
+    ]
 
     delete_resp = client.delete(f"/users/{user_id}", headers=headers)
     assert delete_resp.status_code == 204
@@ -371,6 +401,9 @@ def test_admin_can_update_and_soft_delete_user(client, session_factory):
 
     list_after = client.get("/users", headers=headers)
     assert list_after.status_code == 200
-    assert list_after.json() == []
+    assert list_after.json() == {
+        "items": [],
+        "pagination": {"total": 0, "count": 0, "limit": 20, "offset": 0},
+    }
 
     app.dependency_overrides.pop(main.get_entitlements, None)
