@@ -86,16 +86,105 @@ def test_route_order_and_logging():
     log_resp = client.get("/orders/log")
     assert log_resp.status_code == 200
     log_payload = log_resp.json()
-    assert log_payload["total"] == 1
-    assert log_payload["limit"] == 100
+    metadata = log_payload["metadata"]
+    assert metadata["total"] == 1
+    assert metadata["limit"] == 100
+    assert metadata["offset"] == 0
     assert len(log_payload["items"]) == 1
     assert log_payload["items"][0]["broker"] == "binance"
 
     exec_resp = client.get("/executions")
     assert exec_resp.status_code == 200
     exec_payload = exec_resp.json()
-    assert exec_payload["total"] >= 1
+    exec_metadata = exec_payload["metadata"]
+    assert exec_metadata["total"] >= 1
+    assert exec_metadata["limit"] == 100
+    assert exec_metadata["offset"] == 0
     assert exec_payload["items"]
+
+
+def test_orders_log_filters_by_account():
+    client = TestClient(app)
+    first = client.post(
+        "/orders",
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 0.5,
+            "price": 30_000,
+            "account_id": "acct-1",
+        },
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/orders",
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "ETHUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 1.0,
+            "price": 2_000,
+            "account_id": "acct-2",
+        },
+    )
+    assert second.status_code == 201
+
+    response = client.get("/orders/log", params={"account_id": "acct-1"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metadata"]["total"] == 1
+    assert all(order["account_id"] == "acct-1" for order in payload["items"])
+
+
+def test_executions_filters_by_symbol_and_account():
+    client = TestClient(app)
+    first = client.post(
+        "/orders",
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 0.5,
+            "price": 30_000,
+            "account_id": "acct-1",
+        },
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/orders",
+        json={
+            "broker": "binance",
+            "venue": "binance.spot",
+            "symbol": "ETHUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 1.0,
+            "price": 2_000,
+            "account_id": "acct-2",
+        },
+    )
+    assert second.status_code == 201
+
+    response = client.get(
+        "/executions", params={"symbol": "ETHUSDT", "account_id": "acct-2"}
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    metadata = payload["metadata"]
+    assert metadata["total"] >= 1
+    assert metadata["symbol"] == "ETHUSDT"
+    assert metadata["account_id"] == "acct-2"
+    assert all(exec_["symbol"] == "ETHUSDT" for exec_ in payload["items"])
+    assert all(exec_["account_id"] == "acct-2" for exec_ in payload["items"])
 
 
 def test_daily_notional_limit_enforced():

@@ -71,23 +71,43 @@ class OrderRecord(BaseModel):
         return value
 
 
-class PaginatedOrders(BaseModel):
-    items: List[OrderRecord]
+class PaginationMetadata(BaseModel):
     limit: int
     offset: int
     total: int
+
+
+class OrdersLogMetadata(PaginationMetadata):
+    account_id: str | None = None
+    symbol: str | None = None
+    start: datetime | None = None
+    end: datetime | None = None
+
+
+class ExecutionsMetadata(PaginationMetadata):
+    account_id: str | None = None
+    symbol: str | None = None
+    start: datetime | None = None
+    end: datetime | None = None
+    order_id: int | None = None
+
+
+class PaginatedOrders(BaseModel):
+    items: List[OrderRecord]
+    metadata: OrdersLogMetadata
 
 
 class PaginatedExecutions(BaseModel):
     items: List[ExecutionRecord]
-    limit: int
-    offset: int
-    total: int
+    metadata: ExecutionsMetadata
 
 
 __all__ = [
     "ExecutionRecord",
     "OrderRecord",
+    "PaginationMetadata",
+    "OrdersLogMetadata",
+    "ExecutionsMetadata",
     "PaginatedExecutions",
     "PaginatedOrders",
 ]
