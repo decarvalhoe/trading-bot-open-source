@@ -17,6 +17,10 @@
         <th>Average return</th>
         <th>Volatility</th>
         <th>Sharpe ratio</th>
+        <th>Sortino ratio</th>
+        <th>Alpha</th>
+        <th>Beta</th>
+        <th>Tracking error</th>
         <th>Max drawdown</th>
         <th>Observations</th>
         <th>Positive days</th>
@@ -33,6 +37,10 @@
           <td>{{ '%.2f'|format(item.average_return) }}</td>
           <td>{{ '%.2f'|format(item.volatility) }}</td>
           <td>{{ '%.2f'|format(item.sharpe_ratio) }}</td>
+          <td>{{ '%.2f'|format(item.sortino_ratio) }}</td>
+          <td>{{ '%.2f'|format(item.alpha) }}</td>
+          <td>{{ '%.2f'|format(item.beta) }}</td>
+          <td>{{ '%.2f'|format(item.tracking_error) }}</td>
           <td>{{ '%.2f'|format(item.max_drawdown) }}</td>
           <td>{{ item.observation_count }}</td>
           <td>{{ item.positive_days }}</td>

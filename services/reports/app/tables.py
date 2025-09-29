@@ -57,9 +57,20 @@ class ReportSnapshot(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ReportBenchmark(Base):
+    __tablename__ = "report_benchmarks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    symbol: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    session_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    return_value: Mapped[float] = mapped_column(Float, nullable=False)
+
+
 __all__ = [
     "Base",
     "ReportDaily",
     "ReportIntraday",
     "ReportSnapshot",
+    "ReportBenchmark",
 ]

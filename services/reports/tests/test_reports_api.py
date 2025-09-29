@@ -13,7 +13,13 @@ import pytest
 from services.reports.app import config
 from services.reports.app.database import get_engine, reset_engine, session_scope
 from services.reports.app.main import app
-from services.reports.app.tables import Base, ReportDaily, ReportIntraday, ReportSnapshot
+from services.reports.app.tables import (
+    Base,
+    ReportBenchmark,
+    ReportDaily,
+    ReportIntraday,
+    ReportSnapshot,
+)
 from schemas.report import StrategyName, TradeOutcome
 
 
@@ -83,6 +89,18 @@ def _seed_sample_data() -> None:
                     stop_price=190.2,
                     outcome=TradeOutcome.WIN,
                     pnl=2.0,
+                ),
+                ReportBenchmark(
+                    account="default",
+                    symbol="SPY",
+                    session_date=date(2024, 3, 18),
+                    return_value=1.0,
+                ),
+                ReportBenchmark(
+                    account="default",
+                    symbol="SPY",
+                    session_date=date(2024, 3, 19),
+                    return_value=-0.5,
                 ),
             ]
         )
@@ -187,12 +205,20 @@ def test_portfolio_performance_endpoint(tmp_path: Path) -> None:
         assert round(default_account["total_return"], 2) == 0.8
         assert round(default_account["volatility"], 2) == 1.6
         assert round(default_account["sharpe_ratio"], 2) == 0.25
+        assert round(default_account["sortino_ratio"], 2) == 0.47
+        assert round(default_account["alpha"], 2) == -0.13
+        assert round(default_account["beta"], 2) == 2.13
+        assert round(default_account["tracking_error"], 2) == 0.86
         assert round(default_account["max_drawdown"], 2) == 1.2
 
         swing_account = next(item for item in payload if item["account"] == "swing")
         assert swing_account["observation_count"] == 1
         assert swing_account["volatility"] == 0.0
         assert swing_account["sharpe_ratio"] == 0.0
+        assert swing_account["sortino_ratio"] == 0.0
+        assert swing_account["alpha"] == 0.0
+        assert swing_account["beta"] == 0.0
+        assert swing_account["tracking_error"] == 0.0
 
         filtered = client.get("/reports/performance", params={"account": "unknown"})
         assert filtered.status_code == 200

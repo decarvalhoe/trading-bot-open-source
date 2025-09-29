@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import csv
 from collections import defaultdict
+import math
 from datetime import date, datetime
 from io import StringIO
 from statistics import mean, pstdev
 from typing import Iterable, List, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from schemas.report import (
@@ -22,7 +23,7 @@ from schemas.report import (
     TradeOutcome,
 )
 
-from .tables import ReportDaily, ReportIntraday, ReportSnapshot
+from .tables import ReportBenchmark, ReportDaily, ReportIntraday, ReportSnapshot
 
 
 class ReportCalculator:
@@ -217,6 +218,85 @@ class DailyRiskCalculator:
             summaries = summaries[:limit]
         return summaries
 
+    def _load_benchmarks(
+        self, account: str | None, dates: Sequence[date]
+    ) -> dict[date, float]:
+        if not dates:
+            return {}
+
+        statement = select(ReportBenchmark).where(ReportBenchmark.session_date.in_(dates))
+        if account:
+            statement = statement.where(
+                or_(ReportBenchmark.account == account, ReportBenchmark.account.is_(None))
+            )
+        rows = list(self._session.scalars(statement))
+        if not rows:
+            return {}
+
+        benchmarks: dict[date, float] = {}
+        for row in rows:
+            if account:
+                if row.account == account:
+                    benchmarks[row.session_date] = row.return_value
+                elif row.account is None and row.session_date not in benchmarks:
+                    benchmarks[row.session_date] = row.return_value
+            else:
+                if row.account is None:
+                    benchmarks[row.session_date] = row.return_value
+                elif row.session_date not in benchmarks:
+                    benchmarks[row.session_date] = row.return_value
+        return benchmarks
+
+    @staticmethod
+    def _compute_sortino(returns: Sequence[float]) -> float:
+        if not returns:
+            return 0.0
+
+        average_return = mean(returns)
+        downside = [min(0.0, value) for value in returns]
+        downside_squared = [value**2 for value in downside if value < 0]
+        if not downside_squared:
+            return 0.0
+
+        downside_deviation = math.sqrt(sum(downside_squared) / len(returns))
+        if downside_deviation == 0:
+            return 0.0
+        return average_return / downside_deviation
+
+    @staticmethod
+    def _compute_alpha_beta(
+        portfolio_returns: Sequence[float], benchmark_returns: Sequence[float]
+    ) -> tuple[float, float]:
+        if len(portfolio_returns) < 2 or len(benchmark_returns) < 2:
+            return 0.0, 0.0
+
+        portfolio_mean = mean(portfolio_returns)
+        benchmark_mean = mean(benchmark_returns)
+        benchmark_variance = sum((value - benchmark_mean) ** 2 for value in benchmark_returns) / len(
+            benchmark_returns
+        )
+        if benchmark_variance == 0:
+            return 0.0, 0.0
+
+        covariance = sum(
+            (port - portfolio_mean) * (bench - benchmark_mean)
+            for port, bench in zip(portfolio_returns, benchmark_returns)
+        ) / len(portfolio_returns)
+        beta = covariance / benchmark_variance
+        alpha = portfolio_mean - beta * benchmark_mean
+        return alpha, beta
+
+    @staticmethod
+    def _compute_tracking_error(
+        portfolio_returns: Sequence[float], benchmark_returns: Sequence[float]
+    ) -> float:
+        if len(portfolio_returns) < 2 or len(benchmark_returns) < 2:
+            return 0.0
+
+        differences = [port - bench for port, bench in zip(portfolio_returns, benchmark_returns)]
+        variance = sum(diff**2 for diff in differences) / len(differences)
+        return math.sqrt(variance)
+
     def performance(self, account: str | None = None) -> list[PortfolioPerformance]:
         rows = self._fetch_rows(account)
         if not rows:
@@ -232,7 +312,11 @@ class DailyRiskCalculator:
             ordered_dates = sorted(per_day.keys())
             if not ordered_dates:
                 continue
-            daily_returns = [sum(row.pnl for row in per_day[session_date]) for session_date in ordered_dates]
+            daily_returns_by_date = {
+                session_date: sum(row.pnl for row in per_day[session_date])
+                for session_date in ordered_dates
+            }
+            daily_returns = [daily_returns_by_date[session_date] for session_date in ordered_dates]
             if not daily_returns:
                 continue
 
@@ -249,6 +333,14 @@ class DailyRiskCalculator:
             volatility = pstdev(daily_returns) if len(daily_returns) > 1 else 0.0
             sharpe_ratio = average_return / volatility if volatility > 0 else 0.0
 
+            benchmark_series = self._load_benchmarks(account_id, ordered_dates)
+            overlapping_dates = [day for day in ordered_dates if day in benchmark_series]
+            benchmark_returns = [benchmark_series[day] for day in overlapping_dates]
+            portfolio_returns = [daily_returns_by_date[day] for day in overlapping_dates]
+            alpha, beta = self._compute_alpha_beta(portfolio_returns, benchmark_returns)
+            tracking_error = self._compute_tracking_error(portfolio_returns, benchmark_returns)
+            sortino_ratio = self._compute_sortino(daily_returns)
+
             performance = PortfolioPerformance(
                 account=account_id,
                 start_date=ordered_dates[0],
@@ -258,6 +350,10 @@ class DailyRiskCalculator:
                 average_return=average_return,
                 volatility=volatility,
                 sharpe_ratio=sharpe_ratio,
+                sortino_ratio=sortino_ratio,
+                alpha=alpha,
+                beta=beta,
+                tracking_error=tracking_error,
                 max_drawdown=max_drawdown,
                 observation_count=len(daily_returns),
                 positive_days=sum(1 for value in daily_returns if value > 0),
