@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func, text, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -27,6 +27,24 @@ class User(Base):
         server_onupdate=func.now(),
         nullable=False,
     )
+
+
+def _ensure_timezone(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+@event.listens_for(User, "load")
+def _user_load_timezone(target: User, context) -> None:  # pragma: no cover - SQLAlchemy hook
+    target.created_at = _ensure_timezone(target.created_at)
+    target.updated_at = _ensure_timezone(target.updated_at)
+
+
+@event.listens_for(User, "refresh")
+def _user_refresh_timezone(target: User, context, attrs) -> None:  # pragma: no cover - SQLAlchemy hook
+    target.created_at = _ensure_timezone(target.created_at)
+    target.updated_at = _ensure_timezone(target.updated_at)
 
 
 class Role(Base):

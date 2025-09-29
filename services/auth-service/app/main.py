@@ -1,4 +1,5 @@
 import urllib.parse
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Header, status
 from jose import JWTError
@@ -20,6 +21,8 @@ from .security import (
     generate_totp_secret,
     totp_now,
     verify_token,
+    validate_password_requirements,
+    PASSWORD_REQUIREMENTS_MESSAGE,
 )
 from .models import User, Role, UserRole, MFATotp
 from .deps import get_current_user, require_roles
@@ -40,11 +43,26 @@ setup_metrics(app, service_name="auth-service")
 def health():
     return {"status": "ok"}
 
+def _ensure_timezone(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 @app.post("/auth/register", response_model=Me, status_code=201)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(status_code=409, detail="Email already registered")
-    u = User(email=payload.email, password_hash=hash_password(payload.password))
+    valid, message = validate_password_requirements(payload.password)
+    if not valid:
+        raise HTTPException(status_code=400, detail=message or PASSWORD_REQUIREMENTS_MESSAGE)
+    now = datetime.now(timezone.utc)
+    u = User(
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        created_at=now,
+        updated_at=now,
+    )
     db.add(u); db.commit(); db.refresh(u)
 
     role = db.scalar(select(Role).where(Role.name == "user"))
@@ -57,8 +75,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         id=u.id,
         email=u.email,
         roles=["user"],
-        created_at=u.created_at,
-        updated_at=u.updated_at,
+        created_at=_ensure_timezone(u.created_at),
+        updated_at=_ensure_timezone(u.updated_at),
     )
 
 @app.post("/auth/login", response_model=TokenPair)
@@ -139,8 +157,8 @@ def me(payload=Depends(get_current_user), db: Session = Depends(get_db)):
         id=u.id,
         email=u.email,
         roles=roles,
-        created_at=u.created_at,
-        updated_at=u.updated_at,
+        created_at=_ensure_timezone(u.created_at),
+        updated_at=_ensure_timezone(u.updated_at),
     )
 
 @app.post("/auth/totp/setup", response_model=TOTPSetup, dependencies=[Depends(require_roles("admin","user"))])
