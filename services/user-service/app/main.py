@@ -3,19 +3,30 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict
 
 from fastapi import (
     Depends,
     FastAPI,
     Header,
     HTTPException,
+    Query,
     Request,
     Response,
     status,
 )
 from jose import jwt
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, select, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from libs.db.db import get_db
@@ -29,6 +40,7 @@ from .schemas import (
     PreferencesResponse,
     PreferencesUpdate,
     UserCreate,
+    UserList,
     UserResponse,
     UserUpdate,
 )
@@ -239,16 +251,36 @@ def create_user(
     return _build_user_response(user, preferences)
 
 
-@app.get("/users", response_model=List[UserResponse])
+@app.get("/users", response_model=UserList)
 def list_users(
-    _: Entitlements = Depends(require_manage_users), db: Session = Depends(get_db)
-) -> List[UserResponse]:
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _: Entitlements = Depends(require_manage_users),
+    db: Session = Depends(get_db),
+) -> UserList:
     """Liste l'ensemble des utilisateurs pour un opérateur autorisé."""
 
-    users = db.scalars(select(User).order_by(User.id)).all()
-    return [
+    total = db.scalar(select(func.count()).select_from(User)) or 0
+    users = (
+        db.scalars(
+            select(User)
+            .order_by(User.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    items = [
         _build_user_response(user, _fetch_preferences(db, user.id)) for user in users
     ]
+    return UserList(
+        items=items,
+        pagination={
+            "total": total,
+            "count": len(items),
+            "limit": limit,
+            "offset": offset,
+        },
+    )
 
 
 @app.get("/users/me", response_model=UserResponse)

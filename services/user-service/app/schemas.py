@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -57,10 +57,27 @@ class UserResponse(BaseModel):
     preferences: Dict[str, Any] = Field(default_factory=dict)
 
 
+class UserListPagination(BaseModel):
+    """Metadata describing the pagination state for a list of users."""
+
+    total: int = Field(ge=0)
+    count: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
+
+
+class UserList(BaseModel):
+    """Paginated list of users returned by the API."""
+
+    items: List[UserResponse] = Field(default_factory=list)
+    pagination: UserListPagination
+
+
 __all__ = [
     "PreferencesResponse",
     "PreferencesUpdate",
     "UserCreate",
+    "UserList",
     "UserResponse",
     "UserUpdate",
 ]
