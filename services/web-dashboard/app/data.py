@@ -40,6 +40,9 @@ ORCHESTRATOR_BASE_URL = os.getenv(
 )
 ORCHESTRATOR_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ORCHESTRATOR_TIMEOUT", "5.0"))
 MAX_LOG_ENTRIES = int(os.getenv("WEB_DASHBOARD_MAX_LOG_ENTRIES", "100"))
+ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert-engine:8000/")
+ALERT_ENGINE_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
+MAX_ALERTS = int(os.getenv("WEB_DASHBOARD_MAX_ALERTS", "20"))
 
 
 def _build_portfolios() -> List[Portfolio]:
@@ -93,7 +96,7 @@ def _build_transactions() -> List[Transaction]:
     ]
 
 
-def _build_alerts() -> List[Alert]:
+def _fallback_alerts() -> List[Alert]:
     base_time = datetime.utcnow()
     return [
         Alert(
@@ -119,6 +122,76 @@ def _build_alerts() -> List[Alert]:
             acknowledged=True,
         ),
     ]
+
+
+def _map_severity_to_risk(severity: str | None) -> RiskLevel:
+    if not severity:
+        return RiskLevel.info
+    lowered = severity.lower()
+    if lowered in {"critical", "high", "severe"}:
+        return RiskLevel.critical
+    if lowered in {"warning", "medium", "moderate"}:
+        return RiskLevel.warning
+    return RiskLevel.info
+
+
+def _format_alert_detail(entry: Dict[str, object], context: Dict[str, object]) -> str:
+    symbol = entry.get("symbol") if isinstance(entry.get("symbol"), str) else ""
+    components = []
+    if symbol:
+        components.append(f"Symbol {symbol}")
+    price = context.get("price")
+    if isinstance(price, (int, float)):
+        components.append(f"price={price}")
+    volume = context.get("volume")
+    if isinstance(volume, (int, float)):
+        components.append(f"volume={volume}")
+    if context and not components:
+        components.append(f"context={context}")
+    if not components:
+        return "Rule conditions matched the latest market snapshot."
+    return "Rule conditions matched the latest market snapshot (" + ", ".join(components) + ")."
+
+
+def _fetch_alerts_from_engine() -> List[Alert]:
+    base_url = _normalise_base_url(ALERT_ENGINE_BASE_URL)
+    endpoint = urljoin(base_url, "alerts")
+    try:
+        response = httpx.get(
+            endpoint,
+            params={"limit": MAX_ALERTS},
+            timeout=ALERT_ENGINE_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Falling back to static alerts because %s is unreachable: %s", endpoint, exc)
+        return _fallback_alerts()
+
+    payload = response.json()
+    if not isinstance(payload, list):
+        logger.warning("Alert engine returned unexpected payload: %s", payload)
+        return _fallback_alerts()
+
+    alerts: List[Alert] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        context = entry.get("context") if isinstance(entry.get("context"), dict) else {}
+        triggered_at = _parse_timestamp(entry.get("triggered_at")) or datetime.utcnow()
+        title = entry.get("name") if isinstance(entry.get("name"), str) else "Alert triggered"
+        risk = _map_severity_to_risk(entry.get("severity") if isinstance(entry.get("severity"), str) else None)
+        alerts.append(
+            Alert(
+                id=str(entry.get("trigger_id", title)),
+                title=title,
+                detail=_format_alert_detail(entry, context),
+                risk=risk,
+                created_at=triggered_at,
+                acknowledged=False,
+            )
+        )
+
+    return alerts or _fallback_alerts()
 
 
 def _coerce_float(value: object) -> float:
@@ -541,7 +614,7 @@ def load_dashboard_context() -> DashboardContext:
     return DashboardContext(
         portfolios=_build_portfolios(),
         transactions=_build_transactions(),
-        alerts=_build_alerts(),
+        alerts=_fetch_alerts_from_engine(),
         metrics=_fetch_performance_metrics(),
         strategies=strategies,
         logs=logs,

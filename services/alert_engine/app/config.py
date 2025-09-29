@@ -10,16 +10,34 @@ class AlertEngineSettings:
 
     database_url: str = "sqlite:///./alert_engine.db"
     market_data_url: str = "http://market-data"
+    market_data_stream_url: str = "http://market-data"
     reports_url: str = "http://reports"
     notification_url: str = "http://notification-service"
     evaluation_interval_seconds: float = 15.0
+    market_snapshot_ttl_seconds: float = 30.0
+    market_event_ttl_seconds: float = 2.0
+    reports_ttl_seconds: float = 60.0
+    stream_symbols: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "AlertEngineSettings":
         defaults = cls()
+        symbols_env = os.getenv("ALERT_ENGINE_STREAM_SYMBOLS")
+        if symbols_env is None:
+            stream_symbols = defaults.stream_symbols
+        else:
+            stream_symbols = tuple(
+                symbol.strip()
+                for symbol in symbols_env.split(",")
+                if symbol.strip()
+            )
         return cls(
             database_url=os.getenv("ALERT_ENGINE_DATABASE_URL", defaults.database_url),
             market_data_url=os.getenv("ALERT_ENGINE_MARKET_DATA_URL", defaults.market_data_url),
+            market_data_stream_url=os.getenv(
+                "ALERT_ENGINE_MARKET_DATA_STREAM_URL",
+                defaults.market_data_stream_url,
+            ),
             reports_url=os.getenv("ALERT_ENGINE_REPORTS_URL", defaults.reports_url),
             notification_url=os.getenv("ALERT_ENGINE_NOTIFICATION_URL", defaults.notification_url),
             evaluation_interval_seconds=float(
@@ -28,4 +46,23 @@ class AlertEngineSettings:
                     defaults.evaluation_interval_seconds,
                 )
             ),
+            market_snapshot_ttl_seconds=float(
+                os.getenv(
+                    "ALERT_ENGINE_MARKET_SNAPSHOT_TTL_SECONDS",
+                    defaults.market_snapshot_ttl_seconds,
+                )
+            ),
+            market_event_ttl_seconds=float(
+                os.getenv(
+                    "ALERT_ENGINE_MARKET_EVENT_TTL_SECONDS",
+                    defaults.market_event_ttl_seconds,
+                )
+            ),
+            reports_ttl_seconds=float(
+                os.getenv(
+                    "ALERT_ENGINE_REPORTS_TTL_SECONDS",
+                    defaults.reports_ttl_seconds,
+                )
+            ),
+            stream_symbols=stream_symbols,
         )

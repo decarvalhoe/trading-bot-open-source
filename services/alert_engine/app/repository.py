@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Sequence
 
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Session
 
 from .models import AlertRule, AlertTrigger
@@ -41,3 +42,20 @@ class AlertRuleRepository:
             return rule
 
         return await asyncio.to_thread(_add)
+
+    async def list_recent_triggers(
+        self,
+        session: Session,
+        *,
+        limit: int = 20,
+    ) -> Sequence[AlertTrigger]:
+        def _query() -> Sequence[AlertTrigger]:
+            stmt = (
+                select(AlertTrigger)
+                .options(joinedload(AlertTrigger.rule))
+                .order_by(AlertTrigger.triggered_at.desc())
+                .limit(limit)
+            )
+            return session.execute(stmt).scalars().all()
+
+        return await asyncio.to_thread(_query)

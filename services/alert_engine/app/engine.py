@@ -7,7 +7,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from .clients import MarketDataClient, NotificationPublisher, ReportsClient
+from .cache import AlertContextCache
+from .clients import NotificationPublisher
 from .evaluator import RuleEvaluator
 from .models import AlertRule, AlertTrigger
 from .repository import AlertRuleRepository
@@ -21,15 +22,13 @@ class AlertEngine:
         self,
         repository: AlertRuleRepository,
         evaluator: RuleEvaluator,
-        market_client: MarketDataClient,
-        reports_client: ReportsClient,
+        context_cache: AlertContextCache,
         publisher: NotificationPublisher,
         evaluation_interval: float,
     ) -> None:
         self._repository = repository
         self._evaluator = evaluator
-        self._market_client = market_client
-        self._reports_client = reports_client
+        self._context_cache = context_cache
         self._publisher = publisher
         self._evaluation_interval = evaluation_interval
         self._stop_event = asyncio.Event()
@@ -93,21 +92,10 @@ class AlertEngine:
             return False
 
     async def _build_context(self, event: MarketEvent) -> dict[str, Any]:
-        context = event.model_dump()
-        market_context, report_context = await asyncio.gather(
-            self._market_client.fetch_context(event.symbol),
-            self._reports_client.fetch_context(event.symbol),
-        )
-        context.update(market_context)
-        context.update(report_context)
-        return context
+        return await self._context_cache.build_context_for_event(event)
 
     async def _build_context_from_symbol(self, symbol: str) -> dict[str, Any]:
-        market_context, report_context = await asyncio.gather(
-            self._market_client.fetch_context(symbol),
-            self._reports_client.fetch_context(symbol),
-        )
-        context: dict[str, Any] = {**market_context, **report_context}
+        context = await self._context_cache.build_context_for_symbol(symbol)
         context.setdefault("symbol", symbol)
         return context
 
