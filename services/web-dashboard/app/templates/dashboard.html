@@ -348,29 +348,38 @@
           <h2 id="alerts-title" class="heading heading--lg">Alertes</h2>
         </div>
         <div class="card__body">
-          <ul class="alert-list">
-            {% for alert in context.alerts %}
-            <li class="alert-list__item">
-              <div class="alert-list__status">
-                <span class="badge badge--{{ 'critical' if alert.risk.value == 'critical' else 'warning' if alert.risk.value == 'warning' else 'info' }}">
-                  {{ alert.risk.value | capitalize }}
-                </span>
-              </div>
-              <div class="alert-list__content">
-                <h3 class="heading heading--md">{{ alert.title }}</h3>
-                <p class="text">{{ alert.detail }}</p>
-                <p class="text text--muted">
-                  Créée {{ alert.created_at.strftime('%d/%m %H:%M') }} ·
-                  {% if alert.acknowledged %}
-                  <span class="badge badge--neutral" aria-label="Alerte confirmée">Accusée</span>
-                  {% else %}
-                  <span class="badge badge--info" aria-label="Alerte non confirmée">À traiter</span>
-                  {% endif %}
-                </p>
-              </div>
-            </li>
-            {% endfor %}
-          </ul>
+          <div
+            id="alerts-manager"
+            data-alerts-react-root="true"
+            data-endpoint="{{ alerts_api.endpoint }}"
+            data-auth-token="{{ alerts_api.token }}"
+          >
+            <noscript>
+              <ul class="alert-list">
+                {% for alert in context.alerts %}
+                <li class="alert-list__item">
+                  <div class="alert-list__status">
+                    <span class="badge badge--{{ 'critical' if alert.risk.value == 'critical' else 'warning' if alert.risk.value == 'warning' else 'info' }}">
+                      {{ alert.risk.value | capitalize }}
+                    </span>
+                  </div>
+                  <div class="alert-list__content">
+                    <h3 class="heading heading--md">{{ alert.title }}</h3>
+                    <p class="text">{{ alert.detail }}</p>
+                    <p class="text text--muted">
+                      Créée {{ alert.created_at.strftime('%d/%m %H:%M') }} ·
+                      {% if alert.acknowledged %}
+                      <span class="badge badge--neutral" aria-label="Alerte confirmée">Accusée</span>
+                      {% else %}
+                      <span class="badge badge--info" aria-label="Alerte non confirmée">À traiter</span>
+                      {% endif %}
+                    </p>
+                  </div>
+                </li>
+                {% endfor %}
+              </ul>
+            </noscript>
+          </div>
         </div>
       </section>
     </main>

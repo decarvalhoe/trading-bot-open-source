@@ -1,6 +1,20 @@
 import React, { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import PortfolioChart from "./components/PortfolioChart.jsx";
+import AlertManager from "./alerts/AlertManager.jsx";
+
+function loadBootstrapData() {
+  const bootstrapNode = document.getElementById("dashboard-bootstrap");
+  if (!bootstrapNode || !bootstrapNode.textContent) {
+    return {};
+  }
+  try {
+    return JSON.parse(bootstrapNode.textContent);
+  } catch (error) {
+    console.error("Impossible de parser la configuration du tableau de bord", error);
+    return {};
+  }
+}
 
 function PortfolioChartApp({ endpoint, currency }) {
   const [state, setState] = useState({ status: "loading", items: [], currency });
@@ -61,14 +75,33 @@ function PortfolioChartApp({ endpoint, currency }) {
   return <PortfolioChart history={state.items} currency={state.currency || currency} />;
 }
 
-const container = document.getElementById("portfolio-chart");
-if (container) {
-  const endpoint = container.dataset.endpoint || "/portfolios/history";
-  const currency = container.dataset.currency || "$";
-  const root = createRoot(container);
+const bootstrap = loadBootstrapData();
+
+const chartContainer = document.getElementById("portfolio-chart");
+if (chartContainer) {
+  const endpoint = chartContainer.dataset.endpoint || "/portfolios/history";
+  const currency = chartContainer.dataset.currency || "$";
+  const root = createRoot(chartContainer);
   root.render(
     <StrictMode>
       <PortfolioChartApp endpoint={endpoint} currency={currency} />
+    </StrictMode>
+  );
+}
+
+const alertsContainer = document.getElementById("alerts-manager");
+if (alertsContainer) {
+  const dataset = alertsContainer.dataset || {};
+  const endpoint = dataset.endpoint || "/alerts";
+  const token = dataset.authToken || "";
+  const initialAlerts =
+    (bootstrap && bootstrap.context && Array.isArray(bootstrap.context.alerts)
+      ? bootstrap.context.alerts
+      : []) || [];
+  const root = createRoot(alertsContainer);
+  root.render(
+    <StrictMode>
+      <AlertManager initialAlerts={initialAlerts} endpoint={endpoint} authToken={token} />
     </StrictMode>
   );
 }

@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class RiskLevel(str, Enum):
@@ -89,6 +89,26 @@ class Alert(BaseModel):
     risk: RiskLevel = Field(default=RiskLevel.info)
     created_at: datetime
     acknowledged: bool = Field(False, description="Whether the alert has been acknowledged")
+
+
+class AlertCreateRequest(BaseModel):
+    """Payload accepted when creating a new alert."""
+
+    title: str
+    detail: str
+    risk: RiskLevel = Field(default=RiskLevel.info)
+    acknowledged: bool = Field(default=False)
+
+
+class AlertUpdateRequest(BaseModel):
+    """Payload accepted when updating an existing alert."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str | None = None
+    detail: str | None = None
+    risk: RiskLevel | None = None
+    acknowledged: bool | None = None
 
 
 class PerformanceMetrics(BaseModel):
