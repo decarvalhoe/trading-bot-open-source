@@ -8,6 +8,10 @@ __pycache__/
 # Coverage
 .coverage
 htmlcov/
+
+# Node.js
+node_modules/
+services/web-dashboard/node_modules/
 coverage.xml
 
 # Docker

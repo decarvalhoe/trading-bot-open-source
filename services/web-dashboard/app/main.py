@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .data import load_dashboard_context
+from .data import load_dashboard_context, load_portfolio_history
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -41,6 +41,17 @@ def list_portfolios() -> dict[str, object]:
 
     context = load_dashboard_context()
     return {"items": context.portfolios}
+
+
+@app.get("/portfolios/history")
+def portfolio_history() -> dict[str, object]:
+    """Return historical valuation series for each portfolio."""
+
+    history = load_portfolio_history()
+    return {
+        "items": [series.model_dump(mode="json") for series in history],
+        "granularity": "daily",
+    }
 
 
 @app.get("/transactions")

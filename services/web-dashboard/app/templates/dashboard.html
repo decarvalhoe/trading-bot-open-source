@@ -119,6 +119,20 @@
             reports-service.
           </p>
           {% endif %}
+          <div class="chart-panel" aria-label="Historique de performance des portefeuilles">
+            <div class="chart-panel__header">
+              <h3 class="heading heading--md">Historique de performance</h3>
+              <p class="text text--muted">Évolution quotidienne de la valeur totale par portefeuille.</p>
+            </div>
+            <div
+              id="portfolio-chart"
+              class="chart-container"
+              data-endpoint="/portfolios/history"
+              data-currency="{{ context.metrics.currency if context.metrics else '$' }}"
+              role="img"
+              aria-label="Graphique des valeurs cumulées des portefeuilles"
+            ></div>
+          </div>
         </div>
       </section>
       {% endif %}
@@ -238,5 +252,6 @@
       {{ {"context": context.model_dump(mode='json'), "streaming": streaming}|tojson }}
     </script>
     <script src="/static/dashboard.js" defer></script>
+    <script type="module" src="/static/dist/portfolio-chart.js"></script>
   </body>
 </html>
