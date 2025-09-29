@@ -21,10 +21,12 @@
     fallback: JSON.parse(JSON.stringify(initialState)),
   };
 
+  const alertsReactRoot = document.getElementById("alerts-manager");
+
   const selectors = {
     portfolios: document.querySelector(".portfolio-list"),
     transactions: document.querySelector(".card[aria-labelledby='transactions-title'] tbody"),
-    alerts: document.querySelector(".alert-list"),
+    alerts: alertsReactRoot ? null : document.querySelector(".alert-list"),
     strategies: document.querySelector(".strategy-table__body"),
     logs: document.getElementById("log-entries"),
     logFilter: document.getElementById("log-filter"),
@@ -382,7 +384,9 @@
     renderStrategies();
     renderPortfolios();
     renderTransactions();
-    renderAlerts();
+    if (selectors.alerts) {
+      renderAlerts();
+    }
     renderLogs();
   }
 
@@ -400,6 +404,18 @@
   function restoreFallback() {
     state.current = JSON.parse(JSON.stringify(state.fallback));
     renderAll();
+    if (alertsReactRoot) {
+      document.dispatchEvent(
+        new CustomEvent("alerts:fallback", {
+          detail: {
+            items: Array.isArray(state.current.alerts) ? state.current.alerts : [],
+            message:
+              "Connexion temps réel indisponible. Les données affichées proviennent du dernier instantané.",
+            type: "warning",
+          },
+        })
+      );
+    }
   }
 
   function scheduleReconnect() {
@@ -427,7 +443,19 @@
       renderTransactions();
     } else if (resource === "alerts" && Array.isArray(payload.items)) {
       state.current.alerts = payload.items;
-      renderAlerts();
+      if (alertsReactRoot) {
+        const detail = { items: payload.items };
+        if (payload.message) {
+          detail.message = payload.message;
+        }
+        if (payload.type) {
+          detail.type = payload.type;
+        }
+        document.dispatchEvent(new CustomEvent("alerts:update", { detail }));
+      }
+      if (selectors.alerts) {
+        renderAlerts();
+      }
     } else if (resource === "strategies" && Array.isArray(payload.items)) {
       state.current.strategies = payload.items;
       renderStrategies();
@@ -513,6 +541,15 @@
       };
     } catch (error) {
       console.error("Connexion WebSocket impossible", error);
+      if (alertsReactRoot) {
+        document.dispatchEvent(
+          new CustomEvent("alerts:error", {
+            detail: {
+              message: "Connexion temps réel impossible pour les alertes.",
+            },
+          })
+        );
+      }
       restoreFallback();
       scheduleReconnect();
     }
