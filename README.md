@@ -77,6 +77,27 @@ curl http://localhost:8011/health
 make dev-down
 ```
 
+### Database migrations
+
+Use the Makefile helpers to manage Alembic migrations locally (the commands default to
+`postgresql+psycopg2://trading:trading@localhost:5432/trading`, override it with
+`ALEMBIC_DATABASE_URL=<your-url>` when needed):
+
+```bash
+# Generate a new revision
+make migrate-generate message="add user preferences"
+
+# Apply migrations (defaults to head)
+make migrate-up
+
+# Roll back the previous revision (override DOWN_REVISION to target another one)
+make migrate-down
+```
+
+Docker services now apply migrations automatically during startup through
+[`scripts/run_migrations.sh`](scripts/run_migrations.sh), ensuring the database schema is
+up to date before each application boots.
+
 ### Technical Architecture
 
 The project uses a modern **microservices architecture**:
