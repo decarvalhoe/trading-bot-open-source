@@ -1,0 +1,11 @@
+Notification {{ alert_type }} reçue.
+
+Titre : {{ notification.title }}
+Gravité : {{ notification.severity|upper }}
+
+{{ notification.message }}
+
+{% if metadata %}Détails :
+{% for key, value in metadata.items() %}- {{ key }} : {{ value }}
+{% endfor %}
+{% endif %}Type d'alerte : {{ alert_type }}

@@ -44,12 +44,20 @@ def mock_async_client(monkeypatch, expected_url: str, *, status_code: int, json_
     return calls
 
 
-def build_notification() -> Notification:
+def build_notification(
+    *,
+    alert_type: str = "incident",
+    extra_metadata: dict[str, str] | None = None,
+) -> Notification:
+    metadata = {"type": alert_type, "service": "api"}
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
     return Notification(
         title="System Alert",
         message="Service latency is above threshold",
         severity="critical",
-        metadata={"service": "api"},
+        metadata=metadata,
     )
 
 
@@ -96,7 +104,8 @@ def test_dispatch_slack_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert response.delivered is True
     assert "Slack webhook delivered" in response.detail
-    assert calls["json"]["text"].startswith("*System Alert*")
+    assert "Incident critique" in calls["json"]["text"]
+    assert "Type: `incident`" in calls["json"]["blocks"][1]["elements"][1]["text"]
 
 
 def test_dispatch_email_dry_run() -> None:
@@ -129,7 +138,7 @@ def test_dispatch_telegram_success(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     dispatcher = NotificationDispatcher(settings)
     request = NotificationRequest(
-        notification=build_notification(),
+        notification=build_notification(alert_type="recovery", extra_metadata={"duration": "5m"}),
         target=DeliveryTarget(channel=Channel.telegram, telegram_chat_id="1234"),
     )
 
@@ -138,6 +147,7 @@ def test_dispatch_telegram_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.delivered is True
     assert response.detail == "Telegram message sent to chat 1234"
     assert calls["json"]["chat_id"] == "1234"
+    assert "Service restauré" in calls["json"]["text"]
 
 
 def test_dispatch_sms_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -159,7 +169,9 @@ def test_dispatch_sms_success(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     dispatcher = NotificationDispatcher(settings)
     request = NotificationRequest(
-        notification=build_notification(),
+        notification=build_notification(
+            alert_type="maintenance", extra_metadata={"window": "22:00-23:00"}
+        ),
         target=DeliveryTarget(channel=Channel.sms, phone_number="+33102030405"),
     )
 
@@ -168,3 +180,4 @@ def test_dispatch_sms_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.delivered is True
     assert response.detail == "SMS message queued with sid SM123"
     assert calls["data"]["To"] == "+33102030405"
+    assert "MAINTENANCE" in calls["data"]["Body"]
