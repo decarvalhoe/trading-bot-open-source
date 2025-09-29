@@ -185,6 +185,11 @@ class StreamingBridge:
                     await connection.close()
             self._connections.clear()
 
+    def connection_count(self, room_id: str) -> int:
+        """Return the number of active websocket connections for a room."""
+
+        return len(self._connections.get(room_id, set()))
+
 
 class StreamingConnection(Protocol):
     async def send_json(self, data: Dict[str, Any]) -> None:

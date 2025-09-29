@@ -1,0 +1,262 @@
+(function () {
+  const bootstrapNode = document.getElementById("dashboard-bootstrap");
+  if (!bootstrapNode || !bootstrapNode.textContent) {
+    return;
+  }
+
+  let bootstrapData;
+  try {
+    bootstrapData = JSON.parse(bootstrapNode.textContent);
+  } catch (error) {
+    console.error("Impossible de parser la configuration du tableau de bord", error);
+    return;
+  }
+
+  const initialState = bootstrapData.context || { portfolios: [], transactions: [], alerts: [] };
+  const streamingConfig = bootstrapData.streaming || {};
+  const state = {
+    current: JSON.parse(JSON.stringify(initialState)),
+    fallback: JSON.parse(JSON.stringify(initialState)),
+  };
+
+  const selectors = {
+    portfolios: document.querySelector(".portfolio-list"),
+    transactions: document.querySelector(".card[aria-labelledby='transactions-title'] tbody"),
+    alerts: document.querySelector(".alert-list"),
+  };
+
+  function formatCurrency(value) {
+    if (typeof value !== "number") {
+      value = Number(value || 0);
+    }
+    return `${value.toFixed(2)} $`;
+  }
+
+  function formatTimestamp(value) {
+    if (!value) {
+      return "";
+    }
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return String(value);
+    }
+    return date.toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function renderPortfolios() {
+    const container = selectors.portfolios;
+    if (!container) {
+      return;
+    }
+    container.innerHTML = "";
+    state.current.portfolios.forEach((portfolio) => {
+      const item = document.createElement("li");
+      item.className = "portfolio-list__item";
+      item.innerHTML = `
+        <div class="portfolio-list__title">
+          <span class="badge badge--neutral" aria-label="Nom du portefeuille">${portfolio.name}</span>
+          <span class="text text--muted">Géré par ${portfolio.owner}</span>
+        </div>
+        <div class="portfolio-list__value" aria-label="Valeur totale">
+          ${formatCurrency(portfolio.total_value ?? portfolio.totalValue ?? (portfolio.holdings || []).reduce((sum, holding) => sum + (holding.quantity || 0) * (holding.current_price || holding.currentPrice || 0), 0))}
+        </div>
+        <table class="table" role="grid" aria-label="Positions du portefeuille ${portfolio.name}">
+          <thead>
+            <tr>
+              <th scope="col">Symbole</th>
+              <th scope="col">Quantité</th>
+              <th scope="col">Px. moyen</th>
+              <th scope="col">Px. actuel</th>
+              <th scope="col">Valeur</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(portfolio.holdings || [])
+              .map((holding) => {
+                const quantity = Number(holding.quantity || 0);
+                const averagePrice = Number(holding.average_price ?? holding.averagePrice ?? 0);
+                const currentPrice = Number(holding.current_price ?? holding.currentPrice ?? 0);
+                const marketValue = Number(holding.market_value ?? holding.marketValue ?? quantity * currentPrice);
+                return `
+                  <tr>
+                    <td data-label="Symbole">${holding.symbol}</td>
+                    <td data-label="Quantité">${quantity.toFixed(2)}</td>
+                    <td data-label="Prix moyen">${formatCurrency(averagePrice)}</td>
+                    <td data-label="Prix actuel">${formatCurrency(currentPrice)}</td>
+                    <td data-label="Valeur">${formatCurrency(marketValue)}</td>
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      `;
+      container.appendChild(item);
+    });
+  }
+
+  function renderTransactions() {
+    const container = selectors.transactions;
+    if (!container) {
+      return;
+    }
+    container.innerHTML = "";
+    state.current.transactions.forEach((transaction) => {
+      const row = document.createElement("tr");
+      const quantity = Number(transaction.quantity || 0);
+      const price = Number(transaction.price || 0);
+      const side = (transaction.side || "").toLowerCase();
+      const badgeClass = side === "buy" ? "success" : "warning";
+      row.innerHTML = `
+        <td data-label="Horodatage">${formatTimestamp(transaction.timestamp)}</td>
+        <td data-label="Portefeuille">${transaction.portfolio}</td>
+        <td data-label="Symbole">${transaction.symbol}</td>
+        <td data-label="Sens">
+          <span class="badge badge--${badgeClass}">${side.charAt(0).toUpperCase()}${side.slice(1)}</span>
+        </td>
+        <td data-label="Quantité">${quantity.toFixed(2)}</td>
+        <td data-label="Prix">${formatCurrency(price)}</td>
+      `;
+      container.appendChild(row);
+    });
+  }
+
+  function renderAlerts() {
+    const container = selectors.alerts;
+    if (!container) {
+      return;
+    }
+    container.innerHTML = "";
+    state.current.alerts.forEach((alert) => {
+      const risk = (alert.risk && alert.risk.value) || alert.risk || "info";
+      const createdAt = formatTimestamp(alert.created_at || alert.createdAt);
+      const acknowledged = Boolean(alert.acknowledged);
+      const item = document.createElement("li");
+      item.className = "alert-list__item";
+      const badgeClass = risk === "critical" ? "critical" : risk === "warning" ? "warning" : "info";
+      item.innerHTML = `
+        <div class="alert-list__status">
+          <span class="badge badge--${badgeClass}">
+            ${risk.charAt(0).toUpperCase()}${risk.slice(1)}
+          </span>
+        </div>
+        <div class="alert-list__content">
+          <h3 class="heading heading--md">${alert.title}</h3>
+          <p class="text">${alert.detail}</p>
+          <p class="text text--muted">
+            Créée ${createdAt}
+            · <span class="badge badge--${acknowledged ? "neutral" : "info"}" aria-label="${acknowledged ? "Alerte confirmée" : "Alerte non confirmée"}">
+              ${acknowledged ? "Accusée" : "À traiter"}
+            </span>
+          </p>
+        </div>
+      `;
+      container.appendChild(item);
+    });
+  }
+
+  function renderAll() {
+    renderPortfolios();
+    renderTransactions();
+    renderAlerts();
+  }
+
+  let websocket;
+  let reconnectTimer;
+  const RECONNECT_DELAY = 5000;
+
+  function closeWebsocket() {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+      websocket.close();
+    }
+    websocket = undefined;
+  }
+
+  function restoreFallback() {
+    state.current = JSON.parse(JSON.stringify(state.fallback));
+    renderAll();
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) {
+      return;
+    }
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = undefined;
+      connect();
+    }, RECONNECT_DELAY);
+  }
+
+  function applyUpdate(message) {
+    const payload = message && message.payload ? message.payload : message;
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+
+    const resource = payload.resource || payload.type;
+    if (resource === "portfolios" && Array.isArray(payload.items)) {
+      state.current.portfolios = payload.items;
+      renderPortfolios();
+    } else if (resource === "transactions" && Array.isArray(payload.items)) {
+      state.current.transactions = payload.items;
+      renderTransactions();
+    } else if (resource === "alerts" && Array.isArray(payload.items)) {
+      state.current.alerts = payload.items;
+      renderAlerts();
+    }
+  }
+
+  async function connect() {
+    if (!streamingConfig.handshake_url || !streamingConfig.viewer_id) {
+      console.warn("Configuration du streaming incomplète, aucun WebSocket ouvert.");
+      return;
+    }
+    try {
+      const response = await fetch(streamingConfig.handshake_url, {
+        headers: { "X-Customer-Id": streamingConfig.viewer_id },
+      });
+      if (!response.ok) {
+        throw new Error(`Handshake échoué (${response.status})`);
+      }
+      const details = await response.json();
+      if (!details.websocket_url) {
+        throw new Error("Réponse de handshake incomplète");
+      }
+      closeWebsocket();
+      websocket = new WebSocket(details.websocket_url);
+      websocket.onopen = () => {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = undefined;
+        }
+      };
+      websocket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          applyUpdate(payload);
+        } catch (error) {
+          console.error("Message WebSocket invalide", error);
+        }
+      };
+      websocket.onclose = () => {
+        restoreFallback();
+        scheduleReconnect();
+      };
+      websocket.onerror = () => {
+        websocket.close();
+      };
+    } catch (error) {
+      console.error("Connexion WebSocket impossible", error);
+      restoreFallback();
+      scheduleReconnect();
+    }
+  }
+
+  renderAll();
+  connect();
+})();

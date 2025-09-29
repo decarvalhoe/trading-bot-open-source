@@ -125,5 +125,9 @@
     <footer class="layout__footer">
       <p class="text text--muted">Données d'exemple pour la démonstration du service.</p>
     </footer>
+    <script id="dashboard-bootstrap" type="application/json">
+      {{ {"context": context.model_dump(mode='json'), "streaming": streaming}|tojson }}
+    </script>
+    <script src="/static/dashboard.js" defer></script>
   </body>
 </html>

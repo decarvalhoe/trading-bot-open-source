@@ -92,3 +92,39 @@ def test_session_lifecycle_events_are_streamed(client: TestClient):
         message = websocket.receive_json()
         assert message["payload"]["type"] == "session_started"
         assert message["payload"]["session_id"] == session_id
+
+
+def test_connection_endpoint_returns_websocket_url(client: TestClient):
+    client.post(
+        "/rooms",
+        headers=_auth_headers("customer-2"),
+        json={
+            "room_id": "news-room",
+            "title": "Breaking news",
+        },
+    )
+
+    response = client.get(
+        "/rooms/news-room/connection",
+        headers=_auth_headers("viewer-42"),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["room_id"] == "news-room"
+    assert payload["token"] == "viewer-42"
+    assert payload["websocket_url"].startswith("ws://")
+
+    with client.websocket_connect(payload["websocket_url"]) as websocket:
+        ingest = client.post(
+            "/ingest/reports",
+            headers={"x-service-token": "reports-token"},
+            json={
+                "room_id": "news-room",
+                "source": "reports",
+                "payload": {"resource": "portfolios", "items": []},
+            },
+        )
+        assert ingest.status_code == 202
+        message = websocket.receive_json()
+        assert message["payload"] == {"resource": "portfolios", "items": []}
