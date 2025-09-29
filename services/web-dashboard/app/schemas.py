@@ -68,10 +68,46 @@ class Alert(BaseModel):
     acknowledged: bool = Field(False, description="Whether the alert has been acknowledged")
 
 
+class PerformanceMetrics(BaseModel):
+    """Summarise risk and return analytics provided by the reports service."""
+
+    account: str | None = Field(default=None, description="Trading account identifier")
+    as_of: datetime | None = Field(default=None, description="Timestamp of the latest data point")
+    currency: str = Field(default="$", description="Currency symbol for monetary values")
+    current_pnl: float = Field(default=0.0, description="Most recent realised P&L")
+    current_drawdown: float = Field(default=0.0, description="Drawdown captured for the latest session")
+    cumulative_return: float = Field(
+        default=0.0,
+        description="Compounded return over the available sample (expressed as a ratio when exposure is known)",
+    )
+    cumulative_return_is_ratio: bool = Field(
+        default=False,
+        description="Flag indicating whether cumulative_return is a ratio (True) or an absolute amount (False)",
+    )
+    sharpe_ratio: float | None = Field(default=None, description="Annualised Sharpe ratio when computable")
+    sample_size: int = Field(default=0, ge=0, description="Number of daily observations considered")
+    uses_exposure: bool = Field(
+        default=False,
+        description="True when the Sharpe ratio and returns are normalised by exposure values",
+    )
+    available: bool = Field(
+        default=False,
+        description="Set to True when metrics were successfully retrieved from the reports service",
+    )
+    source: str = Field(
+        default="reports-service",
+        description="Identifier of the upstream service providing the metrics",
+    )
+
+
 class DashboardContext(BaseModel):
     """Container with all payloads rendered in the dashboard template."""
 
     portfolios: List[Portfolio]
     transactions: List[Transaction]
     alerts: List[Alert]
+    metrics: PerformanceMetrics | None = Field(
+        default=None,
+        description="Aggregated performance analytics sourced from the reports service",
+    )
 

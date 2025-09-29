@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import logging
+import math
+import os
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import List
+from statistics import mean, stdev
+from typing import Iterable, List
+from urllib.parse import urljoin
 
-from .schemas import Alert, DashboardContext, Holding, Portfolio, RiskLevel, Transaction
+import httpx
+
+from .schemas import (
+    Alert,
+    DashboardContext,
+    Holding,
+    PerformanceMetrics,
+    Portfolio,
+    RiskLevel,
+    Transaction,
+)
+
+
+logger = logging.getLogger(__name__)
+
+REPORTS_BASE_URL = os.getenv("WEB_DASHBOARD_REPORTS_BASE_URL", "http://reports:8000/")
+REPORTS_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_REPORTS_TIMEOUT", "5.0"))
 
 
 def _build_portfolios() -> List[Portfolio]:
@@ -88,6 +109,132 @@ def _build_alerts() -> List[Alert]:
     ]
 
 
+def _coerce_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _parse_session_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        # Accept both date and datetime inputs.
+        parsed = datetime.fromisoformat(value)
+        if isinstance(parsed, datetime):
+            return parsed
+    except ValueError:
+        try:
+            return datetime.combine(date.fromisoformat(value), datetime.min.time())
+        except ValueError:
+            return None
+    return None
+
+
+def _normalise_base_url(base_url: str) -> str:
+    if not base_url.endswith("/"):
+        return f"{base_url}/"
+    return base_url
+
+
+def _extract_exposure(entry: dict[str, object]) -> float:
+    for key in ("exposure", "notional_exposure", "gross_exposure", "net_exposure"):
+        if key in entry:
+            exposure = _coerce_float(entry.get(key))
+            if exposure:
+                return exposure
+    return 0.0
+
+
+def _compute_returns(entries: Iterable[dict[str, object]], pnls: List[float]) -> tuple[List[float], bool]:
+    exposures = [_extract_exposure(entry) for entry in entries]
+    has_exposure = any(abs(exposure) > 0 for exposure in exposures)
+    if not has_exposure:
+        return pnls.copy(), False
+
+    returns: List[float] = []
+    for pnl, exposure in zip(pnls, exposures):
+        if not exposure:
+            continue
+        returns.append(pnl / exposure)
+    if not returns:
+        return pnls.copy(), False
+    return returns, True
+
+
+def _compute_cumulative_return(returns: List[float], exposure_normalised: bool) -> tuple[float, bool]:
+    if not returns:
+        return 0.0, False
+    if not exposure_normalised:
+        return sum(returns), False
+    cumulative = 1.0
+    for daily_return in returns:
+        cumulative *= 1 + daily_return
+    return cumulative - 1, True
+
+
+def _compute_sharpe(returns: List[float]) -> float | None:
+    if len(returns) < 2:
+        return None
+    volatility = stdev(returns)
+    if not volatility:
+        return None
+    return (mean(returns) / volatility) * math.sqrt(252)
+
+
+def _fetch_performance_metrics() -> PerformanceMetrics:
+    base_url = _normalise_base_url(REPORTS_BASE_URL)
+    endpoint = urljoin(base_url, "reports/daily")
+    try:
+        response = httpx.get(endpoint, params={"limit": 30}, timeout=REPORTS_TIMEOUT_SECONDS)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Unable to retrieve performance metrics from %s: %s", endpoint, exc)
+        return PerformanceMetrics(available=False)
+
+    payload = response.json()
+    if not isinstance(payload, list) or not payload:
+        logger.info("Reports service returned no performance data from %s", endpoint)
+        return PerformanceMetrics(available=False)
+
+    ordered = sorted(
+        (entry for entry in payload if isinstance(entry, dict)),
+        key=lambda item: item.get("session_date", ""),
+        reverse=True,
+    )
+    if not ordered:
+        return PerformanceMetrics(available=False)
+
+    latest = ordered[0]
+    daily_pnls = [_coerce_float(entry.get("pnl")) for entry in ordered]
+    returns, exposure_normalised = _compute_returns(ordered, daily_pnls)
+    cumulative_return, cumulative_is_ratio = _compute_cumulative_return(returns, exposure_normalised)
+    sharpe_ratio = _compute_sharpe(returns)
+
+    max_drawdown = _coerce_float(latest.get("max_drawdown"))
+    currency = (latest.get("currency") or latest.get("ccy") or "$")
+    if isinstance(currency, str):
+        currency_symbol = currency.strip() or "$"
+    else:
+        currency_symbol = "$"
+
+    metrics = PerformanceMetrics(
+        account=latest.get("account") if isinstance(latest.get("account"), str) else None,
+        as_of=_parse_session_date(latest.get("session_date")),
+        currency=currency_symbol,
+        current_pnl=daily_pnls[0] if daily_pnls else 0.0,
+        current_drawdown=max_drawdown,
+        cumulative_return=cumulative_return,
+        cumulative_return_is_ratio=cumulative_is_ratio,
+        sharpe_ratio=sharpe_ratio,
+        sample_size=len(ordered),
+        uses_exposure=exposure_normalised,
+        available=True,
+    )
+    return metrics
+
+
 def load_dashboard_context() -> DashboardContext:
     """Return consistent sample data for the dashboard view."""
 
@@ -95,6 +242,7 @@ def load_dashboard_context() -> DashboardContext:
         portfolios=_build_portfolios(),
         transactions=_build_transactions(),
         alerts=_build_alerts(),
+        metrics=_fetch_performance_metrics(),
     )
 
 
