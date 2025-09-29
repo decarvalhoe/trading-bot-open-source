@@ -1,0 +1,12 @@
+Opération de maintenance programmée pour {{ metadata.get("service", "l'infrastructure") }}.
+
+Titre : {{ notification.title }}
+Fenêtre : {{ metadata.get("window", "à préciser") }}
+Gravité : {{ notification.severity|upper }}
+
+{{ notification.message }}
+
+{% if metadata %}Informations additionnelles :
+{% for key, value in metadata.items() if key != 'window' %}- {{ key }} : {{ value }}
+{% endfor %}
+{% endif %}Type d'alerte : maintenance

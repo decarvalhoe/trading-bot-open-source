@@ -1,0 +1,12 @@
+Incident critique détecté sur {{ metadata.get("service", "système") }}.
+
+Titre : {{ notification.title }}
+Gravité : {{ notification.severity|upper }}
+Horodatage : {{ notification.created_at.isoformat() }}
+
+{{ notification.message }}
+
+{% if metadata %}Contexte complémentaire :
+{% for key, value in metadata.items() %}- {{ key }} : {{ value }}
+{% endfor %}
+{% endif %}Type d'alerte : incident

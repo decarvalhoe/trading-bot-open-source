@@ -10,6 +10,7 @@ from email.message import EmailMessage
 import httpx
 
 from .config import Settings
+from .rendering import TemplateRenderer
 from .schemas import Channel, DeliveryTarget, Notification, NotificationRequest, NotificationResponse
 
 logger = logging.getLogger(__name__)
@@ -18,8 +19,9 @@ logger = logging.getLogger(__name__)
 class NotificationDispatcher:
     """Dispatch notifications to multiple channels."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, renderer: TemplateRenderer | None = None) -> None:
         self._settings = settings
+        self._renderer = renderer or TemplateRenderer()
 
     async def dispatch(self, request: NotificationRequest) -> NotificationResponse:
         """Send the notification to the configured channel."""
@@ -57,12 +59,15 @@ class NotificationDispatcher:
         )
 
     async def _send_webhook(self, target: DeliveryTarget, notification: Notification) -> str:
+        rendered_message = self._renderer.render(target.channel, notification)
+
         if not target.webhook_url:
             raise ValueError("webhook_url must be provided for webhook channel")
 
         payload = {
             "title": notification.title,
             "message": notification.message,
+            "rendered_message": rendered_message,
             "severity": notification.severity,
             "metadata": notification.metadata,
             "created_at": notification.created_at.isoformat(),
@@ -79,18 +84,20 @@ class NotificationDispatcher:
         return f"Webhook delivered with status {response.status_code}"
 
     async def _send_slack(self, target: DeliveryTarget, notification: Notification) -> str:
+        rendered_message = self._renderer.render(Channel.slack, notification)
+
         webhook_url = target.webhook_url or self._settings.slack_default_webhook
         if not webhook_url:
             raise ValueError("Slack webhook URL is required")
 
         payload = {
-            "text": f"*{notification.title}*\n{notification.message}",
+            "text": rendered_message,
             "blocks": [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{notification.title}*\n{notification.message}",
+                        "text": rendered_message,
                     },
                 },
                 {
@@ -99,7 +106,11 @@ class NotificationDispatcher:
                         {
                             "type": "mrkdwn",
                             "text": f"Severity: `{notification.severity}`",
-                        }
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": f"Type: `{notification.metadata.get('type', 'default')}`",
+                        },
                     ],
                 },
             ],
@@ -116,6 +127,8 @@ class NotificationDispatcher:
         return f"Slack webhook delivered with status {response.status_code}"
 
     async def _send_email(self, target: DeliveryTarget, notification: Notification) -> str:
+        rendered_message = self._renderer.render(Channel.email, notification)
+
         if not target.email_to:
             raise ValueError("email_to must be provided for email channel")
         sender = self._settings.smtp_sender or "alerts@example.com"
@@ -124,11 +137,7 @@ class NotificationDispatcher:
         message["From"] = sender
         message["To"] = target.email_to
         message["Subject"] = f"[{notification.severity.upper()}] {notification.title}"
-        body_lines = [notification.message]
-        if notification.metadata:
-            body_lines.append("\nMéta-données:")
-            body_lines.extend(f"- {key}: {value}" for key, value in notification.metadata.items())
-        message.set_content("\n".join(body_lines))
+        message.set_content(rendered_message)
 
         if self._settings.dry_run:
             logger.info("[dry-run] Would send email to %s via %s:%s", target.email_to, self._settings.smtp_host, self._settings.smtp_port)
@@ -150,6 +159,8 @@ class NotificationDispatcher:
             smtp.send_message(message)
 
     async def _send_telegram(self, target: DeliveryTarget, notification: Notification) -> str:
+        rendered_message = self._renderer.render(Channel.telegram, notification)
+
         token = target.telegram_bot_token or self._settings.telegram_bot_token
         chat_id = target.telegram_chat_id or self._settings.telegram_default_chat_id
         if not token:
@@ -161,7 +172,7 @@ class NotificationDispatcher:
         url = f"{api_base}/bot{token}/sendMessage"
         payload = {
             "chat_id": chat_id,
-            "text": f"[{notification.severity.upper()}] {notification.title}\n{notification.message}",
+            "text": rendered_message,
         }
 
         if self._settings.dry_run:
@@ -178,6 +189,8 @@ class NotificationDispatcher:
         return f"Telegram message sent to chat {chat_id}"
 
     async def _send_sms(self, target: DeliveryTarget, notification: Notification) -> str:
+        rendered_message = self._renderer.render(Channel.sms, notification)
+
         to_number = target.phone_number
         if not to_number:
             raise ValueError("phone_number must be provided for sms channel")
@@ -193,7 +206,7 @@ class NotificationDispatcher:
         payload = {
             "To": to_number,
             "From": from_number,
-            "Body": f"[{notification.severity.upper()}] {notification.title}: {notification.message}",
+            "Body": rendered_message,
         }
 
         if self._settings.dry_run:

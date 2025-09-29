@@ -1,0 +1,12 @@
+Retour à la normale pour {{ metadata.get("service", "le service") }}.
+
+Titre : {{ notification.title }}
+Durée de l'incident : {{ metadata.get("duration", "non communiquée") }}
+Gravité initiale : {{ notification.severity|upper }}
+
+{{ notification.message }}
+
+{% if metadata %}Points clés :
+{% for key, value in metadata.items() if key != 'duration' %}- {{ key }} : {{ value }}
+{% endfor %}
+{% endif %}Type d'alerte : recovery
