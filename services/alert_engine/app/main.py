@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from fastapi import Depends, FastAPI
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+
+from libs.alert_events import AlertEventRepository
 
 from .cache import AlertContextCache
 from .clients import (
@@ -14,6 +17,7 @@ from .config import AlertEngineSettings
 from .database import create_session_factory, get_session
 from .engine import AlertEngine
 from .evaluator import RuleEvaluator
+from .event_recorder import AlertEventRecorder
 from .repository import AlertRuleRepository
 from .schemas import (
     AlertEvaluationResponse,
@@ -51,12 +55,20 @@ def create_app(
 
     repository = AlertRuleRepository()
     evaluator = RuleEvaluator()
+    events_engine = create_engine(settings.events_database_url, future=True)
+    events_session_factory = sessionmaker(
+        bind=events_engine, autocommit=False, autoflush=False, future=True
+    )
     engine = AlertEngine(
         repository=repository,
         evaluator=evaluator,
         context_cache=context_cache,
         publisher=publisher,
         evaluation_interval=settings.evaluation_interval_seconds,
+        event_recorder=AlertEventRecorder(
+            repository=AlertEventRepository(),
+            session_factory=events_session_factory,
+        ),
     )
     stream_processor = stream_processor or StreamProcessor(
         stream_client=stream_client,

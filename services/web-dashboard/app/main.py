@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import urljoin
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from libs.alert_events import AlertEventBase, AlertEventRepository
 
 from .data import load_dashboard_context, load_portfolio_history
 from .alerts_client import AlertsEngineClient, AlertsEngineError
@@ -34,6 +40,27 @@ ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://aler
 ALERT_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
 
 security = HTTPBearer(auto_error=False)
+
+
+ALERT_EVENTS_DATABASE_URL = os.getenv(
+    "WEB_DASHBOARD_ALERT_EVENTS_DATABASE_URL",
+    os.getenv("ALERT_EVENTS_DATABASE_URL", "sqlite:///./alert_events.db"),
+)
+
+_alert_events_engine = create_engine(ALERT_EVENTS_DATABASE_URL, future=True)
+AlertEventBase.metadata.create_all(bind=_alert_events_engine)
+_alert_events_session_factory = sessionmaker(
+    bind=_alert_events_engine, autocommit=False, autoflush=False, future=True
+)
+_alert_events_repository = AlertEventRepository()
+
+
+def get_alert_events_session() -> Iterator[Session]:
+    session = _alert_events_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 @lru_cache(maxsize=1)
@@ -129,6 +156,63 @@ def list_alerts() -> dict[str, object]:
     return {"items": context.alerts}
 
 
+@app.get("/alerts/history")
+def list_alert_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    start: datetime | None = Query(None, description="Filter events triggered after this timestamp"),
+    end: datetime | None = Query(None, description="Filter events triggered before this timestamp"),
+    strategy: str | None = Query(None, description="Filter by strategy or rule name"),
+    severity: str | None = Query(None, description="Filter by severity"),
+    session: Session = Depends(get_alert_events_session),
+) -> dict[str, object]:
+    """Return paginated alert history entries."""
+
+    page_data = _alert_events_repository.list_events(
+        session,
+        page=page,
+        page_size=page_size,
+        start=start,
+        end=end,
+        strategy=strategy,
+        severity=severity,
+    )
+
+    items = [
+        {
+            "id": event.id,
+            "trigger_id": event.trigger_id,
+            "rule_id": event.rule_id,
+            "rule_name": event.rule_name,
+            "strategy": event.strategy,
+            "severity": event.severity,
+            "symbol": event.symbol,
+            "triggered_at": event.triggered_at.isoformat(),
+            "context": event.context or {},
+            "delivery_status": event.delivery_status,
+            "notification_channel": event.notification_channel,
+            "notification_target": event.notification_target,
+        }
+        for event in page_data.items
+    ]
+
+    available_filters = {
+        "strategies": _alert_events_repository.list_strategies(session),
+        "severities": _alert_events_repository.list_severities(session),
+    }
+
+    return {
+        "items": items,
+        "pagination": {
+            "page": page_data.page,
+            "page_size": page_data.page_size,
+            "total": page_data.total,
+            "pages": page_data.pages,
+        },
+        "available_filters": available_filters,
+    }
+
+
 @app.post("/alerts", response_model=Alert, status_code=status.HTTP_201_CREATED)
 def create_alert(
     alert: AlertCreateRequest,
@@ -197,6 +281,7 @@ def render_dashboard(request: Request) -> HTMLResponse:
             },
             "alerts_api": {
                 "endpoint": request.url_for("list_alerts"),
+                "history_endpoint": request.url_for("list_alert_history"),
                 "token": alerts_token,
             },
         },

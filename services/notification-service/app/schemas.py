@@ -75,3 +75,24 @@ class NotificationResponse(BaseModel):
     detail: str
     target: str
 
+
+class AlertTriggerNotification(BaseModel):
+    """Payload received from the alert engine when a rule fires."""
+
+    event_id: int | None = Field(default=None, description="Identifier generated for the stored event")
+    trigger_id: int = Field(..., description="Primary key of the trigger in the alert engine store")
+    rule_id: int = Field(..., description="Identifier of the rule that fired")
+    rule_name: str = Field(..., description="Name of the alerting rule")
+    strategy: str = Field(..., description="Strategy or grouping the rule belongs to")
+    severity: str = Field(..., description="info|warning|critical severity level")
+    symbol: str = Field(..., description="Market symbol used when evaluating the rule")
+    triggered_at: datetime = Field(..., description="Timestamp when the rule fired")
+    context: Dict[str, object] = Field(default_factory=dict, description="Captured evaluation context")
+    notification_channel: str | None = Field(
+        default=None, description="Optional downstream channel suggested for delivery"
+    )
+    notification_target: str | None = Field(
+        default=None,
+        description="Optional destination identifier (email, webhook…) to pre-fill history",
+    )
+
