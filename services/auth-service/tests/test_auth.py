@@ -54,11 +54,23 @@ def test_register_creates_user_with_default_role(client, session_factory):
     body = response.json()
     assert body["email"] == "new@example.com"
     assert body["roles"] == ["user"]
+    assert "created_at" in body
+    assert "updated_at" in body
+    created_at = datetime.fromisoformat(body["created_at"])
+    updated_at = datetime.fromisoformat(body["updated_at"])
+    assert created_at.tzinfo is not None
+    assert updated_at.tzinfo is not None
+    assert updated_at >= created_at
 
     with session_factory() as session:
         user = session.scalar(select(User).where(User.email == "new@example.com"))
         assert user is not None
         assert user.password_hash != "strong-password"
+        assert user.created_at is not None
+        assert user.updated_at is not None
+        assert user.created_at.tzinfo is not None
+        assert user.updated_at.tzinfo is not None
+        assert user.updated_at >= user.created_at
 
         role = session.scalar(select(Role).where(Role.name == "user"))
         assert role is not None
@@ -179,6 +191,9 @@ def test_auth_me_returns_profile_information(client):
     body = Me.model_validate(response.json())
     assert body.email == "profile@example.com"
     assert body.roles == ["user"]
+    assert body.created_at.tzinfo is not None
+    assert body.updated_at.tzinfo is not None
+    assert body.updated_at >= body.created_at
 
 
 def test_user_flags_default_to_expected_values(session_factory):

@@ -53,7 +53,13 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         db.add(role); db.commit(); db.refresh(role)
 
     db.add(UserRole(user_id=u.id, role_id=role.id)); db.commit()
-    return Me(id=u.id, email=u.email, roles=["user"])
+    return Me(
+        id=u.id,
+        email=u.email,
+        roles=["user"],
+        created_at=u.created_at,
+        updated_at=u.updated_at,
+    )
 
 @app.post("/auth/login", response_model=TokenPair)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
@@ -129,7 +135,13 @@ def me(payload=Depends(get_current_user), db: Session = Depends(get_db)):
     roles = [r.name for r in db.execute(
         select(Role).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == uid)
     ).scalars().all()]
-    return Me(id=u.id, email=u.email, roles=roles)
+    return Me(
+        id=u.id,
+        email=u.email,
+        roles=roles,
+        created_at=u.created_at,
+        updated_at=u.updated_at,
+    )
 
 @app.post("/auth/totp/setup", response_model=TOTPSetup, dependencies=[Depends(require_roles("admin","user"))])
 def totp_setup(payload=Depends(get_current_user), db: Session = Depends(get_db)):
