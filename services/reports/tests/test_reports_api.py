@@ -50,6 +50,17 @@ def _seed_sample_data() -> None:
                     outcome=TradeOutcome.LOSS,
                     pnl=-1.2,
                 ),
+                ReportDaily(
+                    symbol="AAPL",
+                    session_date=date(2024, 3, 20),
+                    account="swing",
+                    strategy=StrategyName.GAP_FILL,
+                    entry_price=192.0,
+                    target_price=195.0,
+                    stop_price=190.0,
+                    outcome=TradeOutcome.WIN,
+                    pnl=0.0,
+                ),
                 ReportIntraday(
                     symbol="AAPL",
                     timestamp=datetime(2024, 3, 19, 9, 30),
@@ -109,7 +120,7 @@ def test_refresh_reports_creates_snapshots(tmp_path: Path) -> None:
         count = len(snapshots)
 
     assert count
-    assert strategies == {StrategyName.ORB, StrategyName.IB}
+    assert strategies == {StrategyName.ORB, StrategyName.IB, StrategyName.GAP_FILL}
 
 
 def test_daily_risk_report_endpoint(tmp_path: Path) -> None:
@@ -129,3 +140,34 @@ def test_daily_risk_report_endpoint(tmp_path: Path) -> None:
         csv_response = client.get("/reports/daily", params={"export": "csv"})
         assert csv_response.status_code == 200
         assert "session_date" in csv_response.text
+
+
+def test_portfolio_performance_endpoint(tmp_path: Path) -> None:
+    _configure_database(tmp_path)
+    _seed_sample_data()
+
+    with TestClient(app) as client:
+        response = client.get("/reports/performance")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload
+
+        default_account = next(item for item in payload if item["account"] == "default")
+        assert default_account["start_date"] == "2024-03-18"
+        assert default_account["end_date"] == "2024-03-19"
+        assert default_account["observation_count"] == 2
+        assert default_account["positive_days"] == 1
+        assert default_account["negative_days"] == 1
+        assert round(default_account["total_return"], 2) == 0.8
+        assert round(default_account["volatility"], 2) == 1.6
+        assert round(default_account["sharpe_ratio"], 2) == 0.25
+        assert round(default_account["max_drawdown"], 2) == 1.2
+
+        swing_account = next(item for item in payload if item["account"] == "swing")
+        assert swing_account["observation_count"] == 1
+        assert swing_account["volatility"] == 0.0
+        assert swing_account["sharpe_ratio"] == 0.0
+
+        filtered = client.get("/reports/performance", params={"account": "unknown"})
+        assert filtered.status_code == 200
+        assert filtered.json() == []

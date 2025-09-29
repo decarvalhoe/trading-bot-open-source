@@ -4,7 +4,7 @@ import csv
 from collections import defaultdict
 from datetime import date, datetime
 from io import StringIO
-from statistics import mean
+from statistics import mean, pstdev
 from typing import Iterable, List, Sequence
 
 from sqlalchemy import select
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from schemas.report import (
     DailyRiskIncident,
     DailyRiskReport,
+    PortfolioPerformance,
     ReportResponse,
     ReportSection,
     StrategyMetrics,
@@ -215,6 +216,57 @@ class DailyRiskCalculator:
         if limit is not None and limit > 0:
             summaries = summaries[:limit]
         return summaries
+
+    def performance(self, account: str | None = None) -> list[PortfolioPerformance]:
+        rows = self._fetch_rows(account)
+        if not rows:
+            return []
+
+        grouped: dict[str, dict[date, list[ReportDaily]]] = defaultdict(dict)
+        for row in rows:
+            bucket = grouped.setdefault(row.account, {}).setdefault(row.session_date, [])
+            bucket.append(row)
+
+        performances: list[PortfolioPerformance] = []
+        for account_id, per_day in grouped.items():
+            ordered_dates = sorted(per_day.keys())
+            if not ordered_dates:
+                continue
+            daily_returns = [sum(row.pnl for row in per_day[session_date]) for session_date in ordered_dates]
+            if not daily_returns:
+                continue
+
+            cumulative_return = 0.0
+            peak_equity = 0.0
+            max_drawdown = 0.0
+            for day_return in daily_returns:
+                cumulative_return += day_return
+                peak_equity = max(peak_equity, cumulative_return)
+                drawdown = max(0.0, peak_equity - cumulative_return)
+                max_drawdown = max(max_drawdown, drawdown)
+
+            average_return = mean(daily_returns)
+            volatility = pstdev(daily_returns) if len(daily_returns) > 1 else 0.0
+            sharpe_ratio = average_return / volatility if volatility > 0 else 0.0
+
+            performance = PortfolioPerformance(
+                account=account_id,
+                start_date=ordered_dates[0],
+                end_date=ordered_dates[-1],
+                total_return=cumulative_return,
+                cumulative_return=cumulative_return,
+                average_return=average_return,
+                volatility=volatility,
+                sharpe_ratio=sharpe_ratio,
+                max_drawdown=max_drawdown,
+                observation_count=len(daily_returns),
+                positive_days=sum(1 for value in daily_returns if value > 0),
+                negative_days=sum(1 for value in daily_returns if value < 0),
+            )
+            performances.append(performance)
+
+        performances.sort(key=lambda item: (item.account, item.start_date or date.min))
+        return performances
 
     @staticmethod
     def export_csv(reports: Sequence[DailyRiskReport]) -> str:

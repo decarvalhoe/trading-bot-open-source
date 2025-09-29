@@ -7,7 +7,7 @@ from libs.observability.logging import RequestContextMiddleware, configure_loggi
 from libs.observability.metrics import setup_metrics
 from sqlalchemy.orm import Session
 
-from schemas.report import DailyRiskReport, ReportResponse
+from schemas.report import DailyRiskReport, PortfolioPerformance, ReportResponse
 
 from .calculations import DailyRiskCalculator, ReportCalculator, load_report_from_snapshots
 from .database import get_engine, get_session
@@ -48,6 +48,19 @@ async def daily_risk_report(
             headers={"Content-Disposition": "attachment; filename=daily_risk_report.csv"},
         )
     return reports
+
+
+@app.get(
+    "/reports/performance",
+    response_model=list[PortfolioPerformance],
+    tags=["reports"],
+)
+async def portfolio_performance(
+    account: str | None = Query(default=None, description="Filter by account identifier"),
+    session: Session = Depends(get_session),
+) -> list[PortfolioPerformance]:
+    calculator = DailyRiskCalculator(session)
+    return calculator.performance(account=account)
 
 
 @app.get("/reports/{symbol}", response_model=ReportResponse, tags=["reports"])
