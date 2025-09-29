@@ -61,9 +61,9 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    locale: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     marketing_opt_in: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
@@ -110,7 +110,7 @@ install_entitlements_middleware(
 app.add_middleware(RequestContextMiddleware, service_name="user-service")
 setup_metrics(app, service_name="user-service")
 
-SENSITIVE_FIELDS = {"email", "full_name", "marketing_opt_in"}
+SENSITIVE_FIELDS = {"email", "phone", "marketing_opt_in"}
 
 
 def require_auth(authorization: str = Header(default=None)) -> dict:
@@ -181,9 +181,9 @@ def _build_user_response(user: User, preferences: Dict[str, object]) -> UserResp
     return UserResponse(
         id=user.id,
         email=user.email,
-        display_name=user.display_name,
-        full_name=user.full_name,
-        locale=user.locale,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        phone=user.phone,
         marketing_opt_in=user.marketing_opt_in,
         is_active=user.is_active,
         created_at=user.created_at,
@@ -207,14 +207,14 @@ def _scrub_user_payload(
 
 def _apply_user_update(user: User, payload: UserUpdate) -> bool:
     updated = False
-    if payload.display_name is not None:
-        user.display_name = payload.display_name
+    if payload.first_name is not None:
+        user.first_name = payload.first_name
         updated = True
-    if payload.full_name is not None:
-        user.full_name = payload.full_name
+    if payload.last_name is not None:
+        user.last_name = payload.last_name
         updated = True
-    if payload.locale is not None:
-        user.locale = payload.locale
+    if payload.phone is not None:
+        user.phone = payload.phone
         updated = True
     if payload.marketing_opt_in is not None:
         user.marketing_opt_in = payload.marketing_opt_in
@@ -243,9 +243,9 @@ def register_user(
         raise HTTPException(status_code=409, detail="Email already registered")
     user = User(
         email=payload.email,
-        display_name=payload.display_name,
-        full_name=payload.full_name,
-        locale=payload.locale,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        phone=payload.phone,
         marketing_opt_in=payload.marketing_opt_in,
     )
     db.add(user)
@@ -267,9 +267,9 @@ def create_user(
         raise HTTPException(status_code=409, detail="Email already registered")
     user = User(
         email=payload.email,
-        display_name=payload.display_name,
-        full_name=payload.full_name,
-        locale=payload.locale,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        phone=payload.phone,
         marketing_opt_in=payload.marketing_opt_in,
         is_active=True,
     )
