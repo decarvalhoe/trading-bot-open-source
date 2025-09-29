@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from schemas.order_router import ExecutionIntent, ExecutionReport
 
@@ -36,11 +36,17 @@ class OrchestratorState:
 class Orchestrator:
     """Mutable orchestrator shared by API endpoints."""
 
-    def __init__(self, *, order_router_client: OrderRouterClient | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        order_router_client: OrderRouterClient | None = None,
+        on_strategy_error: Callable[[StrategyBase, Exception], None] | None = None,
+    ) -> None:
         self._state = OrchestratorState()
         self._lock = threading.RLock()
         self._order_router_client = order_router_client
         self._max_execution_records = 50
+        self._on_strategy_error = on_strategy_error
 
     def get_state(self) -> OrchestratorState:
         with self._lock:
@@ -147,9 +153,23 @@ class Orchestrator:
 
             try:
                 report = await client.submit_order(intent)
-            except OrderRouterClientError:
+            except OrderRouterClientError as exc:
                 with self._lock:
                     self._state.trades_submitted = max(0, self._state.trades_submitted - 1)
+                logger.error(
+                    "Failed to submit order for strategy %s: %s",
+                    strategy.config.name,
+                    exc,
+                )
+                handler = self._on_strategy_error
+                if handler is not None:
+                    try:
+                        handler(strategy, exc)
+                    except Exception:
+                        logger.exception(
+                            "Strategy error handler raised while processing failure for %s",
+                            strategy.config.name,
+                        )
                 raise
 
             self._record_execution(report)

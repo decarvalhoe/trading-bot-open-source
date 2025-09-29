@@ -1,6 +1,7 @@
 """Algo engine service exposing a plugin oriented strategy registry."""
 from __future__ import annotations
 
+import logging
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -23,6 +24,9 @@ from .orchestrator import Orchestrator
 from .strategies import base  # noqa: F401 - ensures registry initialised
 from .strategies.base import StrategyConfig, registry
 from .strategies import declarative, gap_fill, orb  # noqa: F401 - register plugins
+
+
+logger = logging.getLogger(__name__)
 
 
 class StrategyStatus(str, Enum):
@@ -127,8 +131,42 @@ class StrategyStore:
 
 
 store = StrategyStore()
+
+
+def _handle_strategy_execution_error(strategy: base.StrategyBase, error: Exception) -> None:
+    logger.error(
+        "Strategy %s routing failure, transitioning to ERROR: %s",
+        strategy.config.name,
+        error,
+    )
+    metadata = strategy.config.metadata or {}
+    strategy_id = metadata.get("strategy_id") if isinstance(metadata, dict) else None
+    if not strategy_id:
+        logger.warning(
+            "Strategy %s missing 'strategy_id' metadata; unable to persist ERROR state",
+            strategy.config.name,
+        )
+        return
+    try:
+        store.update(strategy_id, status=StrategyStatus.ERROR, last_error=str(error))
+    except KeyError:
+        logger.warning(
+            "Strategy id %s not found in store when handling routing failure",
+            strategy_id,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "Failed to update status for strategy %s after routing failure: %s",
+            strategy_id,
+            exc,
+        )
+
+
 order_router_client = OrderRouterClient()
-orchestrator = Orchestrator(order_router_client=order_router_client)
+orchestrator = Orchestrator(
+    order_router_client=order_router_client,
+    on_strategy_error=_handle_strategy_execution_error,
+)
 backtester = Backtester()
 
 configure_logging("algo-engine")
