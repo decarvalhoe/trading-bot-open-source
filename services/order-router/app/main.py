@@ -4,16 +4,25 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, Field
+
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
+from infra.trading_models import Execution as ExecutionModel
+from infra.trading_models import Order as OrderModel
 from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
 from schemas.market import ExecutionPlan, ExecutionReport, OrderRequest
+
+from .database import get_session
 
 from .brokers import BinanceAdapter, BrokerAdapter, IBKRAdapter
 from .risk_rules import (
@@ -30,6 +39,10 @@ from .risk_rules import (
 
 
 logger = logging.getLogger("order-router.risk")
+
+
+class OrderPersistenceError(Exception):
+    """Raised when persisting an order or execution fails."""
 
 
 @dataclass
@@ -90,7 +103,13 @@ class OrderRouter:
                 raise RuntimeError("Daily notional limit exceeded")
             self._state.notional_routed = projected
 
-    def route_order(self, order: OrderRequest, context: Dict[str, Any]) -> ExecutionReport:
+    def route_order(
+        self,
+        order: OrderRequest,
+        context: Dict[str, Any],
+        *,
+        session: Session,
+    ) -> ExecutionReport:
         broker_name = order.broker
         if broker_name not in self._adapters:
             raise KeyError("Unknown broker")
@@ -110,19 +129,169 @@ class OrderRouter:
         notional = abs(order.quantity) * price_reference
         self._apply_daily_limit(notional)
         response = adapter.place_order(order, reference_price=price_reference)
+        try:
+            self._persist_order(session, order, response, account_id)
+        except OrderPersistenceError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive safety net
+            logger.exception("Unexpected error while persisting order %s", response.order_id)
+            raise OrderPersistenceError("unexpected error while persisting order") from exc
         with self._lock:
             self._orders_log.append(response)
             self._executions.extend(adapter.fetch_executions())
         self._risk_engine.register_execution(order, account_id, price_reference)
         return response
 
-    def cancel(self, broker: str, order_id: str) -> ExecutionReport:
+    def cancel(self, broker: str, order_id: str, *, session: Session) -> ExecutionReport:
         if broker not in self._adapters:
             raise KeyError("Unknown broker")
-        result = self._adapters[broker].cancel_order(order_id)
+        adapter = self._adapters[broker]
+        result = adapter.cancel_order(order_id)
+        try:
+            self._record_cancellation(session, result)
+        except OrderPersistenceError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive safety net
+            logger.exception(
+                "Unexpected error while logging cancellation for order %s", result.order_id
+            )
+            raise OrderPersistenceError("unexpected error while logging cancellation") from exc
         with self._lock:
             self._orders_log.append(result)
         return result
+
+    def _persist_order(
+        self,
+        session: Session,
+        order: OrderRequest,
+        report: ExecutionReport,
+        account_id: str,
+    ) -> None:
+        notes = self._format_notes(
+            ",".join(order.tags) if order.tags else None,
+            f"status={report.status.value}",
+        )
+        try:
+            with session.begin():
+                order_model = OrderModel(
+                    external_order_id=report.order_id,
+                    correlation_id=order.client_order_id,
+                    account_id=account_id,
+                    symbol=order.symbol,
+                    side=order.side.value,
+                    order_type=order.order_type.value,
+                    quantity=self._to_decimal(order.quantity),
+                    filled_quantity=self._to_decimal(report.filled_quantity),
+                    limit_price=self._to_decimal(order.price),
+                    status=report.status.value,
+                    time_in_force=order.time_in_force.value,
+                    submitted_at=report.submitted_at,
+                    notes=notes,
+                )
+                session.add(order_model)
+                session.flush()
+                for execution in self._build_execution_models(
+                    order_model, report, account_id
+                ):
+                    session.add(execution)
+        except SQLAlchemyError as exc:
+            logger.exception("Failed to persist order %s", report.order_id)
+            raise OrderPersistenceError("database error while persisting order") from exc
+
+    def _record_cancellation(self, session: Session, report: ExecutionReport) -> None:
+        try:
+            with session.begin():
+                order_model = (
+                    session.execute(
+                        select(OrderModel).where(
+                            OrderModel.external_order_id == report.order_id
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if order_model is None:
+                    logger.warning(
+                        "Order %s not found while logging cancellation", report.order_id
+                    )
+                    return
+                cancel_identifier = f"{report.order_id}-cancel"
+                existing_cancel = (
+                    session.execute(
+                        select(ExecutionModel).where(
+                            ExecutionModel.external_execution_id == cancel_identifier
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if existing_cancel is not None:
+                    logger.debug(
+                        "Cancellation for order %s already recorded", report.order_id
+                    )
+                    return
+                order_model.status = report.status.value
+                order_model.filled_quantity = self._to_decimal(report.filled_quantity) or Decimal("0")
+                cancellation_note = self._format_notes(
+                    order_model.notes,
+                    f"{report.status.value} at {report.submitted_at.isoformat()}",
+                    ",".join(report.tags) if report.tags else None,
+                )
+                order_model.notes = cancellation_note
+                cancellation_execution = ExecutionModel(
+                    order=order_model,
+                    external_execution_id=cancel_identifier,
+                    correlation_id=order_model.correlation_id,
+                    account_id=order_model.account_id,
+                    symbol=report.symbol,
+                    quantity=Decimal("0"),
+                    price=self._to_decimal(report.avg_price) or Decimal("0"),
+                    liquidity="cancelled",
+                    executed_at=report.submitted_at,
+                )
+                session.add(cancellation_execution)
+        except SQLAlchemyError as exc:
+            logger.exception(
+                "Failed to log cancellation for order %s", report.order_id
+            )
+            raise OrderPersistenceError("database error while logging cancellation") from exc
+
+    def _build_execution_models(
+        self,
+        order_model: OrderModel,
+        report: ExecutionReport,
+        account_id: str,
+    ) -> List[ExecutionModel]:
+        executions: List[ExecutionModel] = []
+        for index, fill in enumerate(report.fills):
+            executions.append(
+                ExecutionModel(
+                    order=order_model,
+                    external_execution_id=f"{report.order_id}-fill-{index}",
+                    correlation_id=order_model.correlation_id,
+                    account_id=account_id,
+                    symbol=report.symbol,
+                    quantity=self._to_decimal(fill.quantity) or Decimal("0"),
+                    price=self._to_decimal(fill.price) or Decimal("0"),
+                    executed_at=fill.timestamp,
+                )
+            )
+        return executions
+
+    @staticmethod
+    def _format_notes(*parts: Optional[str]) -> Optional[str]:
+        combined = " | ".join(part for part in parts if part)
+        if not combined:
+            return None
+        return combined[:255]
+
+    @staticmethod
+    def _to_decimal(value: float | int | Decimal | None) -> Optional[Decimal]:
+        if value is None:
+            return None
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
 
     def orders_log(self) -> List[ExecutionReport]:
         with self._lock:
@@ -238,7 +407,11 @@ def preview_execution_plan(payload: OrderPayload) -> ExecutionPlanResponse:
 
 
 @app.post("/orders", response_model=ExecutionReport, status_code=status.HTTP_201_CREATED)
-def create_order(payload: OrderPayload, request: Request) -> ExecutionReport:
+def create_order(
+    payload: OrderPayload,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> ExecutionReport:
     entitlements = getattr(request.state, "entitlements", None)
     bypass = getattr(entitlements, "customer_id", None) == "anonymous"
     if entitlements and not bypass and not entitlements.has("can.route_orders"):
@@ -263,22 +436,36 @@ def create_order(payload: OrderPayload, request: Request) -> ExecutionReport:
         "stop_loss": risk_overrides.stop_loss,
     }
     try:
-        result = router.route_order(payload, context)
+        result = router.route_order(payload, context, session=session)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except OrderPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist order",
+        ) from exc
     return result
 
 
 @app.post("/orders/{broker}/cancel", response_model=ExecutionReport)
-def cancel_order(broker: str, payload: CancelPayload) -> ExecutionReport:
+def cancel_order(
+    broker: str,
+    payload: CancelPayload,
+    session: Session = Depends(get_session),
+) -> ExecutionReport:
     try:
-        return router.cancel(broker, payload.order_id)
+        return router.cancel(broker, payload.order_id, session=session)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except OrderPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist cancellation",
+        ) from exc
 
 
 @app.get("/orders/log", response_model=List[ExecutionReport])

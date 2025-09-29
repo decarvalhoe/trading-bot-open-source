@@ -26,6 +26,7 @@ from infra import (  # noqa: E402
     MarketplaceBase,
     ScreenerBase,
     SocialBase,
+    TradingBase,
 )
 
 EntitlementsBase.metadata.create_all(bind=db.engine)
@@ -33,3 +34,5 @@ ScreenerBase.metadata.create_all(bind=db.engine)
 MarketplaceBase.metadata.create_all(bind=db.engine)
 SocialBase.metadata.create_all(bind=db.engine)
 AuditBase.metadata.create_all(bind=db.engine)
+TradingBase.metadata.drop_all(bind=db.engine)
+TradingBase.metadata.create_all(bind=db.engine)

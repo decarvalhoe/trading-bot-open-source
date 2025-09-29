@@ -6,6 +6,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from infra.trading_models import Execution as ExecutionModel, Order as OrderModel
+from libs.db.db import SessionLocal
+
 os.environ.setdefault("ENTITLEMENTS_BYPASS", "1")
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +48,22 @@ def reset_router_state():
     router._limit_store.set_stop_loss("default", 50_000.0)  # type: ignore[attr-defined]
     router.update_state(mode="paper", limit=1_000_000.0)
     yield
+
+
+@pytest.fixture(autouse=True)
+def clean_database():
+    def _clear() -> None:
+        session = SessionLocal()
+        try:
+            session.query(ExecutionModel).delete()
+            session.query(OrderModel).delete()
+            session.commit()
+        finally:
+            session.close()
+
+    _clear()
+    yield
+    _clear()
 
 
 def test_route_order_and_logging():
