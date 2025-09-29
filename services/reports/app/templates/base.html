@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title }}</title>
+    <style>
+      body {
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        color: #1b1b1b;
+        margin: 0;
+        padding: 0 32px 48px;
+      }
+      header,
+      footer {
+        text-align: center;
+        padding: 16px 0;
+        color: #555;
+      }
+      h1,
+      h2,
+      h3 {
+        color: #0b3d91;
+        margin-bottom: 8px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 24px;
+      }
+      th,
+      td {
+        border: 1px solid #d7d7d7;
+        padding: 8px 10px;
+        text-align: left;
+      }
+      th {
+        background: #f3f6fb;
+      }
+      .section {
+        margin-bottom: 32px;
+      }
+      .meta {
+        font-size: 0.9rem;
+        color: #6b6b6b;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Trading Analytics Reports</h1>
+      <div class="meta">Generated {{ generated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</div>
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+    <footer>
+      <div class="meta">Internal use only</div>
+    </footer>
+  </body>
+</html>

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     celery_broker_url: str = Field("redis://redis:6379/0", alias="REPORTS_CELERY_BROKER")
     celery_backend_url: str = Field("redis://redis:6379/1", alias="REPORTS_CELERY_BACKEND")
     refresh_interval_seconds: int = Field(300, alias="REPORTS_REFRESH_INTERVAL")
+    reports_storage_path: str = Field("./generated-reports", alias="REPORTS_STORAGE_PATH")
 
     class Config:
         env_file = ".env"
