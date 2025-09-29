@@ -13,8 +13,11 @@ class Channel(str, Enum):
     """Supported delivery channels."""
 
     webhook = "webhook"
+    custom_webhook = "custom_webhook"
     email = "email"
     slack = "slack"
+    telegram = "telegram"
+    sms = "sms"
 
 
 class Notification(BaseModel):
@@ -33,12 +36,25 @@ class DeliveryTarget(BaseModel):
     channel: Channel
     webhook_url: Optional[str] = Field(None, description="HTTP endpoint for webhook or Slack")
     email_to: Optional[EmailStr] = Field(None, description="Destination address for email delivery")
+    telegram_chat_id: Optional[str] = Field(
+        None, description="Telegram chat identifier for bot deliveries"
+    )
+    telegram_bot_token: Optional[str] = Field(
+        None, description="Explicit Telegram bot token overriding service defaults", repr=False
+    )
+    phone_number: Optional[str] = Field(
+        None, description="Destination phone number for SMS delivery"
+    )
 
     def identifier(self) -> str:
         """Return a human readable destination id."""
 
         if self.channel == Channel.email and self.email_to:
             return self.email_to
+        if self.channel == Channel.telegram and self.telegram_chat_id:
+            return self.telegram_chat_id
+        if self.channel == Channel.sms and self.phone_number:
+            return self.phone_number
         if self.webhook_url:
             return self.webhook_url
         return self.channel.value
