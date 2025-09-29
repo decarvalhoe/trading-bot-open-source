@@ -32,12 +32,12 @@ This trading bot is a complete platform that allows you to:
 
 *Result*: The technical infrastructure is operational and ready for development.
 
-### Phase 2: Authentication and Users (✅ Core features ready)
+### Phase 2: Authentication and Users (✅ Completed)
 **Objective**: To allow users to create accounts and log in securely
 
 - ✅ **Authentication System**: Registration, login, JWT security, MFA TOTP
 - ✅ **Profile Management**: Creation and modification of user profiles with entitlement-based masking
-- 🔄 **End-to-End Documentation**: Consolidate OpenAPI specs and UX guides for a full onboarding path
+- ✅ **End-to-End Documentation**: Consolidated OpenAPI specs and UX guides for a full onboarding path
 
 *Result*: Users can create secure accounts, activate their profile and prepare for MFA enrolment.
 

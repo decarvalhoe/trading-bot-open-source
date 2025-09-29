@@ -32,12 +32,12 @@ Ce trading bot est une plateforme complète qui permet de :
 
 *Résultat* : L'infrastructure technique est opérationnelle et prête pour le développement.
 
-### Phase 2 : Authentification et Utilisateurs (✅ Cœur fonctionnel prêt)
+### Phase 2 : Authentification et Utilisateurs (✅ Terminée)
 **Objectif** : Permettre aux utilisateurs de créer des comptes et se connecter de manière sécurisée
 
 - ✅ **Système d'authentification** : Inscription, connexion, sécurité JWT, MFA TOTP
 - ✅ **Gestion des profils** : Création et modification des profils avec masquage selon les entitlements
-- 🔄 **Documentation parcours complet** : Consolider l'OpenAPI et un guide UX pour l'onboarding
+- ✅ **Documentation parcours complet** : Consolidation de l'OpenAPI et du guide UX pour l'onboarding
 
 *Résultat* : Les utilisateurs peuvent créer un compte sécurisé, activer leur profil et préparer l'enrôlement MFA.
 
