@@ -14,6 +14,115 @@
       </p>
     </header>
     <main class="layout__main">
+      {% if context.metrics %}
+      <section class="card card--metrics" aria-labelledby="metrics-title">
+        <div class="card__header">
+          <h2 id="metrics-title" class="heading heading--lg">Performance</h2>
+          <p class="text text--muted">
+            {% if context.metrics.account %}
+            Compte {{ context.metrics.account }}
+            {% endif %}
+            {% if context.metrics.as_of %}
+            · Mise à jour le {{ context.metrics.as_of.strftime('%d/%m/%Y') }}
+            {% endif %}
+          </p>
+        </div>
+        <div class="card__body">
+          {% if context.metrics.available %}
+          <div class="metrics-grid" role="list" aria-describedby="metrics-title">
+            {% set pnl_positive = context.metrics.current_pnl >= 0 %}
+            <article class="metric-card" role="listitem" aria-labelledby="metric-pnl-label">
+              <p id="metric-pnl-label" class="metric-card__label">P&amp;L courant</p>
+              <p
+                class="metric-card__value {{ 'metric-card__value--positive' if pnl_positive else 'metric-card__value--negative' }}"
+              >
+                {{ '%.2f' | format(context.metrics.current_pnl) }} {{ context.metrics.currency }}
+              </p>
+              <span
+                class="badge {{ 'badge--success' if pnl_positive else 'badge--critical' }}"
+                aria-label="{{ 'Gain' if pnl_positive else 'Perte' }} sur la dernière session"
+                >{{ 'Gain' if pnl_positive else 'Perte' }}</span
+              >
+            </article>
+
+            <article class="metric-card" role="listitem" aria-labelledby="metric-dd-label">
+              <p id="metric-dd-label" class="metric-card__label">Drawdown</p>
+              <p class="metric-card__value metric-card__value--negative">
+                {{ '%.2f' | format(context.metrics.current_drawdown) }} {{ context.metrics.currency }}
+              </p>
+              <span class="badge badge--warning" aria-label="Drawdown cumulé">
+                Protection du capital
+              </span>
+            </article>
+
+            {% set cumulative_positive = context.metrics.cumulative_return >= 0 %}
+            <article class="metric-card" role="listitem" aria-labelledby="metric-return-label">
+              <p id="metric-return-label" class="metric-card__label">Rendement cumulatif</p>
+              <p
+                class="metric-card__value {{ 'metric-card__value--positive' if cumulative_positive else 'metric-card__value--negative' }}"
+              >
+                {% if context.metrics.cumulative_return_is_ratio %}
+                {{ '%.2f' | format(context.metrics.cumulative_return * 100) }} %
+                {% else %}
+                {{ '%.2f' | format(context.metrics.cumulative_return) }} {{ context.metrics.currency }}
+                {% endif %}
+              </p>
+              <span
+                class="badge {{ 'badge--success' if cumulative_positive else 'badge--critical' }}"
+                aria-label="Rendement composé basé sur les sessions disponibles"
+                >{{ 'En hausse' if cumulative_positive else 'En baisse' }}</span
+              >
+            </article>
+
+            <article class="metric-card" role="listitem" aria-labelledby="metric-sharpe-label">
+              <p id="metric-sharpe-label" class="metric-card__label">Sharpe annualisé</p>
+              <p class="metric-card__value">
+                {% if context.metrics.sharpe_ratio is not none %}
+                {{ '%.2f' | format(context.metrics.sharpe_ratio) }}
+                {% else %}
+                —
+                {% endif %}
+              </p>
+              {% if context.metrics.sharpe_ratio is not none %}
+              {% set sharpe = context.metrics.sharpe_ratio %}
+              {% set sharpe_badge = 'badge--critical' %}
+              {% set sharpe_label = 'Sous la cible' %}
+              {% if sharpe >= 1.5 %}
+              {% set sharpe_badge = 'badge--success' %}
+              {% set sharpe_label = 'Excellent' %}
+              {% elif sharpe >= 1.0 %}
+              {% set sharpe_badge = 'badge--info' %}
+              {% set sharpe_label = 'Solide' %}
+              {% elif sharpe >= 0 %}
+              {% set sharpe_badge = 'badge--warning' %}
+              {% set sharpe_label = 'À surveiller' %}
+              {% endif %}
+              <span class="badge {{ sharpe_badge }}" aria-label="{{ sharpe_label }}">{{ sharpe_label }}</span>
+              {% else %}
+              <span class="badge badge--neutral" aria-label="Sharpe non disponible">ND</span>
+              {% endif %}
+            </article>
+          </div>
+          <p class="text text--muted metrics__footnote">
+            {% if context.metrics.sample_size %}
+            Basé sur {{ context.metrics.sample_size }} session{{ 's' if context.metrics.sample_size > 1 else '' }}
+            {% else %}
+            Données insuffisantes pour calculer toutes les métriques.
+            {% endif %}
+            {% if context.metrics.uses_exposure %}
+            Normalisation par l'exposition quotidienne active.
+            {% endif %}
+          </p>
+          {% else %}
+          <p class="text text--muted">
+            Les métriques de performance ne sont pas disponibles pour le moment. Vérifiez la connexion avec
+            reports-service.
+          </p>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
       <section class="card" aria-labelledby="portfolios-title">
         <div class="card__header">
           <h2 id="portfolios-title" class="heading heading--lg">Portefeuilles</h2>
