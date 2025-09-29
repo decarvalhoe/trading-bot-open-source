@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     func,
@@ -20,12 +21,15 @@ from sqlalchemy.orm import declarative_base, relationship
 TradingBase = declarative_base()
 
 
+SQLITE_BIGINT = BigInteger().with_variant(Integer, "sqlite")
+
+
 class Order(TradingBase):
     """Represents an order submitted by a strategy or user."""
 
     __tablename__ = "trading_orders"
 
-    id: int = Column(BigInteger, primary_key=True, autoincrement=True)
+    id: int = Column(SQLITE_BIGINT, primary_key=True, autoincrement=True)
     external_order_id: Optional[str] = Column(String(128), unique=True)
     correlation_id: Optional[str] = Column(String(128), index=True)
     account_id: str = Column(String(64), nullable=False, index=True)
@@ -66,9 +70,9 @@ class Execution(TradingBase):
 
     __tablename__ = "trading_executions"
 
-    id: int = Column(BigInteger, primary_key=True, autoincrement=True)
+    id: int = Column(SQLITE_BIGINT, primary_key=True, autoincrement=True)
     order_id: int = Column(
-        BigInteger,
+        SQLITE_BIGINT,
         ForeignKey("trading_orders.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
