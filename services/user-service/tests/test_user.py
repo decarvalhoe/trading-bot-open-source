@@ -88,6 +88,14 @@ def _service_auth_header():
     return {"Authorization": f"Bearer {token}"}
 
 
+def _admin_entitlements():
+    return Entitlements(
+        customer_id="admin",
+        features={"can.manage_users": True},
+        quotas={},
+    )
+
+
 def test_signup_activation_profile_flow(client, session_factory):
     email = "flow@example.com"
     register_resp = client.post(
@@ -151,6 +159,54 @@ def test_signup_activation_profile_flow(client, session_factory):
         prefs_row = session.get(UserPreferences, user_id)
         assert prefs_row is not None
         assert prefs_row.preferences == prefs_payload["preferences"]
+
+    app.dependency_overrides.pop(main.get_entitlements, None)
+
+
+def test_list_users_pagination(client, session_factory):
+    with session_factory() as session:
+        for index in range(5):
+            session.add(
+                User(
+                    email=f"user{index}@example.com",
+                    display_name=f"User {index}",
+                    is_active=True,
+                )
+            )
+        session.commit()
+
+    app.dependency_overrides[main.get_entitlements] = _admin_entitlements
+
+    default_resp = client.get("/users")
+    assert default_resp.status_code == 200
+    default_body = default_resp.json()
+    assert default_body["pagination"] == {
+        "total": 5,
+        "count": 5,
+        "limit": 20,
+        "offset": 0,
+    }
+    assert [item["email"] for item in default_body["items"]] == [
+        "user0@example.com",
+        "user1@example.com",
+        "user2@example.com",
+        "user3@example.com",
+        "user4@example.com",
+    ]
+
+    paged_resp = client.get("/users", params={"limit": 2, "offset": 1})
+    assert paged_resp.status_code == 200
+    paged_body = paged_resp.json()
+    assert paged_body["pagination"] == {
+        "total": 5,
+        "count": 2,
+        "limit": 2,
+        "offset": 1,
+    }
+    assert [item["email"] for item in paged_body["items"]] == [
+        "user1@example.com",
+        "user2@example.com",
+    ]
 
     app.dependency_overrides.pop(main.get_entitlements, None)
 
