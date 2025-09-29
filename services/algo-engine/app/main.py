@@ -17,6 +17,7 @@ from schemas.market import ExecutionPlan, ExecutionVenue, OrderRequest, OrderSid
 
 from .backtest import Backtester
 from .declarative import DeclarativeStrategyError, load_declarative_definition
+from .order_router_client import OrderRouterClient
 from .orchestrator import Orchestrator
 from .strategies import base  # noqa: F401 - ensures registry initialised
 from .strategies.base import StrategyConfig, registry
@@ -84,7 +85,8 @@ class StrategyStore:
 
 
 store = StrategyStore()
-orchestrator = Orchestrator()
+order_router_client = OrderRouterClient()
+orchestrator = Orchestrator(order_router_client=order_router_client)
 backtester = Backtester()
 
 configure_logging("algo-engine")
@@ -96,6 +98,11 @@ install_entitlements_middleware(
 )
 app.add_middleware(RequestContextMiddleware, service_name="algo-engine")
 setup_metrics(app, service_name="algo-engine")
+
+
+@app.on_event("shutdown")
+async def _shutdown_clients() -> None:
+    await order_router_client.aclose()
 
 
 class StrategyPayload(BaseModel):
