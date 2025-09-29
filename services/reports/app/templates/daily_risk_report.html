@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="section">
+    <h2>Daily risk summary</h2>
+    {% if account %}
+      <div class="meta">Account: {{ account }}</div>
+    {% endif %}
+    {% if limit %}
+      <div class="meta">Most recent {{ limit }} sessions</div>
+    {% endif %}
+  </section>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Session date</th>
+        <th>Account</th>
+        <th>P&amp;L</th>
+        <th>Max drawdown</th>
+        <th>Incidents</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for report in reports %}
+        <tr>
+          <td>{{ report.session_date.strftime('%Y-%m-%d') }}</td>
+          <td>{{ report.account }}</td>
+          <td>{{ '%.2f'|format(report.pnl) }}</td>
+          <td>{{ '%.2f'|format(report.max_drawdown) }}</td>
+          <td>
+            {% if report.incidents %}
+              <ul>
+                {% for incident in report.incidents %}
+                  <li>{{ incident.symbol }} – {{ incident.strategy.value }} ({{ incident.outcome.value }})</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              None
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

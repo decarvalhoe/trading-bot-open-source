@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import importlib
 import os
+import sys
+import types
 from datetime import date, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from services.reports.app import config
 from services.reports.app.database import get_engine, reset_engine, session_scope
@@ -83,6 +86,29 @@ def _seed_sample_data() -> None:
                 ),
             ]
         )
+
+
+def _configure_storage(tmp_path: Path) -> Path:
+    storage_dir = tmp_path / "pdf"
+    os.environ["REPORTS_STORAGE_PATH"] = str(storage_dir)
+    config.get_settings.cache_clear()
+    return storage_dir
+
+
+def _mock_weasyprint(monkeypatch: pytest.MonkeyPatch) -> type:
+    class DummyHTML:
+        last_rendered = ""
+
+        def __init__(self, string: str):
+            DummyHTML.last_rendered = string
+            self.string = string
+
+        def write_pdf(self) -> bytes:
+            return b"%PDF-FAKE%"
+
+    module = types.SimpleNamespace(HTML=DummyHTML)
+    monkeypatch.setitem(sys.modules, "weasyprint", module)
+    return DummyHTML
 
 
 def test_reports_endpoint_computes_metrics(tmp_path: Path) -> None:
@@ -171,3 +197,61 @@ def test_portfolio_performance_endpoint(tmp_path: Path) -> None:
         filtered = client.get("/reports/performance", params={"account": "unknown"})
         assert filtered.status_code == 200
         assert filtered.json() == []
+
+
+def test_render_symbol_report_to_pdf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_database(tmp_path)
+    _seed_sample_data()
+    _configure_storage(tmp_path)
+    dummy_html = _mock_weasyprint(monkeypatch)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/reports/AAPL/render",
+            json={"report_type": "symbol", "timeframe": "both"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content == b"%PDF-FAKE%"
+    assert "Content-Disposition" in response.headers
+    stored_path = Path(response.headers["X-Report-Path"])
+    assert stored_path.exists()
+    assert stored_path.read_bytes() == b"%PDF-FAKE%"
+    assert "AAPL" in stored_path.name
+    assert dummy_html.last_rendered
+    assert "AAPL" in dummy_html.last_rendered
+    assert "Daily strategies" in dummy_html.last_rendered
+
+
+def test_render_daily_risk_report_to_pdf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_database(tmp_path)
+    _seed_sample_data()
+    _configure_storage(tmp_path)
+    dummy_html = _mock_weasyprint(monkeypatch)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/reports/AAPL/render",
+            json={"report_type": "daily", "account": "default", "limit": 10},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content == b"%PDF-FAKE%"
+    assert "Daily risk summary" in dummy_html.last_rendered
+    assert "Most recent 10 sessions" in dummy_html.last_rendered
+
+
+def test_render_report_returns_404_when_no_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_database(tmp_path)
+    _configure_storage(tmp_path)
+    _mock_weasyprint(monkeypatch)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/reports/UNKNOWN/render",
+            json={"report_type": "symbol"},
+        )
+
+    assert response.status_code == 404

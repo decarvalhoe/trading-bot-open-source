@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="section">
+    <h2>Symbol overview</h2>
+    <div class="meta">Symbol: {{ report.symbol }}</div>
+  </section>
+
+  {% if report.daily %}
+    <section class="section">
+      <h3>Daily strategies</h3>
+      <div class="meta">Updated {{ report.daily.updated_at.strftime('%Y-%m-%d %H:%M:%S UTC') if report.daily.updated_at else 'n/a' }}</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th>Win rate</th>
+            <th>Target</th>
+            <th>Stop</th>
+            <th>Expectancy</th>
+            <th>Sample size</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for metrics in report.daily.strategies %}
+            <tr>
+              <td>{{ metrics.strategy.value }}</td>
+              <td>{{ '%.2f'|format(metrics.probability * 100) }}%</td>
+              <td>{{ '%.2f'|format(metrics.target) }}</td>
+              <td>{{ '%.2f'|format(metrics.stop) }}</td>
+              <td>{{ '%.2f'|format(metrics.expectancy) }}</td>
+              <td>{{ metrics.sample_size }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if report.intraday %}
+    <section class="section">
+      <h3>Intraday strategies</h3>
+      <div class="meta">Updated {{ report.intraday.updated_at.strftime('%Y-%m-%d %H:%M:%S UTC') if report.intraday.updated_at else 'n/a' }}</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th>Win rate</th>
+            <th>Target</th>
+            <th>Stop</th>
+            <th>Expectancy</th>
+            <th>Sample size</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for metrics in report.intraday.strategies %}
+            <tr>
+              <td>{{ metrics.strategy.value }}</td>
+              <td>{{ '%.2f'|format(metrics.probability * 100) }}%</td>
+              <td>{{ '%.2f'|format(metrics.target) }}</td>
+              <td>{{ '%.2f'|format(metrics.stop) }}</td>
+              <td>{{ '%.2f'|format(metrics.expectancy) }}</td>
+              <td>{{ metrics.sample_size }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+{% endblock %}
