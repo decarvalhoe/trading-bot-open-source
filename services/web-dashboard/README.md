@@ -38,6 +38,15 @@ centralisée.
 
 ## Tests
 
-Aucun test spécifique n'est fourni pour le dashboard. L'ajout de tests FastAPI
-ou de tests d'intégration ciblant l'appel au reports-service est recommandé si
-le volume de logique métier augmente.
+Deux familles de tests couvrent le service :
+
+- Tests d'API FastAPI (`pytest services/web-dashboard/tests/test_portfolio_history.py`).
+- Scénarios de bout en bout Playwright pilotant le navigateur pour vérifier
+  l'affichage des métriques, les mises à jour temps réel simulées et quelques
+  contrôles d'accessibilité (`make web-dashboard-e2e`).
+
+Avant la première exécution des scénarios Playwright, installez les dépendances
+Python (`pip install -r services/web-dashboard/requirements-dev.txt`) puis les
+binaires navigateur (`python -m playwright install chromium`). Une fois ces
+pré-requis en place, la commande `make web-dashboard-e2e` démarre le serveur
+FastAPI en tâche de fond et exécute les tests.

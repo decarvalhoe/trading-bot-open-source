@@ -25,8 +25,13 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -r services/codex_gateway/requirements-dev.txt
           pip install -r services/codex_worker/requirements-dev.txt
+          pip install -r services/web-dashboard/requirements-dev.txt
+      - name: Install Playwright browsers
+        run: python -m playwright install --with-deps chromium
       - name: Run test suite
         run: make test
+      - name: Run web dashboard E2E tests
+        run: make web-dashboard-e2e
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
