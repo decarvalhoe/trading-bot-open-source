@@ -19,6 +19,8 @@ from .schemas import (
     Holding,
     PerformanceMetrics,
     Portfolio,
+    PortfolioHistorySeries,
+    PortfolioTimeseriesPoint,
     RiskLevel,
     Transaction,
 )
@@ -235,6 +237,55 @@ def _fetch_performance_metrics() -> PerformanceMetrics:
     return metrics
 
 
+def _build_portfolio_history(days: int = 30) -> List[PortfolioHistorySeries]:
+    """Generate synthetic time series for each portfolio."""
+
+    portfolios = _build_portfolios()
+    if days < 2:
+        days = 2
+
+    now = datetime.utcnow()
+    history: List[PortfolioHistorySeries] = []
+    for index, portfolio in enumerate(portfolios):
+        base_value = sum(holding.market_value for holding in portfolio.holdings)
+        if not base_value:
+            base_value = 1_000.0
+
+        series: List[PortfolioTimeseriesPoint] = []
+        for day in range(days):
+            offset = days - day - 1
+            timestamp = now - timedelta(days=offset)
+
+            # Build a deterministic walk combining a smooth drift and oscillation.
+            progress = day / (days - 1)
+            seasonal = math.sin(progress * math.pi * 2 + index) * 0.015
+            drift = 0.0025 * day
+            noise = math.cos(progress * math.pi * 4 + index) * 0.005
+            ratio = 1 + drift + seasonal + noise
+
+            value = base_value * ratio
+            pnl = value - base_value
+
+            series.append(
+                PortfolioTimeseriesPoint(
+                    timestamp=timestamp.replace(microsecond=0),
+                    value=round(value, 2),
+                    pnl=round(pnl, 2),
+                )
+            )
+
+        history.append(
+            PortfolioHistorySeries(
+                name=portfolio.name,
+                owner=portfolio.owner,
+                currency="$",
+                series=series,
+            )
+        )
+
+    return history
+
+
 def load_dashboard_context() -> DashboardContext:
     """Return consistent sample data for the dashboard view."""
 
@@ -246,7 +297,14 @@ def load_dashboard_context() -> DashboardContext:
     )
 
 
+def load_portfolio_history() -> List[PortfolioHistorySeries]:
+    """Expose synthetic portfolio history series for visualisation components."""
+
+    return _build_portfolio_history()
+
+
 __all__ = [
     "load_dashboard_context",
+    "load_portfolio_history",
 ]
 

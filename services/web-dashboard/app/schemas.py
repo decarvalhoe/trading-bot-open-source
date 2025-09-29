@@ -46,6 +46,29 @@ class Portfolio(BaseModel):
         return sum(position.market_value for position in self.holdings)
 
 
+class PortfolioTimeseriesPoint(BaseModel):
+    """Represent a single observation in a portfolio history series."""
+
+    timestamp: datetime = Field(..., description="Moment where the snapshot was captured")
+    value: float = Field(..., description="Total portfolio value at the timestamp")
+    pnl: float | None = Field(
+        default=None,
+        description="Profit and loss variation relative to the initial observation",
+    )
+
+
+class PortfolioHistorySeries(BaseModel):
+    """Collection of history points for a specific portfolio."""
+
+    name: str = Field(..., description="Portfolio identifier")
+    owner: str | None = Field(default=None, description="Owner of the portfolio")
+    currency: str = Field(default="$", description="Currency used for valuation")
+    series: List[PortfolioTimeseriesPoint] = Field(
+        default_factory=list,
+        description="Ordered list of observations for the portfolio",
+    )
+
+
 class Transaction(BaseModel):
     """Represent a trading event that impacted a portfolio."""
 
