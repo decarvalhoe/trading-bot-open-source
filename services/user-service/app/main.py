@@ -58,6 +58,9 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -155,6 +158,13 @@ def _fetch_preferences(db: Session, user_id: int) -> Dict[str, object]:
     return row.preferences if row else {}
 
 
+def _get_user_or_404(db: Session, user_id: int) -> User:
+    user = db.get(User, user_id)
+    if not user or user.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
 def _build_user_response(user: User, preferences: Dict[str, object]) -> UserResponse:
     return UserResponse(
         id=user.id,
@@ -181,6 +191,25 @@ def _scrub_user_payload(
     for field in SENSITIVE_FIELDS:
         data[field] = None
     return UserResponse(**data)
+
+
+def _apply_user_update(user: User, payload: UserUpdate) -> bool:
+    updated = False
+    if payload.display_name is not None:
+        user.display_name = payload.display_name
+        updated = True
+    if payload.full_name is not None:
+        user.full_name = payload.full_name
+        updated = True
+    if payload.locale is not None:
+        user.locale = payload.locale
+        updated = True
+    if payload.marketing_opt_in is not None:
+        user.marketing_opt_in = payload.marketing_opt_in
+        updated = True
+    if updated:
+        user.updated_at = datetime.now(timezone.utc)
+    return updated
 
 
 @app.get("/health")
@@ -245,7 +274,9 @@ def list_users(
 ) -> List[UserResponse]:
     """Liste l'ensemble des utilisateurs pour un opérateur autorisé."""
 
-    users = db.scalars(select(User).order_by(User.id)).all()
+    users = db.scalars(
+        select(User).where(User.deleted_at.is_(None)).order_by(User.id)
+    ).all()
     return [
         _build_user_response(user, _fetch_preferences(db, user.id)) for user in users
     ]
@@ -259,66 +290,81 @@ def get_me(
 ) -> UserResponse:
     """Retourne le profil complet de l'utilisateur authentifié."""
 
-    user = db.get(User, actor_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    user = _get_user_or_404(db, actor_id)
     preferences = _fetch_preferences(db, actor_id)
     response = _build_user_response(user, preferences)
     return _scrub_user_payload(response, entitlements=entitlements, actor_id=actor_id)
 
 
-@app.get("/users/{user_id}", response_model=UserResponse)
-def get_user(
-    user_id: int,
+@app.put("/users/me", response_model=UserResponse)
+def update_me(
+    payload: UserUpdate,
     actor_id: int = Depends(get_authenticated_actor),
     entitlements: Entitlements = Depends(get_entitlements),
     db: Session = Depends(get_db),
 ) -> UserResponse:
-    """Retourne le profil demandé en masquant les champs sensibles si nécessaire."""
+    """Met à jour le profil de l'utilisateur authentifié."""
 
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    preferences = _fetch_preferences(db, user_id)
+    user = _get_user_or_404(db, actor_id)
+    _apply_user_update(user, payload)
+    db.commit()
+    db.refresh(user)
+    preferences = _fetch_preferences(db, actor_id)
     response = _build_user_response(user, preferences)
     return _scrub_user_payload(response, entitlements=entitlements, actor_id=actor_id)
+
+
+@app.delete("/users/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_me(
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Effectue un soft delete du profil de l'utilisateur authentifié."""
+
+    user = _get_user_or_404(db, actor_id)
+    if user.deleted_at is None:
+        now = datetime.now(timezone.utc)
+        user.deleted_at = now
+        user.is_active = False
+        user.updated_at = now
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/users/{user_id}", response_model=UserResponse)
+def get_user(
+    user_id: int,
+    entitlements: Entitlements = Depends(require_manage_users),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    """Retourne le profil demandé en masquant les champs sensibles si nécessaire."""
+
+    user = _get_user_or_404(db, user_id)
+    preferences = _fetch_preferences(db, user_id)
+    response = _build_user_response(user, preferences)
+    return _scrub_user_payload(
+        response, entitlements=entitlements, actor_id=None
+    )
 
 
 @app.patch("/users/{user_id}", response_model=UserResponse)
 def update_user(
     user_id: int,
     payload: UserUpdate,
-    actor_id: int = Depends(get_authenticated_actor),
-    entitlements: Entitlements = Depends(get_entitlements),
+    entitlements: Entitlements = Depends(require_manage_users),
     db: Session = Depends(get_db),
 ) -> UserResponse:
     """Met à jour les informations de profil d'un utilisateur."""
 
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if user.id != actor_id and not entitlements.has("can.manage_users"):
-        raise HTTPException(status_code=403, detail="Operation not permitted")
-    updated = False
-    if payload.display_name is not None:
-        user.display_name = payload.display_name
-        updated = True
-    if payload.full_name is not None:
-        user.full_name = payload.full_name
-        updated = True
-    if payload.locale is not None:
-        user.locale = payload.locale
-        updated = True
-    if payload.marketing_opt_in is not None:
-        user.marketing_opt_in = payload.marketing_opt_in
-        updated = True
-    if updated:
-        user.updated_at = datetime.now(timezone.utc)
+    user = _get_user_or_404(db, user_id)
+    _apply_user_update(user, payload)
     db.commit()
     db.refresh(user)
     preferences = _fetch_preferences(db, user_id)
     response = _build_user_response(user, preferences)
-    return _scrub_user_payload(response, entitlements=entitlements, actor_id=actor_id)
+    return _scrub_user_payload(
+        response, entitlements=entitlements, actor_id=None
+    )
 
 
 @app.post("/users/{user_id}/activate", response_model=UserResponse)
@@ -330,9 +376,7 @@ def activate_user(
 ) -> UserResponse:
     """Active un utilisateur soit par lui-même soit par un administrateur."""
 
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    user = _get_user_or_404(db, user_id)
     if user.id != actor_id and not entitlements.has("can.manage_users"):
         raise HTTPException(status_code=403, detail="Operation not permitted")
     if not user.is_active:
@@ -353,10 +397,11 @@ def delete_user(
 ) -> Response:
     """Supprime définitivement un utilisateur et ses préférences associées."""
 
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    db.delete(user)
+    user = _get_user_or_404(db, user_id)
+    now = datetime.now(timezone.utc)
+    user.deleted_at = now
+    user.is_active = False
+    user.updated_at = now
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
