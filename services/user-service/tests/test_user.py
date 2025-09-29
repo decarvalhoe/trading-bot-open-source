@@ -117,8 +117,8 @@ def test_signup_activation_profile_flow(client, session_factory):
         "locale": "fr_FR",
         "marketing_opt_in": True,
     }
-    update_resp = client.patch(
-        f"/users/{user_id}",
+    update_resp = client.put(
+        "/users/me",
         json=profile_payload,
         headers=headers,
     )
@@ -164,7 +164,7 @@ def test_register_requires_token(client):
     assert resp.json()["detail"] == "Missing token"
 
 
-def test_get_user_masks_sensitive_data_for_other_actor(client, session_factory):
+def test_get_user_requires_manage_users_capability(client, session_factory):
     with session_factory() as session:
         target = User(
             email="target@example.com",
@@ -177,17 +177,11 @@ def test_get_user_masks_sensitive_data_for_other_actor(client, session_factory):
         session.commit()
         session.refresh(target)
         target_id = target.id
-        session.add(
-            UserPreferences(
-                user_id=target_id, preferences={"watchlists": ["growth"]}
-            )
-        )
         other = User(email="other@example.com", is_active=True)
         session.add(other)
         session.commit()
         session.refresh(other)
         other_id = other.id
-        session.commit()
 
     ent_viewer = Entitlements(
         customer_id=str(other_id), features={"can.use_users": True}, quotas={}
@@ -196,13 +190,7 @@ def test_get_user_masks_sensitive_data_for_other_actor(client, session_factory):
 
     headers = _auth_header(other_id)
     resp = client.get(f"/users/{target_id}", headers=headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["email"] is None
-    assert data["full_name"] is None
-    assert data["marketing_opt_in"] is None
-    assert data["display_name"] == "Target"
-    assert data["preferences"] == {"watchlists": ["growth"]}
+    assert resp.status_code == 403
 
     ent_admin = Entitlements(
         customer_id=str(other_id),
@@ -217,5 +205,116 @@ def test_get_user_masks_sensitive_data_for_other_actor(client, session_factory):
     assert admin_data["email"] == "target@example.com"
     assert admin_data["full_name"] == "Target Name"
     assert admin_data["marketing_opt_in"] is True
+
+    app.dependency_overrides.pop(main.get_entitlements, None)
+
+
+def test_delete_me_performs_soft_delete(client, session_factory):
+    with session_factory() as session:
+        user = User(email="self-delete@example.com", is_active=True)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        user_id = user.id
+
+    ent_self = Entitlements(
+        customer_id=str(user_id), features={"can.use_users": True}, quotas={}
+    )
+    app.dependency_overrides[main.get_entitlements] = lambda: ent_self
+
+    headers = _auth_header(user_id)
+    delete_resp = client.delete("/users/me", headers=headers)
+    assert delete_resp.status_code == 204
+
+    me_resp = client.get("/users/me", headers=headers)
+    assert me_resp.status_code == 404
+
+    with session_factory() as session:
+        stored = session.get(User, user_id)
+        assert stored is not None
+        assert stored.is_active is False
+        assert stored.deleted_at is not None
+
+    app.dependency_overrides.pop(main.get_entitlements, None)
+
+
+def test_user_cannot_modify_other_profile_without_rights(client, session_factory):
+    with session_factory() as session:
+        target = User(email="target2@example.com", is_active=True)
+        session.add(target)
+        session.commit()
+        session.refresh(target)
+        target_id = target.id
+        actor = User(email="actor@example.com", is_active=True)
+        session.add(actor)
+        session.commit()
+        session.refresh(actor)
+        actor_id = actor.id
+
+    ent_user = Entitlements(
+        customer_id=str(actor_id), features={"can.use_users": True}, quotas={}
+    )
+    app.dependency_overrides[main.get_entitlements] = lambda: ent_user
+
+    headers = _auth_header(actor_id)
+    update_resp = client.patch(
+        f"/users/{target_id}", json={"display_name": "Hack"}, headers=headers
+    )
+    assert update_resp.status_code == 403
+
+    delete_resp = client.delete(f"/users/{target_id}", headers=headers)
+    assert delete_resp.status_code == 403
+
+    app.dependency_overrides.pop(main.get_entitlements, None)
+
+
+def test_admin_can_update_and_soft_delete_user(client, session_factory):
+    with session_factory() as session:
+        user = User(
+            email="admin-target@example.com",
+            display_name="Initial",
+            is_active=True,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        user_id = user.id
+
+    ent_admin = Entitlements(
+        customer_id="admin",
+        features={"can.manage_users": True},
+        quotas={},
+    )
+    app.dependency_overrides[main.get_entitlements] = lambda: ent_admin
+
+    headers = _service_auth_header()
+
+    update_resp = client.patch(
+        f"/users/{user_id}",
+        json={"display_name": "Admin Updated"},
+        headers=headers,
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["display_name"] == "Admin Updated"
+
+    list_resp = client.get("/users", headers=headers)
+    assert list_resp.status_code == 200
+    assert len(list_resp.json()) == 1
+
+    delete_resp = client.delete(f"/users/{user_id}", headers=headers)
+    assert delete_resp.status_code == 204
+
+    get_resp = client.get(f"/users/{user_id}", headers=headers)
+    assert get_resp.status_code == 404
+
+    with session_factory() as session:
+        stored = session.get(User, user_id)
+        assert stored is not None
+        assert stored.deleted_at is not None
+        assert stored.is_active is False
+
+    list_after = client.get("/users", headers=headers)
+    assert list_after.status_code == 200
+    assert list_after.json() == []
 
     app.dependency_overrides.pop(main.get_entitlements, None)
