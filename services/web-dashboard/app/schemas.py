@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List
+from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -123,6 +123,85 @@ class PerformanceMetrics(BaseModel):
     )
 
 
+class StrategyRuntimeStatus(str, Enum):
+    """Runtime status for a trading strategy managed by the orchestrator."""
+
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    ERROR = "ERROR"
+
+
+class StrategyExecutionSnapshot(BaseModel):
+    """Last execution observed for a strategy."""
+
+    order_id: str | None = Field(default=None, description="Identifier of the routed order")
+    status: str | None = Field(default=None, description="Execution status returned by the broker")
+    submitted_at: datetime | None = Field(
+        default=None,
+        description="Timestamp when the order was acknowledged by the broker",
+    )
+    symbol: str | None = Field(default=None, description="Instrument traded during the execution")
+    venue: str | None = Field(default=None, description="Market venue associated to the execution")
+    side: str | None = Field(default=None, description="Side of the trade (buy/sell)")
+    quantity: float | None = Field(default=None, description="Quantity submitted with the order")
+    filled_quantity: float | None = Field(
+        default=None,
+        description="Quantity filled according to the execution report",
+    )
+
+
+class StrategyStatus(BaseModel):
+    """High level status for a strategy exposed on the dashboard."""
+
+    id: str = Field(..., description="Unique identifier of the strategy")
+    name: str = Field(..., description="Human readable name")
+    status: StrategyRuntimeStatus = Field(
+        default=StrategyRuntimeStatus.PENDING,
+        description="Latest runtime status returned by the orchestrator",
+    )
+    enabled: bool = Field(default=False, description="Whether the strategy is configured as active")
+    strategy_type: str | None = Field(
+        default=None,
+        description="Identifier of the plugin or strategy template",
+    )
+    tags: List[str] = Field(default_factory=list, description="Labels attached to the strategy")
+    last_error: str | None = Field(
+        default=None,
+        description="Latest error message recorded when the strategy transitioned to ERROR",
+    )
+    last_execution: StrategyExecutionSnapshot | None = Field(
+        default=None,
+        description="Most recent execution recorded for this strategy",
+    )
+    metadata: Dict[str, object] = Field(
+        default_factory=dict,
+        description="Additional metadata propagated from the orchestrator store",
+    )
+
+
+class LiveLogEntry(BaseModel):
+    """Structured log entry displayed in the live activity console."""
+
+    timestamp: datetime = Field(..., description="Moment when the event was recorded")
+    level: str = Field(default="info", description="Log severity level")
+    message: str = Field(..., description="Human readable summary of the event")
+    order_id: str | None = Field(default=None, description="Order identifier associated to the event")
+    status: str | None = Field(default=None, description="Execution status or state change associated")
+    symbol: str | None = Field(default=None, description="Instrument referenced by the event")
+    strategy_id: str | None = Field(
+        default=None,
+        description="Identifier of the strategy associated to the log entry when known",
+    )
+    strategy_hint: str | None = Field(
+        default=None,
+        description="Name or tag extracted from the upstream payload to help with filtering",
+    )
+    extra: Dict[str, object] = Field(
+        default_factory=dict,
+        description="Raw fields preserved from the upstream payload for debugging purposes",
+    )
+
+
 class DashboardContext(BaseModel):
     """Container with all payloads rendered in the dashboard template."""
 
@@ -132,5 +211,13 @@ class DashboardContext(BaseModel):
     metrics: PerformanceMetrics | None = Field(
         default=None,
         description="Aggregated performance analytics sourced from the reports service",
+    )
+    strategies: List[StrategyStatus] = Field(
+        default_factory=list,
+        description="Status payloads for strategies managed by the orchestrator",
+    )
+    logs: List[LiveLogEntry] = Field(
+        default_factory=list,
+        description="Recent orchestration or execution events for the live console",
     )
 

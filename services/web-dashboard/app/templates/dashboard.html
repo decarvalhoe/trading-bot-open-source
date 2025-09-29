@@ -137,6 +137,135 @@
       </section>
       {% endif %}
 
+      <section class="card card--strategies" aria-labelledby="strategies-title">
+        <div class="card__header card__header--inline">
+          <h2 id="strategies-title" class="heading heading--lg">Stratégies</h2>
+          <p class="text text--muted">Synchronisées avec l'orchestrateur</p>
+        </div>
+        <div class="card__body">
+          <table class="table strategy-table" role="grid" aria-describedby="strategies-title">
+            <thead>
+              <tr>
+                <th scope="col">Nom</th>
+                <th scope="col">Statut</th>
+                <th scope="col">Dernière exécution</th>
+                <th scope="col">Détails</th>
+                <th scope="col">Erreur récente</th>
+              </tr>
+            </thead>
+            <tbody class="strategy-table__body">
+              {% if context.strategies %}
+              {% for strategy in context.strategies %}
+              <tr>
+                <td data-label="Nom">
+                  <div class="strategy-name">
+                    <span class="heading heading--md">{{ strategy.name }}</span>
+                    {% if strategy.strategy_type %}
+                    <span class="badge badge--neutral">{{ strategy.strategy_type }}</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td data-label="Statut">
+                  {% set status = strategy.status.value if strategy.status else strategy.status %}
+                  {% set status_lower = status.lower() if status else 'pending' %}
+                  {% set status_badge = 'badge--warning' %}
+                  {% if status == 'ACTIVE' %}
+                  {% set status_badge = 'badge--success' %}
+                  {% elif status == 'ERROR' %}
+                  {% set status_badge = 'badge--critical' %}
+                  {% elif status == 'PENDING' %}
+                  {% set status_badge = 'badge--info' %}
+                  {% endif %}
+                  <span class="badge {{ status_badge }}">{{ status }}</span>
+                </td>
+                <td data-label="Dernière exécution">
+                  {% if strategy.last_execution and strategy.last_execution.submitted_at %}
+                  {{ strategy.last_execution.submitted_at.strftime('%d/%m %H:%M') }}
+                  {% else %}
+                  <span class="text text--muted">Aucune</span>
+                  {% endif %}
+                </td>
+                <td data-label="Détails">
+                  {% if strategy.last_execution %}
+                  <p class="text text--muted">
+                    {% if strategy.last_execution.status %}
+                    {{ strategy.last_execution.status }}
+                    {% endif %}
+                    {% if strategy.last_execution.symbol %}
+                    · {{ strategy.last_execution.symbol }}
+                    {% endif %}
+                    {% if strategy.last_execution.order_id %}
+                    · Ordre {{ strategy.last_execution.order_id }}
+                    {% endif %}
+                  </p>
+                  {% else %}
+                  <span class="text text--muted">En attente d'exécution</span>
+                  {% endif %}
+                </td>
+                <td data-label="Erreur récente">
+                  {% if strategy.last_error %}
+                  <p class="text text--critical">{{ strategy.last_error }}</p>
+                  {% else %}
+                  <span class="text text--muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+              {% else %}
+              <tr>
+                <td colspan="5">
+                  <p class="text text--muted">Aucune stratégie enregistrée pour le moment.</p>
+                </td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card card--logs" aria-labelledby="logs-title">
+        <div class="card__header card__header--inline">
+          <h2 id="logs-title" class="heading heading--lg">Activité en direct</h2>
+          <label class="log-filter" for="log-filter">
+            <span class="text text--muted">Filtrer par stratégie</span>
+            <select id="log-filter" class="select">
+              <option value="all" selected>Toutes les stratégies</option>
+              {% for strategy in context.strategies %}
+              <option value="{{ strategy.id }}">{{ strategy.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="card__body">
+          <div class="log-console" role="log" aria-live="polite">
+            <ul id="log-entries" class="log-console__list">
+              {% if context.logs %}
+              {% for entry in context.logs %}
+              <li class="log-console__item" data-strategy="{{ entry.strategy_id or '' }}">
+                <div class="log-console__meta">
+                  <time datetime="{{ entry.timestamp.isoformat() }}">
+                    {{ entry.timestamp.strftime('%d/%m %H:%M:%S') }}
+                  </time>
+                  {% if entry.status %}
+                  <span class="badge badge--neutral">{{ entry.status }}</span>
+                  {% endif %}
+                  {% if entry.symbol %}
+                  <span class="badge badge--info">{{ entry.symbol }}</span>
+                  {% endif %}
+                </div>
+                <p class="log-console__message">{{ entry.message }}</p>
+              </li>
+              {% endfor %}
+              {% else %}
+              <li class="log-console__item log-console__item--empty">
+                <p class="text text--muted">En attente d'événements. Les exécutions apparaîtront ici en temps réel.</p>
+              </li>
+              {% endif %}
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section class="card" aria-labelledby="portfolios-title">
         <div class="card__header">
           <h2 id="portfolios-title" class="heading heading--lg">Portefeuilles</h2>
