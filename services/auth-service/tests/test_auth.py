@@ -149,7 +149,7 @@ def test_refresh_returns_new_token_pair(client, session_factory):
     refreshed = TokenPair.model_validate(response.json())
     decoded_access = security.verify_token(refreshed.access_token)
     decoded_refresh = security.verify_token(refreshed.refresh_token)
-    assert decoded_access["sub"] == str(user.id)
+    assert decoded_access["sub"] == user.id
     assert decoded_refresh["type"] == "refresh"
 
 
@@ -167,7 +167,7 @@ def test_refresh_rejects_expired_token(client, session_factory):
     now = datetime.now(timezone.utc)
     expired_refresh = security.jwt.encode(
         {
-            "sub": str(user.id),
+            "sub": user.id,
             "type": "refresh",
             "iat": int(now.timestamp()),
             "exp": int((now - timedelta(minutes=1)).timestamp()),

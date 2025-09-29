@@ -64,7 +64,7 @@ def verify_password(password: str, hashed: str) -> bool:
     return pwd.verify(password, hashed)
 
 
-def create_token_pair(sub: str, roles: list[str]) -> tuple[str, str]:
+def create_token_pair(sub: int, roles: list[str]) -> tuple[str, str]:
     now = datetime.now(timezone.utc)
     access = jwt.encode(
         {

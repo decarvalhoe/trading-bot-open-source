@@ -94,7 +94,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         select(Role).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == u.id)
     ).scalars().all()]
 
-    access, refresh = create_token_pair(str(u.id), roles)
+    access, refresh = create_token_pair(u.id, roles)
     return TokenPair(access_token=access, refresh_token=refresh)
 
 
@@ -123,35 +123,32 @@ def refresh(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
 
     sub = decoded.get("sub")
-    if sub is None:
+    if not isinstance(sub, int):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    try:
-        uid = int(sub)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    u = db.get(User, uid)
+    u = db.get(User, sub)
     if not u:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     roles = [
         r.name
         for r in db.execute(
-            select(Role).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == uid)
+            select(Role).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == sub)
         ).scalars().all()
     ]
 
-    access, refresh_token = create_token_pair(str(uid), roles)
+    access, refresh_token = create_token_pair(sub, roles)
     return TokenPair(access_token=access, refresh_token=refresh_token)
 
 @app.get("/auth/me", response_model=Me)
 def me(payload=Depends(get_current_user), db: Session = Depends(get_db)):
-    uid = int(payload["sub"])
-    u = db.get(User, uid)
+    sub = payload.get("sub")
+    if not isinstance(sub, int):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    u = db.get(User, sub)
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
     roles = [r.name for r in db.execute(
-        select(Role).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == uid)
+        select(Role).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == sub)
     ).scalars().all()]
     return Me(
         id=u.id,
@@ -163,25 +160,29 @@ def me(payload=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @app.post("/auth/totp/setup", response_model=TOTPSetup, dependencies=[Depends(require_roles("admin","user"))])
 def totp_setup(payload=Depends(get_current_user), db: Session = Depends(get_db)):
-    uid = int(payload["sub"])
+    sub = payload.get("sub")
+    if not isinstance(sub, int):
+        raise HTTPException(status_code=401, detail="Invalid token")
     secret = generate_totp_secret()
-    row = db.get(MFATotp, uid)
+    row = db.get(MFATotp, sub)
     if row:
         row.secret = secret
     else:
-        row = MFATotp(user_id=uid, secret=secret, enabled=False)
+        row = MFATotp(user_id=sub, secret=secret, enabled=False)
         db.add(row)
     db.commit()
 
-    label = f"TradingBot:{uid}"
+    label = f"TradingBot:{sub}"
     issuer = "TradingBot"
     otpauth = f"otpauth://totp/{urllib.parse.quote(label)}?secret={secret}&issuer={urllib.parse.quote(issuer)}"
     return TOTPSetup(secret=secret, otpauth_url=otpauth)
 
 @app.post("/auth/totp/enable")
 def totp_enable(code: str, payload=Depends(get_current_user), db: Session = Depends(get_db)):
-    uid = int(payload["sub"])
-    row = db.get(MFATotp, uid)
+    sub = payload.get("sub")
+    if not isinstance(sub, int):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    row = db.get(MFATotp, sub)
     if not row:
         raise HTTPException(status_code=400, detail="No TOTP setup")
     if not totp_now(row.secret).verify(code):

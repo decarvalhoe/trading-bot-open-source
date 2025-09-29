@@ -14,7 +14,12 @@ def upgrade() -> None:
     op.create_table(
         "screener_presets",
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column("user_id", sa.Integer, nullable=False),
+        sa.Column(
+            "user_id",
+            sa.Integer,
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(length=128), nullable=False),
         sa.Column("description", sa.String(length=255), nullable=True),
         sa.Column("filters", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
@@ -26,8 +31,17 @@ def upgrade() -> None:
     op.create_table(
         "screener_snapshots",
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column("user_id", sa.Integer, nullable=True),
-        sa.Column("preset_id", sa.Integer, sa.ForeignKey("screener_presets.id", ondelete="SET NULL")),
+        sa.Column(
+            "user_id",
+            sa.Integer,
+            sa.ForeignKey("users.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column(
+            "preset_id",
+            sa.Integer,
+            sa.ForeignKey("screener_presets.id", ondelete="SET NULL"),
+        ),
         sa.Column("provider", sa.String(length=32), nullable=False),
         sa.Column("filters", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
