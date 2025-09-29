@@ -1,6 +1,8 @@
 """Async client used by the algo engine to reach the order router service."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from typing import Any
 
@@ -13,6 +15,9 @@ class OrderRouterClientError(RuntimeError):
     """Raised when the order router service cannot process a request."""
 
 
+logger = logging.getLogger(__name__)
+
+
 class OrderRouterClient:
     """HTTP client responsible for submitting intents to the order router."""
 
@@ -22,6 +27,8 @@ class OrderRouterClient:
         base_url: str | None = None,
         timeout: float | None = None,
         api_key: str | None = None,
+        max_retries: int = 3,
+        backoff_base: float = 0.5,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         env_base_url = os.getenv("ORDER_ROUTER_URL", "http://order-router:8000")
@@ -34,6 +41,12 @@ class OrderRouterClient:
         except ValueError as exc:  # pragma: no cover - defensive validation
             raise OrderRouterClientError("ORDER_ROUTER_TIMEOUT must be a number") from exc
         self._api_key = api_key if api_key is not None else env_api_key
+        if max_retries < 1:
+            raise OrderRouterClientError("max_retries must be at least 1")
+        if backoff_base <= 0:
+            raise OrderRouterClientError("backoff_base must be positive")
+        self._max_retries = max_retries
+        self._backoff_base = backoff_base
         self._client = client
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -58,16 +71,45 @@ class OrderRouterClient:
 
         payload = intent.model_dump(mode="json", exclude_none=True)
         client = await self._get_client()
-        try:
-            response = await client.post("/orders", json=payload)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            message = self._extract_error_message(exc.response)
-            raise OrderRouterClientError(
-                f"order router responded with {exc.response.status_code}: {message}"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise OrderRouterClientError(f"failed to contact order router: {exc}") from exc
+        attempt = 1
+        backoff = self._backoff_base
+        while True:
+            try:
+                response = await client.post("/orders", json=payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                if status_code >= 500 and attempt < self._max_retries:
+                    logger.warning(
+                        "Order router responded with %s on attempt %s/%s; retrying in %.1fs",
+                        status_code,
+                        attempt,
+                        self._max_retries,
+                        backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    backoff *= 2
+                    continue
+                message = self._extract_error_message(exc.response)
+                raise OrderRouterClientError(
+                    f"order router responded with {status_code}: {message}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                if attempt < self._max_retries:
+                    logger.warning(
+                        "Order router request failed on attempt %s/%s: %s. Retrying in %.1fs",
+                        attempt,
+                        self._max_retries,
+                        exc,
+                        backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    backoff *= 2
+                    continue
+                raise OrderRouterClientError(f"failed to contact order router: {exc}") from exc
+            break
 
         try:
             data = response.json()

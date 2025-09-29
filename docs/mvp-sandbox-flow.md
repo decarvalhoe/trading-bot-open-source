@@ -4,6 +4,19 @@ Ce guide décrit le flux cible entre les services `market_data`, `algo-engine` e
 pour une exécution spot simplifiée. Il s'appuie sur les nouveaux contrats de données partagés
 (`schemas/market.py`) et sur les limites configurées dans `providers/limits.py`.
 
+## Politique de retry du client order-router
+
+Le client asynchrone `OrderRouterClient` applique désormais une stratégie de retry
+exponentiel pour sécuriser l'appel `POST /orders` :
+
+- jusqu'à trois tentatives sur les erreurs réseau (`httpx.HTTPError`) ou les réponses 5xx,
+- des délais d'attente de 0,5 s, 1 s puis 2 s entre chaque tentative,
+- journalisation de chaque tentative échouée pour faciliter l'observabilité.
+
+Au-delà de ces trois essais ou en cas d'erreur fonctionnelle (4xx), le client renvoie une
+erreur `OrderRouterClientError` afin que l'orchestrateur puisse placer la stratégie en état
+`ERROR` et déclencher les alertes correspondantes.
+
 ## Endpoints exposés
 
 | Service | Endpoint | Description |
