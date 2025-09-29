@@ -191,7 +191,11 @@ def health() -> Dict[str, str]:
 
 
 @app.post("/users/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
+def register_user(
+    payload: UserCreate,
+    _: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> UserResponse:
     """Inscrit un nouvel utilisateur en base de données avec un statut inactif."""
 
     if db.scalar(select(User).where(User.email == payload.email)):
