@@ -87,6 +87,10 @@ Use the Makefile helpers to manage Alembic migrations locally (the commands defa
 # Generate a new revision
 make migrate-generate message="add user preferences"
 
+# Generate a trading revision directly with Alembic (autogenerates orders/executions models)
+ALEMBIC_DATABASE_URL=postgresql+psycopg2://trading:trading@localhost:5432/trading \
+  alembic -c infra/migrations/alembic.ini revision --autogenerate -m "add trading orders and executions tables"
+
 # Apply migrations (defaults to head)
 make migrate-up
 
