@@ -23,6 +23,37 @@ class Settings(BaseSettings):
     smtp_sender: EmailStr | None = Field(
         None, description="Email address used as sender when sending email notifications"
     )
+    telegram_bot_token: str = Field(
+        "",
+        description="Default Telegram bot token used when not provided by the delivery target",
+        repr=False,
+    )
+    telegram_default_chat_id: str = Field(
+        "",
+        description="Fallback Telegram chat identifier for notifications",
+    )
+    telegram_api_base: str = Field(
+        "https://api.telegram.org",
+        description="Base URL for Telegram Bot API",
+    )
+    twilio_account_sid: str = Field(
+        "",
+        description="Twilio account SID used for SMS notifications",
+        repr=False,
+    )
+    twilio_auth_token: str = Field(
+        "",
+        description="Twilio auth token used for SMS notifications",
+        repr=False,
+    )
+    twilio_from_number: str = Field(
+        "",
+        description="Originating phone number configured in Twilio",
+    )
+    twilio_api_base: str = Field(
+        "https://api.twilio.com",
+        description="Base URL for the Twilio REST API",
+    )
     dry_run: bool = Field(
         True,
         description="When enabled the dispatcher logs messages instead of contacting external services",

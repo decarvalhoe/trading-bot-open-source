@@ -28,12 +28,16 @@ class NotificationDispatcher:
         notification = request.notification
 
         try:
-            if target.channel == Channel.webhook:
+            if target.channel in {Channel.webhook, Channel.custom_webhook}:
                 detail = await self._send_webhook(target, notification)
             elif target.channel == Channel.slack:
                 detail = await self._send_slack(target, notification)
             elif target.channel == Channel.email:
                 detail = await self._send_email(target, notification)
+            elif target.channel == Channel.telegram:
+                detail = await self._send_telegram(target, notification)
+            elif target.channel == Channel.sms:
+                detail = await self._send_sms(target, notification)
             else:
                 raise ValueError(f"Unsupported channel: {target.channel}")
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -144,4 +148,66 @@ class NotificationDispatcher:
 
         with smtplib.SMTP(self._settings.smtp_host, self._settings.smtp_port) as smtp:
             smtp.send_message(message)
+
+    async def _send_telegram(self, target: DeliveryTarget, notification: Notification) -> str:
+        token = target.telegram_bot_token or self._settings.telegram_bot_token
+        chat_id = target.telegram_chat_id or self._settings.telegram_default_chat_id
+        if not token:
+            raise ValueError("Telegram bot token is required")
+        if not chat_id:
+            raise ValueError("Telegram chat id is required")
+
+        api_base = self._settings.telegram_api_base.rstrip("/")
+        url = f"{api_base}/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": f"[{notification.severity.upper()}] {notification.title}\n{notification.message}",
+        }
+
+        if self._settings.dry_run:
+            logger.info("[dry-run] Would send Telegram message to chat %s", chat_id)
+            logger.debug("Payload: %s", json.dumps(payload))
+            return "Dry-run: Telegram call skipped"
+
+        async with httpx.AsyncClient(timeout=self._settings.http_timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        if not data.get("ok", True):
+            raise RuntimeError(f"Telegram API error: {data.get('description', 'unknown error')}")
+        return f"Telegram message sent to chat {chat_id}"
+
+    async def _send_sms(self, target: DeliveryTarget, notification: Notification) -> str:
+        to_number = target.phone_number
+        if not to_number:
+            raise ValueError("phone_number must be provided for sms channel")
+
+        account_sid = self._settings.twilio_account_sid
+        auth_token = self._settings.twilio_auth_token
+        from_number = self._settings.twilio_from_number
+        if not all([account_sid, auth_token, from_number]):
+            raise ValueError("Twilio credentials and from number must be configured")
+
+        api_base = self._settings.twilio_api_base.rstrip("/")
+        url = f"{api_base}/2010-04-01/Accounts/{account_sid}/Messages.json"
+        payload = {
+            "To": to_number,
+            "From": from_number,
+            "Body": f"[{notification.severity.upper()}] {notification.title}: {notification.message}",
+        }
+
+        if self._settings.dry_run:
+            logger.info("[dry-run] Would send SMS to %s", to_number)
+            logger.debug("Payload: %s", json.dumps(payload))
+            return "Dry-run: SMS call skipped"
+
+        async with httpx.AsyncClient(timeout=self._settings.http_timeout) as client:
+            response = await client.post(url, data=payload, auth=(account_sid, auth_token))
+            response.raise_for_status()
+            data = response.json()
+
+        sid = data.get("sid") or data.get("message_sid")
+        if not sid:
+            raise RuntimeError("SMS provider did not return a message SID")
+        return f"SMS message queued with sid {sid}"
 
