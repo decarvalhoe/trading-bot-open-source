@@ -27,37 +27,6 @@ Ce trading bot est une plateforme complète qui permet de :
 **Objectif** : Mettre en place l'infrastructure technique de base
 
 - ✅ **Configuration du projet** : Repository, outils de développement, CI/CD
-- ✅ **Environnement de développement** : Docker, base de données, services
-- ✅ **Service de configuration** : Gestion centralisée des paramètres
-
-*Résultat* : L'infrastructure technique est opérationnelle et prête pour le développement.
-
-### Phase 2 : Authentification et Utilisateurs (✅ Terminée)
-**Objectif** : Permettre aux utilisateurs de créer des comptes et se connecter de manière sécurisée
-
-- ✅ **Système d'authentification** : Inscription, connexion, sécurité JWT, MFA TOTP
-- ✅ **Gestion des profils** : Création et modification des profils avec masquage selon les entitlements
-- ✅ **Documentation parcours complet** : Consolidation de l'OpenAPI et du guide UX pour l'onboarding
-
-*Résultat* : Les utilisateurs peuvent créer un compte sécurisé, activer leur profil et préparer l'enrôlement MFA.
-
-### Phase 3 : Stratégies de Trading (🔄 En cours)
-**Objectif** : Permettre la création et l'exécution de stratégies de trading
-
-- 🔄 **Moteur de stratégies** : Catalogue en mémoire, import déclaratif et API de backtesting
-- 🔄 **Connecteurs de marché** : Adaptateurs sandbox Binance/IBKR avec limites partagées
-- 📋 **Gestion des ordres** : Persistance et historique d'exécutions à implémenter
-
-### Phase 4 : Monitoring et Analytics (📋 Planifiée)
-**Objectif** : Fournir des outils d'analyse et de suivi des performances
-
-- 📋 **Tableaux de bord** : Visualisation des performances en temps réel
-- 📋 **Alertes et notifications** : Système d'alertes personnalisables
-- 📋 **Rapports détaillés** : Analyses approfondies des résultats
-
-## 📊 Évaluation 2025 & actions futures
-
-Une revue technique complète du dépôt a été réalisée en novembre 2025. Elle confirme la solidité de l'architecture actuelle (microservices FastAPI, middleware d'entitlements partagé) et identifie les chantiers prioritaires pour livrer un parcours de trading opérationnel.
 
 - **Points forts** : base d'authentification avancée (MFA TOTP, rôles), stack d'observabilité (logs + Prometheus/Grafana), Makefile facilitant l'onboarding, documentation structurée.
 - **Points d'attention** : services de trading encore en mémoire, couverture de tests multi-services limitée, procédures opérationnelles de gestion des secrets à formaliser.
@@ -142,3 +111,75 @@ Ce projet est sous licence MIT - voir le fichier `LICENSE` pour plus de détails
 
 > **Développé avec ❤️ par decarvalhoe et la communauté open-source**
 > Dernière mise à jour : Novembre 2025
+- ✅ **Environnement de développement** : Docker, base de données, services
+- ✅ **Service de configuration** : Gestion centralisée des paramètres
+
+*Résultat* : L'infrastructure technique est opérationnelle et prête pour le développement.
+
+### Phase 2 : Authentification et Utilisateurs (✅ Terminée)
+**Objectif** : Permettre aux utilisateurs de créer des comptes et se connecter de manière sécurisée
+
+- ✅ **Système d'authentification** : Inscription, connexion, sécurité JWT, MFA TOTP
+- ✅ **Gestion des profils** : Création et modification des profils avec masquage selon les entitlements
+- ✅ **Documentation parcours complet** : Consolidation de l'OpenAPI et du guide UX pour l'onboarding
+
+*Résultat* : Les utilisateurs peuvent créer un compte sécurisé, activer leur profil et préparer l'enrôlement MFA.
+
+### Phase 3 : Stratégies de Trading (🔄 En cours - 80%)
+**Objectif** : Permettre la création et l'exécution de stratégies de trading
+
+- ✅ **Moteur de stratégies** : Catalogue en mémoire, import déclaratif et API de backtesting
+- ✅ **Connecteurs de marché** : Adaptateurs sandbox Binance/IBKR avec limites partagées
+- 🔄 **Gestion des ordres** : Persistance et historique d'exécutions en cours d'implémentation
+
+### Phase 4 : Monitoring et Analytics (🔄 En cours - 53%)
+**Objectif** : Fournir des outils d'analyse et de suivi des performances
+
+- 🔄 **Service de rapports** (65%) : Calculs de métriques de performance, API et tests unitaires
+- 🔄 **Service de notifications** (45%) : Dispatcher, configuration et schémas de données
+- 🔄 **Dashboard web** (50%) : Composants React, intégration streaming et affichage des métriques
+- 🔄 **Infrastructure d'observabilité** (70%) : Configuration Prometheus/Grafana et dashboard FastAPI
+
+*Prochaines étapes* : Finalisation des services de notification, enrichissement du dashboard web, et configuration des alertes.
+
+## 📊 Métriques du projet (Septembre 2025)
+
+- **Lignes de code** : 17 676 (Python uniquement)
+- **Nombre de services** : 20 microservices
+- **Nombre de commits** : 129
+- **Nombre de tests** : 26 fichiers de test unitaire
+- **Contributeurs** : 2 développeurs actifs
+
+## 🗺️ Feuille de route et prochaines étapes
+
+### Priorités à court terme (0-1 mois)
+
+1. **Finaliser la Phase 4 : Monitoring et Analytics**
+   - Compléter le service de notifications avec tests unitaires
+   - Enrichir le dashboard web avec plus de visualisations
+   - Configurer les alertes dans Prometheus/Grafana
+   - Intégrer tous les services de la Phase 4 dans docker-compose.yml
+
+2. **Améliorer la documentation**
+   - Consolider la documentation OpenAPI pour tous les services
+   - Créer des guides utilisateur pour les fonctionnalités de monitoring
+   - Documenter les procédures opérationnelles pour la gestion des alertes
+
+### Objectifs à moyen terme (1-3 mois)
+
+1. **Optimisation des performances**
+   - Améliorer les performances du moteur de stratégies
+   - Optimiser les requêtes de base de données
+   - Mettre en place un système de cache distribué
+
+2. **Extension des connecteurs de marché**
+   - Ajouter de nouveaux connecteurs pour d'autres exchanges
+   - Implémenter des adaptateurs pour les marchés traditionnels
+   - Améliorer la gestion des limites de rate
+
+3. **Enrichissement des stratégies**
+   - Développer une bibliothèque de stratégies prêtes à l'emploi
+   - Créer un éditeur visuel de stratégies
+   - Implémenter des outils avancés de backtesting
+
+## 🛠️ Pour les développeurs

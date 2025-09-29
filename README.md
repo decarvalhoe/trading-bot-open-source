@@ -27,37 +27,6 @@ This trading bot is a complete platform that allows you to:
 **Objective**: To set up the basic technical infrastructure
 
 - ✅ **Project Setup**: Repository, development tools, CI/CD
-- ✅ **Development Environment**: Docker, database, services
-- ✅ **Configuration Service**: Centralized parameter management
-
-*Result*: The technical infrastructure is operational and ready for development.
-
-### Phase 2: Authentication and Users (✅ Completed)
-**Objective**: To allow users to create accounts and log in securely
-
-- ✅ **Authentication System**: Registration, login, JWT security, MFA TOTP
-- ✅ **Profile Management**: Creation and modification of user profiles with entitlement-based masking
-- ✅ **End-to-End Documentation**: Consolidated OpenAPI specs and UX guides for a full onboarding path
-
-*Result*: Users can create secure accounts, activate their profile and prepare for MFA enrolment.
-
-### Phase 3: Trading Strategies (🔄 In Progress)
-**Objective**: To allow the creation and execution of trading strategies
-
-- 🔄 **Strategy Engine**: In-memory catalogue, declarative import and backtesting API
-- 🔄 **Market Connectors**: Sandbox adapters for Binance/IBKR with shared limits
-- 📋 **Order Management**: Persistence layer and executions history to be implemented
-
-### Phase 4: Monitoring and Analytics (📋 Planned)
-**Objective**: To provide tools for performance analysis and tracking
-
-- 📋 **Dashboards**: Real-time performance visualization
-- 📋 **Alerts and Notifications**: Customizable alert system
-- 📋 **Detailed Reports**: In-depth analysis of results
-
-## 🛠️ For Developers
-
-### Quick Start
 
 ```bash
 # 1. Clone the project
@@ -167,3 +136,74 @@ This project is licensed under the MIT License - see the `LICENSE` file for more
 
 > **Developed with ❤️ by decarvalhoe and the open-source community**
 > Last updated: November 2025
+- ✅ **Configuration Service**: Centralized parameter management
+
+*Result*: The technical infrastructure is operational and ready for development.
+
+### Phase 2: Authentication and Users (✅ Completed)
+**Objective**: To allow users to create accounts and log in securely
+
+- ✅ **Authentication System**: Registration, login, JWT security, MFA TOTP
+- ✅ **Profile Management**: Creation and modification of user profiles with entitlement-based masking
+- ✅ **End-to-End Documentation**: Consolidated OpenAPI specs and UX guides for a full onboarding path
+
+*Result*: Users can create secure accounts, activate their profile and prepare for MFA enrolment.
+
+### Phase 3: Trading Strategies (🔄 In Progress - 80%)
+**Objective**: To allow the creation and execution of trading strategies
+
+- ✅ **Strategy Engine**: In-memory catalogue, declarative import and backtesting API
+- ✅ **Market Connectors**: Sandbox adapters for Binance/IBKR with shared limits
+- 🔄 **Order Management**: Persistence and execution history implementation in progress
+
+### Phase 4: Monitoring and Analytics (🔄 In Progress - 53%)
+**Objective**: To provide tools for performance analysis and tracking
+
+- 🔄 **Reports Service** (65%): Performance metrics calculations, API and unit tests
+- 🔄 **Notifications Service** (45%): Dispatcher, configuration and data schemas
+- 🔄 **Web Dashboard** (50%): React components, streaming integration and metrics display
+- 🔄 **Observability Infrastructure** (70%): Prometheus/Grafana configuration and FastAPI dashboard
+
+*Next Steps*: Finalization of notification services, enhancement of web dashboard, and alert configuration.
+
+## 📊 Project Metrics (September 2025)
+
+- **Lines of Code**: 17,676 (Python only)
+- **Number of Services**: 20 microservices
+- **Number of Commits**: 129
+- **Number of Tests**: 26 unit test files
+- **Contributors**: 2 active developers
+
+## 🗺️ Roadmap and Next Steps
+
+### Short-term Priorities (0-1 month)
+
+1. **Finalize Phase 4: Monitoring and Analytics**
+   - Complete the notifications service with unit tests
+   - Enhance the web dashboard with more visualizations
+   - Configure alerts in Prometheus/Grafana
+   - Integrate all Phase 4 services in docker-compose.yml
+
+2. **Improve Documentation**
+   - Consolidate OpenAPI documentation for all services
+   - Create user guides for monitoring features
+   - Document operational procedures for alert management
+
+### Medium-term Goals (1-3 months)
+
+1. **Performance Optimization**
+   - Improve strategy engine performance
+   - Optimize database queries
+   - Implement a distributed cache system
+
+2. **Extend Market Connectors**
+   - Add new connectors for other exchanges
+   - Implement adapters for traditional markets
+   - Improve rate limit management
+
+3. **Strategy Enrichment**
+   - Develop a library of ready-to-use strategies
+   - Create a visual strategy editor
+   - Implement advanced backtesting tools
+
+## 🛠️ For Developers
