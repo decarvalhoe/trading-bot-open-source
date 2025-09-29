@@ -60,6 +60,7 @@ app = main_module.app
 store = main_module.store
 orchestrator = main_module.orchestrator
 StrategyRecord = main_module.StrategyRecord
+StrategyStatus = main_module.StrategyStatus
 _enforce_entitlements = main_module._enforce_entitlements
 
 
@@ -85,11 +86,13 @@ def test_create_and_list_strategies():
     assert response.status_code == 201
     created = response.json()
     assert created["name"] == "Morning Breakout"
+    assert created["status"] == "PENDING"
 
     response = client.get("/strategies")
     assert response.status_code == 200
     body = response.json()
     assert any(item["id"] == created["id"] for item in body["items"])
+    assert any(item["status"] == "PENDING" for item in body["items"])
     assert "orb" in body["available"]
 
 
@@ -204,6 +207,33 @@ STRATEGY = {
     backtest_dir = PACKAGE_ROOT.parents[1] / "data" / "backtests"
     assert backtest_dir.exists()
     assert any(backtest_dir.iterdir())
+
+
+def test_strategy_status_transitions():
+    client = TestClient(app)
+    create_resp = client.post("/strategies", json={"name": "Status Test", "strategy_type": "orb"})
+    assert create_resp.status_code == 201
+    data = create_resp.json()
+    assert data["status"] == StrategyStatus.PENDING.value
+
+    strategy_id = data["id"]
+
+    activate = client.post(f"/strategies/{strategy_id}/status", json={"status": "ACTIVE"})
+    assert activate.status_code == 200
+    assert activate.json()["status"] == StrategyStatus.ACTIVE.value
+    assert activate.json()["last_error"] is None
+
+    failure = client.post(
+        f"/strategies/{strategy_id}/status",
+        json={"status": "ERROR", "error": "Execution failed"},
+    )
+    assert failure.status_code == 200
+    assert failure.json()["status"] == StrategyStatus.ERROR.value
+    assert failure.json()["last_error"] == "Execution failed"
+
+    invalid = client.post(f"/strategies/{strategy_id}/status", json={"status": "PENDING"})
+    assert invalid.status_code == 400
+    assert "Invalid status transition" in invalid.json()["detail"]
 
 def test_build_execution_plan():
     client = TestClient(app)
