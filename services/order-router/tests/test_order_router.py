@@ -39,8 +39,6 @@ router = main_module.router
 
 @pytest.fixture(autouse=True)
 def reset_router_state():
-    router._orders_log.clear()  # type: ignore[attr-defined]
-    router._executions.clear()  # type: ignore[attr-defined]
     router._state.notional_routed = 0.0  # type: ignore[attr-defined]
     router._risk_alerts.clear()  # type: ignore[attr-defined]
     router._limit_store._positions.clear()  # type: ignore[attr-defined]
@@ -87,11 +85,17 @@ def test_route_order_and_logging():
 
     log_resp = client.get("/orders/log")
     assert log_resp.status_code == 200
-    assert len(log_resp.json()) == 1
+    log_payload = log_resp.json()
+    assert log_payload["total"] == 1
+    assert log_payload["limit"] == 100
+    assert len(log_payload["items"]) == 1
+    assert log_payload["items"][0]["broker"] == "binance"
 
     exec_resp = client.get("/executions")
     assert exec_resp.status_code == 200
-    assert exec_resp.json()
+    exec_payload = exec_resp.json()
+    assert exec_payload["total"] >= 1
+    assert exec_payload["items"]
 
 
 def test_daily_notional_limit_enforced():
