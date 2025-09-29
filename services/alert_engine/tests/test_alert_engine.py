@@ -11,7 +11,13 @@ from sqlalchemy import create_engine
 import sqlalchemy
 from sqlalchemy.orm import Session, sessionmaker
 
-from services.alert_engine.app.clients import MarketDataClient, NotificationPublisher, ReportsClient
+from services.alert_engine.app.cache import AlertContextCache
+from services.alert_engine.app.clients import (
+    MarketDataClient,
+    MarketDataStreamClient,
+    NotificationPublisher,
+    ReportsClient,
+)
 from services.alert_engine.app.config import AlertEngineSettings
 from services.alert_engine.app.database import Base
 from services.alert_engine.app.engine import AlertEngine
@@ -54,6 +60,20 @@ class DummyPublisher(NotificationPublisher):
         return None
 
 
+class NullStreamClient(MarketDataStreamClient):
+    def __init__(self) -> None:
+        self._own_client = False
+        self._client = None
+
+    async def subscribe(self, symbol: str):  # type: ignore[override]
+        if False:
+            yield  # pragma: no cover - generator requirement
+        return
+
+    async def aclose(self) -> None:  # pragma: no cover - interface requirement
+        return None
+
+
 @pytest.fixture()
 def in_memory_session_factory() -> Iterator[sessionmaker[Session]]:
     engine = create_engine(
@@ -79,6 +99,7 @@ def app(in_memory_session_factory: sessionmaker[Session]) -> FastAPI:
         session_factory=in_memory_session_factory,
         market_client=market_client,
         reports_client=reports_client,
+        stream_client=NullStreamClient(),
         publisher=publisher,
         start_background_tasks=False,
     )
@@ -121,7 +142,7 @@ def test_rule_triggered_on_event(
 
     asyncio.run(_run())
 
-    publisher: DummyPublisher = app.state.clients[2]
+    publisher: DummyPublisher = app.state.clients[-1]
     assert len(publisher.published_payloads) == 1
     assert publisher.published_payloads[0]["rule_id"] == rule.id
 
@@ -157,11 +178,17 @@ def test_periodic_evaluation_creates_triggers(
     publisher = DummyPublisher()
     repository = AlertRuleRepository()
     evaluator = RuleEvaluator()
+    context_cache = AlertContextCache(
+        market_client=market_client,
+        reports_client=reports_client,
+        market_ttl_seconds=10.0,
+        event_ttl_seconds=5.0,
+        reports_ttl_seconds=10.0,
+    )
     engine = AlertEngine(
         repository=repository,
         evaluator=evaluator,
-        market_client=market_client,
-        reports_client=reports_client,
+        context_cache=context_cache,
         publisher=publisher,
         evaluation_interval=0.05,
     )

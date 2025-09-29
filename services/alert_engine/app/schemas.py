@@ -24,6 +24,19 @@ class AlertTriggerRead(BaseModel):
     context: dict[str, Any] | None
 
 
+class AlertRuleSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    trigger_id: int = Field(..., description="Identifier of the trigger event")
+    rule_id: int = Field(..., description="Identifier of the originating rule")
+    name: str = Field(..., description="Rule display name")
+    symbol: str = Field(..., description="Instrument evaluated by the rule")
+    severity: str = Field(..., description="Severity declared on the rule")
+    expression: str = Field(..., description="Expression evaluated to generate the trigger")
+    triggered_at: datetime
+    context: dict[str, Any] | None = None
+
+
 class AlertEvaluationResponse(BaseModel):
     triggered: bool
     triggers: list[AlertTriggerRead] = Field(default_factory=list)

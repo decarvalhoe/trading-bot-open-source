@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+import json
 from typing import Any
 
 import httpx
@@ -56,6 +58,34 @@ class NotificationPublisher:
     async def publish(self, payload: dict[str, Any]) -> None:
         response = await self._client.post("/notifications/alerts", json=payload)
         response.raise_for_status()
+
+    async def aclose(self) -> None:
+        if self._own_client:
+            await self._client.aclose()
+
+
+class MarketDataStreamClient:
+    """Consume the real-time market data stream exposed by the market-data service."""
+
+    def __init__(self, base_url: str, client: httpx.AsyncClient | None = None) -> None:
+        self._own_client = client is None
+        self._client = client or httpx.AsyncClient(base_url=base_url)
+
+    async def subscribe(self, symbol: str) -> AsyncIterator[dict[str, Any]]:
+        """Yield market data events for the requested symbol as dictionaries."""
+
+        async with self._client.stream("GET", f"/streaming/{symbol}") as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError as exc:  # noqa: PERF203
+                    raise ValueError("Market data stream payloads must be JSON objects") from exc
+                if not isinstance(data, dict):
+                    raise TypeError("Market data stream payloads must be JSON objects")
+                yield data
 
     async def aclose(self) -> None:
         if self._own_client:
