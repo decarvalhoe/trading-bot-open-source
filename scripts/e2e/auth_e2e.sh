@@ -132,7 +132,7 @@ from datetime import datetime, timezone
 from jose import jwt
 secret = os.getenv('JWT_SECRET', 'dev-secret-change-me')
 now = int(datetime.now(timezone.utc).timestamp())
-payload = {"sub": str($user_id), "iat": now}
+payload = {"sub": $user_id, "iat": now}
 print(jwt.encode(payload, secret, algorithm='HS256'))
 PY
 )

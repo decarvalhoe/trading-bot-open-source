@@ -150,7 +150,10 @@ def get_authenticated_actor(
 ) -> int:
     """Validate that the JWT payload matches the optional actor header."""
 
-    user_id = int(payload["sub"])
+    sub = payload.get("sub")
+    if not isinstance(sub, int):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user_id = sub
     actor_header = request.headers.get("x-customer-id") or request.headers.get("x-user-id")
     if not actor_header:
         if os.getenv("ENTITLEMENTS_BYPASS", "0") == "1":

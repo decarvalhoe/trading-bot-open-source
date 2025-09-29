@@ -9,47 +9,107 @@ depends_on = None
 
 
 def upgrade():
-    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
     op.create_table(
         "users",
-        sa.Column(
-            "id",
-            postgresql.UUID(as_uuid=True),
-            primary_key=True,
-            nullable=False,
-            server_default=sa.text("gen_random_uuid()"),
-        ),
+        sa.Column("id", sa.Integer, sa.Identity(always=False), primary_key=True),
         sa.Column("email", sa.String(255), nullable=False, unique=True),
         sa.Column("password_hash", sa.String(255), nullable=False),
-        sa.Column("first_name", sa.String(100), nullable=True),
-        sa.Column("last_name", sa.String(100), nullable=True),
-        sa.Column("phone", sa.String(20), nullable=True),
+        sa.Column("first_name", sa.String(120), nullable=True),
+        sa.Column("last_name", sa.String(120), nullable=True),
+        sa.Column("phone", sa.String(32), nullable=True),
         sa.Column(
-            "is_active",
-            sa.Boolean,
-            nullable=False,
-            server_default=sa.text("true"),
-        ),
-        sa.Column(
-            "is_admin",
+            "marketing_opt_in",
             sa.Boolean,
             nullable=False,
             server_default=sa.text("false"),
         ),
         sa.Column(
+            "is_active",
+            sa.Boolean,
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+        sa.Column(
+            "is_superuser",
+            sa.Boolean,
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.text("NOW()"),
+            server_default=sa.func.now(),
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.text("NOW()"),
+            server_default=sa.func.now(),
+            server_onupdate=sa.func.now(),
+        ),
+    )
+
+    op.create_table(
+        "roles",
+        sa.Column("id", sa.Integer, sa.Identity(always=False), primary_key=True),
+        sa.Column("name", sa.String(50), nullable=False, unique=True),
+    )
+
+    op.create_table(
+        "user_roles",
+        sa.Column(
+            "user_id",
+            sa.Integer,
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "role_id",
+            sa.Integer,
+            sa.ForeignKey("roles.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+    )
+
+    op.create_table(
+        "mfa_totp",
+        sa.Column(
+            "user_id",
+            sa.Integer,
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+        sa.Column("secret", sa.String(64), nullable=False),
+        sa.Column(
+            "enabled",
+            sa.Boolean,
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+    )
+
+    op.create_table(
+        "user_preferences",
+        sa.Column(
+            "user_id",
+            sa.Integer,
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "preferences",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
         ),
     )
 
 
 def downgrade():
+    op.drop_table("user_preferences")
+    op.drop_table("mfa_totp")
+    op.drop_table("user_roles")
+    op.drop_table("roles")
     op.drop_table("users")

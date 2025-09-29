@@ -78,7 +78,7 @@ def client(session_factory):
 
 def _auth_header(user_id: int):
     now = int(datetime.now(timezone.utc).timestamp())
-    token = jwt.encode({"sub": str(user_id), "iat": now}, JWT_SECRET, algorithm=JWT_ALG)
+    token = jwt.encode({"sub": user_id, "iat": now}, JWT_SECRET, algorithm=JWT_ALG)
     return {"Authorization": f"Bearer {token}"}
 
 
