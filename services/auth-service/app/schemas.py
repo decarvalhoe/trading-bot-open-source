@@ -1,4 +1,9 @@
-﻿from pydantic import BaseModel, EmailStr
+from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel, EmailStr
+
 
 class TokenPair(BaseModel):
     access_token: str
@@ -15,14 +20,19 @@ class LoginRequest(BaseModel):
     password: str
     totp: str | None = None
 
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
+
 
 class Me(BaseModel):
     id: int
     email: EmailStr
     roles: list[str]
+    created_at: datetime
+    updated_at: datetime
+
 
 class TOTPSetup(BaseModel):
     secret: str
