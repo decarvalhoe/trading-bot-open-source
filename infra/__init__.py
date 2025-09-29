@@ -22,6 +22,7 @@ from .screener_models import (
     ScreenerSnapshot,
 )
 from .social_models import Base as SocialBase, Activity, Follow, Leaderboard, Profile
+from .trading_models import TradingBase, Execution, Order
 
 __all__ = [
     "AuditBase",
@@ -45,4 +46,7 @@ __all__ = [
     "Follow",
     "Leaderboard",
     "Profile",
+    "TradingBase",
+    "Order",
+    "Execution",
 ]
