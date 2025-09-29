@@ -8,7 +8,7 @@ import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from statistics import mean, stdev
-from typing import Iterable, List
+from typing import Dict, Iterable, List, Sequence
 from urllib.parse import urljoin
 
 import httpx
@@ -17,11 +17,15 @@ from .schemas import (
     Alert,
     DashboardContext,
     Holding,
+    LiveLogEntry,
     PerformanceMetrics,
     Portfolio,
     PortfolioHistorySeries,
     PortfolioTimeseriesPoint,
     RiskLevel,
+    StrategyExecutionSnapshot,
+    StrategyRuntimeStatus,
+    StrategyStatus,
     Transaction,
 )
 
@@ -30,6 +34,12 @@ logger = logging.getLogger(__name__)
 
 REPORTS_BASE_URL = os.getenv("WEB_DASHBOARD_REPORTS_BASE_URL", "http://reports:8000/")
 REPORTS_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_REPORTS_TIMEOUT", "5.0"))
+ORCHESTRATOR_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_ORCHESTRATOR_BASE_URL",
+    "http://algo-engine:8000/",
+)
+ORCHESTRATOR_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ORCHESTRATOR_TIMEOUT", "5.0"))
+MAX_LOG_ENTRIES = int(os.getenv("WEB_DASHBOARD_MAX_LOG_ENTRIES", "100"))
 
 
 def _build_portfolios() -> List[Portfolio]:
@@ -140,6 +150,25 @@ def _normalise_base_url(base_url: str) -> str:
     return base_url
 
 
+def _parse_timestamp(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        parsed = _parse_session_date(value)
+        if parsed:
+            return parsed
+    return None
+
+
+def _coerce_optional_float(value: object) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _extract_exposure(entry: dict[str, object]) -> float:
     for key in ("exposure", "notional_exposure", "gross_exposure", "net_exposure"):
         if key in entry:
@@ -237,6 +266,225 @@ def _fetch_performance_metrics() -> PerformanceMetrics:
     return metrics
 
 
+def _extract_strategy_identifiers(record: dict[str, object]) -> List[str]:
+    identifiers: List[str] = []
+    raw_id = record.get("id")
+    if isinstance(raw_id, str) and raw_id:
+        identifiers.append(raw_id)
+
+    name = record.get("name")
+    if isinstance(name, str) and name:
+        identifiers.append(name)
+        identifiers.append(name.lower())
+        identifiers.append(name.replace(" ", "-").lower())
+
+    metadata = record.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("strategy_id", "id", "slug"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value:
+                identifiers.append(value)
+
+    tags = record.get("tags")
+    if isinstance(tags, list):
+        for tag in tags:
+            if isinstance(tag, str) and tag:
+                identifiers.append(tag)
+
+    return [identifier for identifier in identifiers if identifier]
+
+
+def _match_execution_for_strategy(
+    identifiers: Sequence[str], executions: Sequence[dict[str, object]]
+) -> dict[str, object] | None:
+    if not identifiers or not executions:
+        return None
+
+    normalised = {identifier.lower() for identifier in identifiers if isinstance(identifier, str)}
+    if not normalised:
+        return None
+
+    for execution in executions:
+        if not isinstance(execution, dict):
+            continue
+        strategy_id = execution.get("strategy_id")
+        if isinstance(strategy_id, str) and strategy_id.lower() in normalised:
+            return execution
+        metadata = execution.get("metadata")
+        if isinstance(metadata, dict):
+            tagged = metadata.get("strategy_id")
+            if isinstance(tagged, str) and tagged.lower() in normalised:
+                return execution
+        tags = execution.get("tags")
+        if isinstance(tags, list):
+            for tag in tags:
+                if not isinstance(tag, str):
+                    continue
+                if tag.startswith("strategy:"):
+                    value = tag.split(":", 1)[1]
+                    if value.lower() in normalised:
+                        return execution
+                if tag.lower() in normalised:
+                    return execution
+    return None
+
+
+def _build_execution_snapshot(entry: dict[str, object]) -> StrategyExecutionSnapshot:
+    submitted = _parse_timestamp(entry.get("submitted_at")) or _parse_timestamp(
+        entry.get("created_at")
+    )
+    snapshot = StrategyExecutionSnapshot(
+        order_id=str(entry.get("order_id")) if entry.get("order_id") is not None else None,
+        status=str(entry.get("status")) if entry.get("status") is not None else None,
+        submitted_at=submitted,
+        symbol=str(entry.get("symbol")) if entry.get("symbol") is not None else None,
+        venue=str(entry.get("venue")) if entry.get("venue") is not None else None,
+        side=str(entry.get("side")) if entry.get("side") is not None else None,
+        quantity=_coerce_optional_float(entry.get("quantity")),
+        filled_quantity=_coerce_optional_float(entry.get("filled_quantity")),
+    )
+    return snapshot
+
+
+def _build_strategy_statuses() -> tuple[List[StrategyStatus], List[LiveLogEntry]]:
+    base_url = _normalise_base_url(ORCHESTRATOR_BASE_URL)
+    endpoint = urljoin(base_url, "strategies")
+    try:
+        response = httpx.get(endpoint, timeout=ORCHESTRATOR_TIMEOUT_SECONDS)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Unable to retrieve strategies from %s: %s", endpoint, exc)
+        return [], []
+
+    payload = response.json()
+    raw_items = payload.get("items") if isinstance(payload, dict) else None
+    orchestrator_state = {}
+    if isinstance(payload, dict):
+        state = payload.get("orchestrator_state")
+        if isinstance(state, dict):
+            orchestrator_state = state
+
+    executions_raw = orchestrator_state.get("recent_executions")
+    executions: List[dict[str, object]] = []
+    if isinstance(executions_raw, list):
+        executions = [entry for entry in executions_raw if isinstance(entry, dict)]
+
+    strategies: List[StrategyStatus] = []
+    identifier_to_id: Dict[str, str] = {}
+
+    if isinstance(raw_items, list):
+        for record in raw_items:
+            if not isinstance(record, dict):
+                continue
+            identifiers = _extract_strategy_identifiers(record)
+            strategy_id = record.get("id")
+            if not isinstance(strategy_id, str) or not strategy_id:
+                metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+                if isinstance(metadata, dict):
+                    candidate = metadata.get("strategy_id") or metadata.get("id")
+                    if isinstance(candidate, str):
+                        strategy_id = candidate
+            strategy_id = strategy_id or ""
+
+            for identifier in identifiers:
+                identifier_to_id.setdefault(identifier.lower(), str(strategy_id))
+
+            status_value = record.get("status")
+            try:
+                runtime_status = StrategyRuntimeStatus(status_value)
+            except (ValueError, TypeError):
+                runtime_status = StrategyRuntimeStatus.PENDING
+
+            execution_entry = _match_execution_for_strategy(identifiers, executions)
+            last_execution = _build_execution_snapshot(execution_entry) if execution_entry else None
+
+            strategy = StrategyStatus(
+                id=str(strategy_id),
+                name=str(record.get("name")),
+                status=runtime_status,
+                enabled=bool(record.get("enabled")),
+                strategy_type=(
+                    str(record.get("strategy_type")) if record.get("strategy_type") is not None else None
+                ),
+                tags=[tag for tag in record.get("tags", []) if isinstance(tag, str)],
+                last_error=(
+                    str(record.get("last_error")) if record.get("last_error") is not None else None
+                ),
+                last_execution=last_execution,
+                metadata=(record.get("metadata") if isinstance(record.get("metadata"), dict) else {}),
+            )
+            strategies.append(strategy)
+
+    logs: List[LiveLogEntry] = []
+    if executions:
+        for entry in executions:
+            timestamp = _parse_timestamp(entry.get("submitted_at")) or _parse_timestamp(
+                entry.get("created_at")
+            )
+            if not timestamp:
+                continue
+            status = str(entry.get("status")) if entry.get("status") is not None else None
+            symbol = str(entry.get("symbol")) if entry.get("symbol") is not None else None
+            order_id = (
+                str(entry.get("order_id")) if entry.get("order_id") is not None else None
+            )
+
+            tags = entry.get("tags")
+            strategy_hint = None
+            if isinstance(tags, list):
+                for tag in tags:
+                    if isinstance(tag, str) and tag.startswith("strategy:"):
+                        strategy_hint = tag.split(":", 1)[1]
+                        break
+
+            strategy_id = None
+            if strategy_hint:
+                strategy_id = identifier_to_id.get(strategy_hint.lower())
+
+            extra = {
+                key: value
+                for key, value in entry.items()
+                if key
+                not in {
+                    "order_id",
+                    "status",
+                    "submitted_at",
+                    "created_at",
+                    "symbol",
+                    "tags",
+                }
+            }
+
+            message_parts = []
+            if status:
+                message_parts.append(status)
+            if symbol:
+                message_parts.append(str(symbol))
+            if order_id:
+                message_parts.append(f"(ordre {order_id})")
+            if not message_parts:
+                message_parts.append("Exécution enregistrée")
+
+            logs.append(
+                LiveLogEntry(
+                    timestamp=timestamp,
+                    message=" ".join(message_parts),
+                    order_id=order_id,
+                    status=status,
+                    symbol=symbol,
+                    strategy_id=strategy_id,
+                    strategy_hint=strategy_hint,
+                    extra=extra,
+                )
+            )
+
+    logs.sort(key=lambda entry: entry.timestamp, reverse=True)
+    if len(logs) > MAX_LOG_ENTRIES:
+        logs = logs[:MAX_LOG_ENTRIES]
+
+    return strategies, logs
+
+
 def _build_portfolio_history(days: int = 30) -> List[PortfolioHistorySeries]:
     """Generate synthetic time series for each portfolio."""
 
@@ -289,11 +537,14 @@ def _build_portfolio_history(days: int = 30) -> List[PortfolioHistorySeries]:
 def load_dashboard_context() -> DashboardContext:
     """Return consistent sample data for the dashboard view."""
 
+    strategies, logs = _build_strategy_statuses()
     return DashboardContext(
         portfolios=_build_portfolios(),
         transactions=_build_transactions(),
         alerts=_build_alerts(),
         metrics=_fetch_performance_metrics(),
+        strategies=strategies,
+        logs=logs,
     )
 
 
