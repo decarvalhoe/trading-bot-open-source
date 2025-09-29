@@ -49,18 +49,32 @@ class WebsocketAuthorizer:
         self._client = EntitlementsClient(base_url, api_key=api_key)
 
     async def authorize(self, websocket) -> str:
-        customer_id = websocket.headers.get("x-customer-id") or websocket.headers.get("x-user-id")
+        candidate = (
+            websocket.query_params.get("viewer")
+            or websocket.query_params.get("token")
+            or websocket.headers.get("x-customer-id")
+            or websocket.headers.get("x-user-id")
+        )
+        try:
+            return await self._validate_customer(candidate)
+        except HTTPException:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            raise
+
+    async def authorize_request(self, request: Request) -> str:
+        candidate = request.headers.get("x-customer-id") or request.headers.get("x-user-id")
+        return await self._validate_customer(candidate)
+
+    async def _validate_customer(self, customer_id: str | None) -> str:
         if not customer_id:
             if self._bypass:
                 return "anonymous"
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Missing x-customer-id header")
         if self._bypass:
             return customer_id
         try:
             await self._client.require(customer_id, capabilities=[self._settings.entitlements_capability])
         except EntitlementsError as exc:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         return customer_id
 
