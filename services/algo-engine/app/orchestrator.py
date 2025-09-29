@@ -5,6 +5,8 @@ import threading
 from dataclasses import dataclass
 from typing import Dict
 
+from .order_router_client import OrderRouterClient
+
 
 @dataclass
 class OrchestratorState:
@@ -25,9 +27,10 @@ class OrchestratorState:
 class Orchestrator:
     """Mutable orchestrator shared by API endpoints."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, order_router_client: OrderRouterClient | None = None) -> None:
         self._state = OrchestratorState()
         self._lock = threading.RLock()
+        self._order_router_client = order_router_client
 
     def get_state(self) -> OrchestratorState:
         with self._lock:
@@ -68,6 +71,16 @@ class Orchestrator:
             self._state.last_simulation = summary
             self._state.mode = "simulation"
             return self.get_state()
+
+    def get_order_router_client(self) -> OrderRouterClient:
+        client = self._order_router_client
+        if client is None:
+            raise RuntimeError("order router client is not configured")
+        return client
+
+    def set_order_router_client(self, client: OrderRouterClient) -> None:
+        with self._lock:
+            self._order_router_client = client
 
 
 __all__ = ["Orchestrator", "OrchestratorState"]
