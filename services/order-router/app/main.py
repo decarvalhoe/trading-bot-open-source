@@ -5,14 +5,14 @@ import logging
 import threading
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
@@ -20,7 +20,21 @@ from libs.observability.metrics import setup_metrics
 from infra.trading_models import Execution as ExecutionModel
 from infra.trading_models import Order as OrderModel
 from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
-from schemas.market import ExecutionPlan, ExecutionReport, OrderRequest
+from schemas.market import (
+    ExecutionFill,
+    ExecutionPlan,
+    ExecutionReport,
+    ExecutionStatus,
+    ExecutionVenue,
+    OrderRequest,
+    OrderSide,
+)
+from schemas.order_router import (
+    ExecutionRecord,
+    OrderRecord,
+    PaginatedExecutions,
+    PaginatedOrders,
+)
 
 from .database import get_session
 
@@ -71,8 +85,6 @@ class OrderRouter:
         self._adapters = {adapter.name: adapter for adapter in adapters}
         self._risk_engine = risk_engine
         self._limit_store = limit_store
-        self._orders_log: List[ExecutionReport] = []
-        self._executions: List[ExecutionReport] = []
         self._risk_alerts: List[RiskSignal] = []
         self._lock = threading.RLock()
         self._state = RouterState()
@@ -136,9 +148,6 @@ class OrderRouter:
         except Exception as exc:  # pragma: no cover - defensive safety net
             logger.exception("Unexpected error while persisting order %s", response.order_id)
             raise OrderPersistenceError("unexpected error while persisting order") from exc
-        with self._lock:
-            self._orders_log.append(response)
-            self._executions.extend(adapter.fetch_executions())
         self._risk_engine.register_execution(order, account_id, price_reference)
         return response
 
@@ -156,8 +165,6 @@ class OrderRouter:
                 "Unexpected error while logging cancellation for order %s", result.order_id
             )
             raise OrderPersistenceError("unexpected error while logging cancellation") from exc
-        with self._lock:
-            self._orders_log.append(result)
         return result
 
     def _persist_order(
@@ -177,6 +184,8 @@ class OrderRouter:
                     external_order_id=report.order_id,
                     correlation_id=order.client_order_id,
                     account_id=account_id,
+                    broker=order.broker,
+                    venue=order.venue.value,
                     symbol=order.symbol,
                     side=order.side.value,
                     order_type=order.order_type.value,
@@ -293,13 +302,92 @@ class OrderRouter:
             return value
         return Decimal(str(value))
 
-    def orders_log(self) -> List[ExecutionReport]:
-        with self._lock:
-            return list(self._orders_log)
+    def orders_log(
+        self,
+        *,
+        session: Session,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Tuple[List[OrderModel], int]:
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
+        ordering = func.coalesce(OrderModel.submitted_at, OrderModel.created_at)
+        statement = (
+            select(OrderModel)
+            .options(selectinload(OrderModel.executions))
+            .order_by(ordering.desc(), OrderModel.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = session.execute(statement).unique()
+        orders = list(result.scalars().all())
+        total = session.execute(select(func.count()).select_from(OrderModel)).scalar_one()
+        return orders, total
 
-    def executions(self) -> List[ExecutionReport]:
-        with self._lock:
-            return list(self._executions)
+    def executions(
+        self,
+        *,
+        session: Session,
+        limit: int = 100,
+        offset: int = 0,
+        order_id: Optional[int] = None,
+    ) -> Tuple[List[ExecutionModel], int]:
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
+        statement = select(ExecutionModel).order_by(
+            ExecutionModel.executed_at.desc(), ExecutionModel.created_at.desc()
+        )
+        count_stmt = select(func.count()).select_from(ExecutionModel)
+        if order_id is not None:
+            statement = statement.where(ExecutionModel.order_id == order_id)
+            count_stmt = count_stmt.where(ExecutionModel.order_id == order_id)
+        statement = statement.offset(offset).limit(limit)
+        executions = list(session.execute(statement).scalars().all())
+        total = session.execute(count_stmt).scalar_one()
+        return executions, total
+
+    @staticmethod
+    def serialize_execution_report(order: OrderModel) -> ExecutionReport:
+        fills: List[ExecutionFill] = []
+        total_quantity = Decimal("0")
+        total_value = Decimal("0")
+        for execution in sorted(order.executions, key=lambda item: item.executed_at):
+            quantity = execution.quantity or Decimal("0")
+            price = execution.price or Decimal("0")
+            if quantity <= 0 or price <= 0:
+                continue
+            total_quantity += quantity
+            total_value += quantity * price
+            fills.append(
+                ExecutionFill(
+                    quantity=float(quantity),
+                    price=float(price),
+                    timestamp=execution.executed_at,
+                )
+            )
+
+        avg_price: Optional[float] = None
+        if total_quantity > 0:
+            avg_price = float(total_value / total_quantity)
+
+        submitted_at = order.submitted_at or order.created_at
+        if submitted_at is None:
+            raise ValueError("Order must have either submitted_at or created_at set")
+
+        return ExecutionReport(
+            order_id=order.external_order_id or str(order.id),
+            status=ExecutionStatus(order.status),
+            broker=order.broker,
+            venue=ExecutionVenue(order.venue),
+            symbol=order.symbol,
+            side=OrderSide(order.side),
+            quantity=float(order.quantity),
+            filled_quantity=float(order.filled_quantity),
+            avg_price=avg_price,
+            submitted_at=submitted_at,
+            fills=fills,
+            tags=[],
+        )
 
     def _record_alerts(self, alerts: List[RiskSignal]) -> None:
         if not alerts:
@@ -468,14 +556,40 @@ def cancel_order(
         ) from exc
 
 
-@app.get("/orders/log", response_model=List[ExecutionReport])
-def get_orders_log() -> List[ExecutionReport]:
-    return router.orders_log()
+@app.get("/orders/log", response_model=PaginatedOrders)
+def get_orders_log(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_session),
+) -> PaginatedOrders:
+    orders, total = router.orders_log(session=session, limit=limit, offset=offset)
+    return PaginatedOrders(
+        items=[OrderRecord.model_validate(order, from_attributes=True) for order in orders],
+        limit=limit,
+        offset=offset,
+        total=total,
+    )
 
 
-@app.get("/executions", response_model=List[ExecutionReport])
-def get_executions() -> List[ExecutionReport]:
-    return router.executions()
+@app.get("/executions", response_model=PaginatedExecutions)
+def get_executions(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    order_id: Optional[int] = Query(default=None, ge=1),
+    session: Session = Depends(get_session),
+) -> PaginatedExecutions:
+    executions, total = router.executions(
+        session=session, limit=limit, offset=offset, order_id=order_id
+    )
+    return PaginatedExecutions(
+        items=[
+            ExecutionRecord.model_validate(execution, from_attributes=True)
+            for execution in executions
+        ],
+        limit=limit,
+        offset=offset,
+        total=total,
+    )
 
 
 @app.get("/risk/alerts", response_model=List[RiskAlertResponse])

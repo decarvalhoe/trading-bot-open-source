@@ -33,6 +33,8 @@ class Order(TradingBase):
     external_order_id: Optional[str] = Column(String(128), unique=True)
     correlation_id: Optional[str] = Column(String(128), index=True)
     account_id: str = Column(String(64), nullable=False, index=True)
+    broker: str = Column(String(32), nullable=False, index=True)
+    venue: str = Column(String(64), nullable=False, index=True)
     symbol: str = Column(String(32), nullable=False, index=True)
     side: str = Column(String(8), nullable=False)
     order_type: str = Column(String(16), nullable=False)
