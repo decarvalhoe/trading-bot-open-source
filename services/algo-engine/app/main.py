@@ -4,6 +4,7 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, status
@@ -24,6 +25,12 @@ from .strategies.base import StrategyConfig, registry
 from .strategies import declarative, gap_fill, orb  # noqa: F401 - register plugins
 
 
+class StrategyStatus(str, Enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    ERROR = "ERROR"
+
+
 @dataclass
 class StrategyRecord:
     id: str
@@ -36,9 +43,13 @@ class StrategyRecord:
     source_format: Optional[str] = None
     source: Optional[str] = None
     last_backtest: Optional[Dict[str, Any]] = None
+    status: StrategyStatus = StrategyStatus.PENDING
+    last_error: Optional[str] = None
 
     def as_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["status"] = self.status.value
+        return data
 
 
 class StrategyStore:
@@ -47,6 +58,11 @@ class StrategyStore:
     def __init__(self) -> None:
         self._strategies: Dict[str, StrategyRecord] = {}
         self._lock = threading.Lock()
+        self._allowed_transitions: Dict[StrategyStatus, List[StrategyStatus]] = {
+            StrategyStatus.PENDING: [StrategyStatus.ACTIVE, StrategyStatus.ERROR],
+            StrategyStatus.ACTIVE: [StrategyStatus.ERROR],
+            StrategyStatus.ERROR: [StrategyStatus.ACTIVE],
+        }
 
     def list(self) -> List[StrategyRecord]:
         with self._lock:
@@ -68,10 +84,36 @@ class StrategyStore:
         with self._lock:
             if strategy_id not in self._strategies:
                 raise KeyError("strategy not found")
-            for key, value in updates.items():
+            record = self._strategies[strategy_id]
+            pending_updates = dict(updates)
+
+            status_update = pending_updates.pop("status", None)
+            error_update = pending_updates.pop("last_error", None)
+
+            if status_update is not None:
+                if not isinstance(status_update, StrategyStatus):
+                    status_update = StrategyStatus(status_update)
+                current_status = record.status
+                if status_update != current_status:
+                    allowed = self._allowed_transitions.get(current_status, [])
+                    if status_update not in allowed:
+                        raise ValueError(
+                            f"Invalid status transition from {current_status.value} to {status_update.value}"
+                        )
+                record.status = status_update
+                if status_update == StrategyStatus.ERROR:
+                    if error_update is not None:
+                        record.last_error = error_update
+                elif status_update == StrategyStatus.ACTIVE:
+                    record.last_error = None
+
+            if error_update is not None and status_update is None:
+                record.last_error = error_update
+
+            for key, value in pending_updates.items():
                 if value is not None:
-                    setattr(self._strategies[strategy_id], key, value)
-            return self._strategies[strategy_id]
+                    setattr(record, key, value)
+            return record
 
     def delete(self, strategy_id: str) -> None:
         with self._lock:
@@ -124,6 +166,13 @@ class StrategyUpdatePayload(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     source_format: Optional[str] = Field(default=None, pattern="^(yaml|python)$")
     source: Optional[str] = None
+    status: Optional[StrategyStatus] = None
+    last_error: Optional[str] = None
+
+
+class StrategyStatusUpdatePayload(BaseModel):
+    status: StrategyStatus
+    error: Optional[str] = Field(default=None, description="Latest error message when status is ERROR")
 
 
 class OrchestratorStatePayload(BaseModel):
@@ -288,7 +337,24 @@ def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: R
         )
         registry.create(existing.strategy_type, config)
 
-    record = store.update(strategy_id, **updates)
+    try:
+        record = store.update(strategy_id, **updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return record.as_dict()
+
+
+@app.post("/strategies/{strategy_id}/status")
+def transition_strategy_status(strategy_id: str, payload: StrategyStatusUpdatePayload) -> Dict[str, Any]:
+    try:
+        store.get(strategy_id)
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+
+    try:
+        record = store.update(strategy_id, status=payload.status, last_error=payload.error)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return record.as_dict()
 
 
