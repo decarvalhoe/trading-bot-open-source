@@ -1,6 +1,7 @@
 """Order router service centralising broker connectivity."""
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 import threading
 from dataclasses import dataclass
@@ -31,7 +32,9 @@ from schemas.market import (
 )
 from schemas.order_router import (
     ExecutionRecord,
+    ExecutionsMetadata,
     OrderRecord,
+    OrdersLogMetadata,
     PaginatedExecutions,
     PaginatedOrders,
 )
@@ -308,6 +311,10 @@ class OrderRouter:
         session: Session,
         limit: int = 100,
         offset: int = 0,
+        account_id: Optional[str] = None,
+        symbol: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
     ) -> Tuple[List[OrderModel], int]:
         limit = max(1, min(limit, 500))
         offset = max(0, offset)
@@ -316,12 +323,24 @@ class OrderRouter:
             select(OrderModel)
             .options(selectinload(OrderModel.executions))
             .order_by(ordering.desc(), OrderModel.created_at.desc())
-            .offset(offset)
-            .limit(limit)
         )
+        count_stmt = select(func.count()).select_from(OrderModel)
+        filters = []
+        if account_id:
+            filters.append(OrderModel.account_id == account_id)
+        if symbol:
+            filters.append(OrderModel.symbol == symbol)
+        if start:
+            filters.append(ordering >= start)
+        if end:
+            filters.append(ordering <= end)
+        if filters:
+            statement = statement.where(*filters)
+            count_stmt = count_stmt.where(*filters)
+        statement = statement.offset(offset).limit(limit)
         result = session.execute(statement).unique()
         orders = list(result.scalars().all())
-        total = session.execute(select(func.count()).select_from(OrderModel)).scalar_one()
+        total = session.execute(count_stmt).scalar_one()
         return orders, total
 
     def executions(
@@ -331,6 +350,10 @@ class OrderRouter:
         limit: int = 100,
         offset: int = 0,
         order_id: Optional[int] = None,
+        account_id: Optional[str] = None,
+        symbol: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
     ) -> Tuple[List[ExecutionModel], int]:
         limit = max(1, min(limit, 500))
         offset = max(0, offset)
@@ -338,9 +361,20 @@ class OrderRouter:
             ExecutionModel.executed_at.desc(), ExecutionModel.created_at.desc()
         )
         count_stmt = select(func.count()).select_from(ExecutionModel)
+        filters = []
         if order_id is not None:
-            statement = statement.where(ExecutionModel.order_id == order_id)
-            count_stmt = count_stmt.where(ExecutionModel.order_id == order_id)
+            filters.append(ExecutionModel.order_id == order_id)
+        if account_id:
+            filters.append(ExecutionModel.account_id == account_id)
+        if symbol:
+            filters.append(ExecutionModel.symbol == symbol)
+        if start:
+            filters.append(ExecutionModel.executed_at >= start)
+        if end:
+            filters.append(ExecutionModel.executed_at <= end)
+        if filters:
+            statement = statement.where(*filters)
+            count_stmt = count_stmt.where(*filters)
         statement = statement.offset(offset).limit(limit)
         executions = list(session.execute(statement).scalars().all())
         total = session.execute(count_stmt).scalar_one()
@@ -558,37 +592,123 @@ def cancel_order(
 
 @app.get("/orders/log", response_model=PaginatedOrders)
 def get_orders_log(
-    limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(
+        default=100,
+        ge=1,
+        le=500,
+        description="Maximum number of orders to return (pagination).",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of orders to skip from the beginning (pagination).",
+    ),
+    symbol: Optional[str] = Query(
+        default=None,
+        description="Return only orders for the given trading symbol.",
+    ),
+    account_id: Optional[str] = Query(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description="Return only orders associated with this account identifier.",
+    ),
+    start: Optional[datetime] = Query(
+        default=None,
+        description="Return orders submitted or created at or after this ISO 8601 timestamp.",
+    ),
+    end: Optional[datetime] = Query(
+        default=None,
+        description="Return orders submitted or created before or at this ISO 8601 timestamp.",
+    ),
     session: Session = Depends(get_session),
 ) -> PaginatedOrders:
-    orders, total = router.orders_log(session=session, limit=limit, offset=offset)
-    return PaginatedOrders(
-        items=[OrderRecord.model_validate(order, from_attributes=True) for order in orders],
+    orders, total = router.orders_log(
+        session=session,
         limit=limit,
         offset=offset,
-        total=total,
+        account_id=account_id,
+        symbol=symbol,
+        start=start,
+        end=end,
+    )
+    return PaginatedOrders(
+        items=[OrderRecord.model_validate(order, from_attributes=True) for order in orders],
+        metadata=OrdersLogMetadata(
+            limit=limit,
+            offset=offset,
+            total=total,
+            account_id=account_id,
+            symbol=symbol,
+            start=start,
+            end=end,
+        ),
     )
 
 
 @app.get("/executions", response_model=PaginatedExecutions)
 def get_executions(
-    limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
-    order_id: Optional[int] = Query(default=None, ge=1),
+    limit: int = Query(
+        default=100,
+        ge=1,
+        le=500,
+        description="Maximum number of executions to return (pagination).",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of executions to skip from the beginning (pagination).",
+    ),
+    order_id: Optional[int] = Query(
+        default=None,
+        ge=1,
+        description="Return only executions associated with this internal order identifier.",
+    ),
+    symbol: Optional[str] = Query(
+        default=None,
+        description="Return only executions for the given trading symbol.",
+    ),
+    account_id: Optional[str] = Query(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description="Return only executions associated with this account identifier.",
+    ),
+    start: Optional[datetime] = Query(
+        default=None,
+        description="Return executions that occurred at or after this ISO 8601 timestamp.",
+    ),
+    end: Optional[datetime] = Query(
+        default=None,
+        description="Return executions that occurred before or at this ISO 8601 timestamp.",
+    ),
     session: Session = Depends(get_session),
 ) -> PaginatedExecutions:
     executions, total = router.executions(
-        session=session, limit=limit, offset=offset, order_id=order_id
+        session=session,
+        limit=limit,
+        offset=offset,
+        order_id=order_id,
+        account_id=account_id,
+        symbol=symbol,
+        start=start,
+        end=end,
     )
     return PaginatedExecutions(
         items=[
             ExecutionRecord.model_validate(execution, from_attributes=True)
             for execution in executions
         ],
-        limit=limit,
-        offset=offset,
-        total=total,
+        metadata=ExecutionsMetadata(
+            limit=limit,
+            offset=offset,
+            total=total,
+            order_id=order_id,
+            account_id=account_id,
+            symbol=symbol,
+            start=start,
+            end=end,
+        ),
     )
 
 
