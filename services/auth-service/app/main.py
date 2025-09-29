@@ -1,11 +1,26 @@
 import urllib.parse
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Header, status
+from jose import JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from .schemas import LoginRequest, RegisterRequest, TokenPair, Me, TOTPSetup
-from .security import hash_password, verify_password, create_token_pair, generate_totp_secret, totp_now
+from .schemas import (
+    LoginRequest,
+    RegisterRequest,
+    TokenPair,
+    Me,
+    TOTPSetup,
+    TokenRefreshRequest,
+)
+from .security import (
+    hash_password,
+    verify_password,
+    create_token_pair,
+    generate_totp_secret,
+    totp_now,
+    verify_token,
+)
 from .models import User, Role, UserRole, MFATotp
 from .deps import get_current_user, require_roles
 from libs.db.db import get_db
@@ -57,6 +72,53 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     access, refresh = create_token_pair(str(u.id), roles)
     return TokenPair(access_token=access, refresh_token=refresh)
+
+
+@app.post("/auth/refresh", response_model=TokenPair)
+def refresh(
+    payload: TokenRefreshRequest | None = None,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    token = None
+    if payload and payload.refresh_token:
+        token = payload.refresh_token
+    elif authorization:
+        scheme, _, credentials = authorization.partition(" ")
+        if scheme.lower() == "bearer" and credentials:
+            token = credentials
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Refresh token required")
+
+    try:
+        decoded = verify_token(token)
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    if decoded.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+
+    sub = decoded.get("sub")
+    if sub is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    try:
+        uid = int(sub)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    roles = [
+        r.name
+        for r in db.execute(
+            select(Role).join(UserRole, Role.id == UserRole.role_id).where(UserRole.user_id == uid)
+        ).scalars().all()
+    ]
+
+    access, refresh_token = create_token_pair(str(uid), roles)
+    return TokenPair(access_token=access, refresh_token=refresh_token)
 
 @app.get("/auth/me", response_model=Me)
 def me(payload=Depends(get_current_user), db: Session = Depends(get_db)):

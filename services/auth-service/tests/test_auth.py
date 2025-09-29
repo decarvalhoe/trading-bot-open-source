@@ -1,6 +1,7 @@
 import importlib.util
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -39,6 +40,8 @@ TokenPair = helpers.TokenPair
 create_user_with_role = helpers.create_user_with_role
 totp_now = helpers.totp_now
 Me = helpers.Me
+security = helpers.security
+TokenRefreshRequest = getattr(helpers.schemas, "TokenRefreshRequest")
 
 
 def test_register_creates_user_with_default_role(client, session_factory):
@@ -102,6 +105,59 @@ def test_login_requires_totp_when_enabled(client, session_factory):
     body = TokenPair.model_validate(response.json())
     assert body.access_token
     assert body.refresh_token
+
+
+def test_refresh_returns_new_token_pair(client, session_factory):
+    with session_factory() as session:
+        user = create_user_with_role(session, email="refresh@example.com")
+
+    login = client.post(
+        "/auth/login",
+        json={"email": "refresh@example.com", "password": "secret"},
+    )
+    assert login.status_code == 200
+    original = TokenPair.model_validate(login.json())
+
+    response = client.post(
+        "/auth/refresh",
+        json=TokenRefreshRequest(refresh_token=original.refresh_token).model_dump(exclude_none=True),
+    )
+
+    assert response.status_code == 200
+    refreshed = TokenPair.model_validate(response.json())
+    decoded_access = security.verify_token(refreshed.access_token)
+    decoded_refresh = security.verify_token(refreshed.refresh_token)
+    assert decoded_access["sub"] == str(user.id)
+    assert decoded_refresh["type"] == "refresh"
+
+
+def test_refresh_rejects_invalid_token(client):
+    response = client.post("/auth/refresh", json={"refresh_token": "invalid"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid token"
+
+
+def test_refresh_rejects_expired_token(client, session_factory):
+    with session_factory() as session:
+        user = create_user_with_role(session, email="expired@example.com")
+
+    now = datetime.now(timezone.utc)
+    expired_refresh = security.jwt.encode(
+        {
+            "sub": str(user.id),
+            "type": "refresh",
+            "iat": int(now.timestamp()),
+            "exp": int((now - timedelta(minutes=1)).timestamp()),
+        },
+        security.JWT_SECRET,
+        algorithm=security.JWT_ALG,
+    )
+
+    response = client.post("/auth/refresh", json={"refresh_token": expired_refresh})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid token"
 
 
 def test_auth_me_returns_profile_information(client):
