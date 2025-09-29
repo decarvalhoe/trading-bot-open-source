@@ -5,7 +5,8 @@ import abc
 from typing import Dict, Iterable, List
 
 from libs.connectors import ExecutionClient
-from schemas.market import ExecutionReport, ExecutionStatus, OrderRequest
+from schemas.market import ExecutionStatus, OrderRequest
+from schemas.order_router import ExecutionReport
 
 
 class BrokerAdapter(ExecutionClient, abc.ABC):

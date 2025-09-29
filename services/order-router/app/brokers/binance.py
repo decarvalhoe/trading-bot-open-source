@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from schemas.market import ExecutionFill, ExecutionReport, ExecutionStatus, OrderRequest
+from schemas.market import ExecutionFill, ExecutionStatus, OrderRequest
+from schemas.order_router import ExecutionReport
 
 from .base import BrokerAdapter
 

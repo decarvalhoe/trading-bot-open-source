@@ -1,4 +1,4 @@
-"""Pydantic schemas for persisted order router entities."""
+"""Pydantic schemas for order router contracts and persisted entities."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,6 +6,33 @@ from decimal import Decimal
 from typing import List
 
 from pydantic import BaseModel, Field, field_validator
+
+from schemas.market import (
+    ExecutionReport as MarketExecutionReport,
+    OrderRequest,
+)
+
+
+class RiskOverrides(BaseModel):
+    """Risk adjustments provided by the caller when routing an order."""
+
+    account_id: str = Field(default="default", min_length=1, max_length=64)
+    realized_pnl: float | None = None
+    unrealized_pnl: float | None = None
+    stop_loss: float | None = Field(default=None, gt=0)
+
+
+class ExecutionIntent(OrderRequest):
+    """Order routing payload combining the shared order request and risk context."""
+
+    account_id: str | None = Field(default=None, min_length=1, max_length=64)
+    risk: RiskOverrides | None = None
+
+
+class ExecutionReport(MarketExecutionReport):
+    """Execution acknowledgment returned by the order router."""
+
+    pass
 
 
 class ExecutionRecord(BaseModel):
@@ -103,8 +130,11 @@ class PaginatedExecutions(BaseModel):
 
 
 __all__ = [
+    "ExecutionIntent",
+    "ExecutionReport",
     "ExecutionRecord",
     "OrderRecord",
+    "RiskOverrides",
     "PaginationMetadata",
     "OrdersLogMetadata",
     "ExecutionsMetadata",
