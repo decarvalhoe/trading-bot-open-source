@@ -85,3 +85,26 @@ class DailyRiskReport(BaseModel):
             datetime: lambda value: value.isoformat(),
             date: lambda value: value.isoformat(),
         }
+
+
+class PortfolioPerformance(BaseModel):
+    """Summarise portfolio level performance analytics."""
+
+    account: str
+    start_date: date | None = None
+    end_date: date | None = None
+    total_return: float
+    cumulative_return: float
+    average_return: float
+    volatility: float
+    sharpe_ratio: float
+    max_drawdown: float = Field(..., ge=0.0)
+    observation_count: int = Field(..., ge=0)
+    positive_days: int = Field(..., ge=0)
+    negative_days: int = Field(..., ge=0)
+
+    class Config:
+        json_encoders = {
+            datetime: lambda value: value.isoformat(),
+            date: lambda value: value.isoformat(),
+        }
