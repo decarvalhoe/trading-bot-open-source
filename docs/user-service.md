@@ -7,11 +7,13 @@ par JWT ainsi que le middleware d'entitlements commun.
 
 ### `POST /users/register`
 Permet d'inscrire un utilisateur auto-hébergé. L'inscription crée un profil inactif
-qui peut ensuite être activé. Exemple de requête (Front) :
+qui peut ensuite être activé. L'appel doit être authentifié (par exemple via un
+jeton de service fourni par l'auth-service) :
 
 ```http
 POST /users/register HTTP/1.1
 Content-Type: application/json
+Authorization: Bearer <service-token>
 
 {
   "email": "jane@example.com",
@@ -82,7 +84,8 @@ La réponse reflète le document sauvegardé.
 
 ## Flux recommandé (inscription → activation → profil)
 
-1. `POST /users/register` pour créer le compte applicatif.
+1. `POST /users/register` depuis l'auth-service (ou un appel authentifié) pour
+   créer le compte applicatif.
 2. Génération d'un JWT contenant `sub=<user_id>` (depuis l'auth-service ou le
    front en possession du secret durant les tests).
 3. `POST /users/{user_id}/activate` pour basculer `is_active` à `true`.

@@ -82,11 +82,18 @@ def _auth_header(user_id: int):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _service_auth_header():
+    now = int(datetime.now(timezone.utc).timestamp())
+    token = jwt.encode({"sub": "auth-service", "iat": now}, JWT_SECRET, algorithm=JWT_ALG)
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_signup_activation_profile_flow(client, session_factory):
     email = "flow@example.com"
     register_resp = client.post(
         "/users/register",
         json={"email": email, "display_name": "Flow"},
+        headers=_service_auth_header(),
     )
     assert register_resp.status_code == 201
     registered = register_resp.json()
@@ -146,6 +153,15 @@ def test_signup_activation_profile_flow(client, session_factory):
         assert prefs_row.preferences == prefs_payload["preferences"]
 
     app.dependency_overrides.pop(main.get_entitlements, None)
+
+
+def test_register_requires_token(client):
+    resp = client.post(
+        "/users/register",
+        json={"email": "no-token@example.com"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Missing token"
 
 
 def test_get_user_masks_sensitive_data_for_other_actor(client, session_factory):
