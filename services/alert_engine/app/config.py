@@ -9,6 +9,7 @@ class AlertEngineSettings:
     """Application settings for the alert engine service."""
 
     database_url: str = "sqlite:///./alert_engine.db"
+    events_database_url: str = "sqlite:///./alert_events.db"
     market_data_url: str = "http://market-data"
     market_data_stream_url: str = "http://market-data"
     reports_url: str = "http://reports"
@@ -33,6 +34,10 @@ class AlertEngineSettings:
             )
         return cls(
             database_url=os.getenv("ALERT_ENGINE_DATABASE_URL", defaults.database_url),
+            events_database_url=os.getenv(
+                "ALERT_ENGINE_EVENTS_DATABASE_URL",
+                os.getenv("ALERT_EVENTS_DATABASE_URL", defaults.events_database_url),
+            ),
             market_data_url=os.getenv("ALERT_ENGINE_MARKET_DATA_URL", defaults.market_data_url),
             market_data_stream_url=os.getenv(
                 "ALERT_ENGINE_MARKET_DATA_STREAM_URL",

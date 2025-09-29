@@ -2,6 +2,7 @@ import React, { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import PortfolioChart from "./components/PortfolioChart.jsx";
 import AlertManager from "./alerts/AlertManager.jsx";
+import AlertHistory from "./alerts/AlertHistory.jsx";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -102,6 +103,18 @@ if (alertsContainer) {
   root.render(
     <StrictMode>
       <AlertManager initialAlerts={initialAlerts} endpoint={endpoint} authToken={token} />
+    </StrictMode>
+  );
+}
+
+const historyContainer = document.getElementById("alerts-history");
+if (historyContainer) {
+  const dataset = historyContainer.dataset || {};
+  const endpoint = dataset.endpoint || "/alerts/history";
+  const root = createRoot(historyContainer);
+  root.render(
+    <StrictMode>
+      <AlertHistory endpoint={endpoint} />
     </StrictMode>
   );
 }

@@ -382,6 +382,20 @@
           </div>
         </div>
       </section>
+
+      <section class="card" aria-labelledby="alerts-history-title">
+        <div class="card__header">
+          <h2 id="alerts-history-title" class="heading heading--lg">Historique</h2>
+          <p class="text text--muted">Déclenchements archivés par le moteur d'alertes.</p>
+        </div>
+        <div class="card__body">
+          <div
+            id="alerts-history"
+            data-endpoint="{{ alerts_api.history_endpoint }}"
+            aria-live="polite"
+          ></div>
+        </div>
+      </section>
     </main>
     <footer class="layout__footer">
       <p class="text text--muted">Données d'exemple pour la démonstration du service.</p>

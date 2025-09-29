@@ -7,8 +7,12 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from libs.alert_events import AlertEventRepository
+from libs.db.db import SessionLocal
+
 from .cache import AlertContextCache
 from .clients import NotificationPublisher
+from .event_recorder import AlertEventRecorder
 from .evaluator import RuleEvaluator
 from .models import AlertRule, AlertTrigger
 from .repository import AlertRuleRepository
@@ -25,12 +29,17 @@ class AlertEngine:
         context_cache: AlertContextCache,
         publisher: NotificationPublisher,
         evaluation_interval: float,
+        event_recorder: AlertEventRecorder | None = None,
     ) -> None:
         self._repository = repository
         self._evaluator = evaluator
         self._context_cache = context_cache
         self._publisher = publisher
         self._evaluation_interval = evaluation_interval
+        self._event_recorder = event_recorder or AlertEventRecorder(
+            repository=AlertEventRepository(),
+            session_factory=SessionLocal,
+        )
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
 
@@ -43,7 +52,8 @@ class AlertEngine:
         for rule in rules:
             if await self._evaluate_rule(session, rule, context):
                 trigger = await self._repository.record_trigger(session, rule, context)
-                await self._publisher.publish(self._serialize_trigger(trigger))
+                event = await self._event_recorder.record(trigger)
+                await self._publisher.publish(self._serialize_trigger(trigger, event_id=event.id))
                 triggers.append(trigger)
         return triggers
 
@@ -81,7 +91,8 @@ class AlertEngine:
             context = await self._build_context_from_symbol(rule.symbol)
             if await self._evaluate_rule(session, rule, context):
                 trigger = await self._repository.record_trigger(session, rule, context)
-                await self._publisher.publish(self._serialize_trigger(trigger))
+                event = await self._event_recorder.record(trigger)
+                await self._publisher.publish(self._serialize_trigger(trigger, event_id=event.id))
                 triggers.append(trigger)
         return triggers
 
@@ -99,12 +110,20 @@ class AlertEngine:
         context.setdefault("symbol", symbol)
         return context
 
-    def _serialize_trigger(self, trigger: AlertTrigger) -> dict[str, Any]:
+    def _serialize_trigger(
+        self, trigger: AlertTrigger, *, event_id: int | None = None
+    ) -> dict[str, Any]:
+        rule = trigger.rule
         return {
             "trigger_id": trigger.id,
             "rule_id": trigger.rule_id,
+            "event_id": event_id,
             "triggered_at": trigger.triggered_at.isoformat(),
             "context": trigger.context or {},
+            "rule_name": rule.name if rule else "unknown",
+            "severity": rule.severity if rule else "info",
+            "symbol": rule.symbol if rule else "UNKNOWN",
+            "strategy": (rule.name if rule else "unknown").strip() or "unknown",
         }
 
     @asynccontextmanager

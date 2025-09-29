@@ -5,12 +5,13 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+import sqlalchemy
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine
-import sqlalchemy
 from sqlalchemy.orm import Session, sessionmaker
 
+from libs.alert_events import AlertEventBase, AlertEventRepository
 from services.alert_engine.app.cache import AlertContextCache
 from services.alert_engine.app.clients import (
     MarketDataClient,
@@ -20,6 +21,7 @@ from services.alert_engine.app.clients import (
 )
 from services.alert_engine.app.config import AlertEngineSettings
 from services.alert_engine.app.database import Base
+from services.alert_engine.app.event_recorder import AlertEventRecorder
 from services.alert_engine.app.engine import AlertEngine
 from services.alert_engine.app.evaluator import RuleEvaluator
 from services.alert_engine.app.main import create_app
@@ -89,6 +91,24 @@ def in_memory_session_factory() -> Iterator[sessionmaker[Session]]:
 
 
 @pytest.fixture()
+def alert_event_recorder() -> Iterator[AlertEventRecorder]:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=sqlalchemy.pool.StaticPool,
+        future=True,
+    )
+    AlertEventBase.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
+    recorder = AlertEventRecorder(
+        repository=AlertEventRepository(),
+        session_factory=factory,
+    )
+    yield recorder
+    engine.dispose()
+
+
+@pytest.fixture()
 def app(in_memory_session_factory: sessionmaker[Session]) -> FastAPI:
     settings = AlertEngineSettings(evaluation_interval_seconds=0.1)
     market_client = FakeMarketDataClient({"moving_average": 100.0})
@@ -145,6 +165,7 @@ def test_rule_triggered_on_event(
     publisher: DummyPublisher = app.state.clients[-1]
     assert len(publisher.published_payloads) == 1
     assert publisher.published_payloads[0]["rule_id"] == rule.id
+    assert publisher.published_payloads[0]["event_id"] is not None
 
 
 def test_rule_not_triggered_when_condition_false(
@@ -172,6 +193,7 @@ def test_rule_not_triggered_when_condition_false(
 
 def test_periodic_evaluation_creates_triggers(
     in_memory_session_factory: sessionmaker[Session],
+    alert_event_recorder: AlertEventRecorder,
 ) -> None:
     market_client = FakeMarketDataClient({"moving_average": 10.0, "price": 15.0})
     reports_client = FakeReportsClient({})
@@ -191,6 +213,7 @@ def test_periodic_evaluation_creates_triggers(
         context_cache=context_cache,
         publisher=publisher,
         evaluation_interval=0.05,
+        event_recorder=alert_event_recorder,
     )
 
     async def _run() -> None:
