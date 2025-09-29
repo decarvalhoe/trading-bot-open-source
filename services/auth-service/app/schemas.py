@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+
+from .security import (
+    PASSWORD_MIN_LENGTH,
+    PASSWORD_REQUIREMENTS_MESSAGE,
+)
 
 
 class TokenPair(BaseModel):
@@ -23,7 +28,15 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(
+        ...,
+        description=PASSWORD_REQUIREMENTS_MESSAGE,
+        examples=["Str0ngPassw0rd!"],
+        json_schema_extra={
+            "min_length": PASSWORD_MIN_LENGTH,
+            "error_message": PASSWORD_REQUIREMENTS_MESSAGE,
+        },
+    )
 
 
 class Me(BaseModel):

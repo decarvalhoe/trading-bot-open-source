@@ -47,7 +47,7 @@ TokenRefreshRequest = getattr(helpers.schemas, "TokenRefreshRequest")
 def test_register_creates_user_with_default_role(client, session_factory):
     response = client.post(
         "/auth/register",
-        json={"email": "new@example.com", "password": "strong-password"},
+        json={"email": "new@example.com", "password": "Str0ngPassw0rd!"},
     )
 
     assert response.status_code == 201
@@ -65,7 +65,7 @@ def test_register_creates_user_with_default_role(client, session_factory):
     with session_factory() as session:
         user = session.scalar(select(User).where(User.email == "new@example.com"))
         assert user is not None
-        assert user.password_hash != "strong-password"
+        assert user.password_hash != "Str0ngPassw0rd!"
         assert user.created_at is not None
         assert user.updated_at is not None
         assert user.created_at.tzinfo is not None
@@ -78,6 +78,16 @@ def test_register_creates_user_with_default_role(client, session_factory):
             select(UserRole).where(UserRole.user_id == user.id, UserRole.role_id == role.id)
         )
         assert user_role is not None
+
+
+def test_register_rejects_password_not_meeting_requirements(client):
+    response = client.post(
+        "/auth/register",
+        json={"email": "weak@example.com", "password": "weakpass"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == security.PASSWORD_REQUIREMENTS_MESSAGE
 
 
 def test_login_without_mfa_returns_tokens(client, session_factory):
@@ -175,13 +185,13 @@ def test_refresh_rejects_expired_token(client, session_factory):
 def test_auth_me_returns_profile_information(client):
     register = client.post(
         "/auth/register",
-        json={"email": "profile@example.com", "password": "profile-pass"},
+        json={"email": "profile@example.com", "password": "Str0ngProfil3!"},
     )
     assert register.status_code == 201
 
     login = client.post(
         "/auth/login",
-        json={"email": "profile@example.com", "password": "profile-pass"},
+        json={"email": "profile@example.com", "password": "Str0ngProfil3!"},
     )
     assert login.status_code == 200
     token = login.json()["access_token"]
@@ -225,7 +235,14 @@ def test_token_pair_default_type():
 
 def test_register_request_validates_email():
     with pytest.raises(ValidationError):
-        RegisterRequest(email="not-an-email", password="pass")
+        RegisterRequest(email="not-an-email", password="ValidPassw0rd!")
+
+
+def test_register_request_documents_password_rules():
+    field = RegisterRequest.model_fields["password"]
+    assert field.description == security.PASSWORD_REQUIREMENTS_MESSAGE
+    assert field.json_schema_extra["error_message"] == security.PASSWORD_REQUIREMENTS_MESSAGE
+    assert field.json_schema_extra["min_length"] == security.PASSWORD_MIN_LENGTH
 
 
 def test_login_request_totp_optional():

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 import pyotp
@@ -16,6 +17,43 @@ ACCESS_MIN = int(os.getenv("ACCESS_MIN", "15"))
 REFRESH_DAYS = int(os.getenv("REFRESH_DAYS", "7"))
 
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+PASSWORD_MIN_LENGTH = 12
+_PASSWORD_CLASSES = {
+    "uppercase letter": r"[A-Z]",
+    "lowercase letter": r"[a-z]",
+    "digit": r"\d",
+    "special character": r"[^A-Za-z0-9]",
+}
+_PASSWORD_CLASS_NAMES = list(_PASSWORD_CLASSES.keys())
+if len(_PASSWORD_CLASS_NAMES) > 1:
+    _requirements = ", ".join(_PASSWORD_CLASS_NAMES[:-1]) + f", and one {_PASSWORD_CLASS_NAMES[-1]}"
+else:
+    _requirements = _PASSWORD_CLASS_NAMES[0]
+PASSWORD_REQUIREMENTS_MESSAGE = (
+    f"Password must be at least {PASSWORD_MIN_LENGTH} characters long and include at least one {_requirements}."
+)
+
+
+def validate_password_requirements(password: str) -> tuple[bool, str | None]:
+    """Return whether ``password`` meets strength requirements.
+
+    Args:
+        password: The candidate password.
+
+    Returns:
+        A tuple ``(is_valid, message)`` where ``is_valid`` is ``True`` when the
+        password meets the expected requirements. When ``is_valid`` is ``False``
+        the ``message`` contains a human-friendly explanation of the
+        requirements.
+    """
+
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return False, PASSWORD_REQUIREMENTS_MESSAGE
+    for pattern in _PASSWORD_CLASSES.values():
+        if not re.search(pattern, password):
+            return False, PASSWORD_REQUIREMENTS_MESSAGE
+    return True, None
 
 
 def hash_password(password: str) -> str:
@@ -64,6 +102,9 @@ def totp_now(secret: str) -> pyotp.TOTP:
 
 
 __all__ = [
+    "PASSWORD_MIN_LENGTH",
+    "PASSWORD_REQUIREMENTS_MESSAGE",
+    "validate_password_requirements",
     "hash_password",
     "verify_password",
     "create_token_pair",
