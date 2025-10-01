@@ -78,6 +78,21 @@ with:
 make demo-down
 ```
 
+#### Bootstrap the end-to-end flow
+
+Once the stack is running you can exercise the full onboarding → trading journey with
+the helper script:
+
+```bash
+scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
+```
+
+The command provisions a demo account, assigns entitlements, configures a strategy,
+routes an order, generates a PDF report, registers an alert and publishes a streaming
+event. The emitted JSON summarises all created identifiers (user, strategy, order,
+alert, report location) together with the JWT tokens associated to the demo profile.
+`scripts/dev/run_mvp_flow.py` now simply wraps this command for backward compatibility.
+
 ### Database migrations
 
 Use the Makefile helpers to manage Alembic migrations locally (the commands default to
