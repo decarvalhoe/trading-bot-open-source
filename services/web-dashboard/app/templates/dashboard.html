@@ -137,6 +137,52 @@
       </section>
       {% endif %}
 
+      <section class="card" aria-labelledby="reports-title">
+        <div class="card__header">
+          <h2 id="reports-title" class="heading heading--lg">Rapports</h2>
+          <p class="text text--muted">Exports générés par le service de rapports.</p>
+        </div>
+        <div class="card__body">
+          <div
+            id="reports-center"
+            class="reports-center"
+            data-page-size="5"
+            data-reports='{{ context.model_dump(mode="json")["reports"] | tojson }}'
+            aria-live="polite"
+          >
+            <noscript>
+              {% if context.reports %}
+              <ul class="reports-list" role="list">
+                {% for report in context.reports %}
+                <li class="reports-list__item" role="listitem">
+                  <div class="reports-list__meta">
+                    <span class="reports-list__title heading heading--md">{{ report.report_type }}</span>
+                    <p class="reports-list__period text text--muted">
+                      {% if report.period %}Période : {{ report.period }}{% else %}Période non précisée{% endif %}
+                      {% if report.generated_at %} · Généré le {{ report.generated_at.strftime('%d/%m/%Y') }}{% endif %}
+                    </p>
+                    {% if report.status %}
+                    <span class="badge badge--info reports-list__status">{{ report.status|capitalize }}</span>
+                    {% endif %}
+                  </div>
+                  <div class="reports-list__actions">
+                    {% if report.download_url %}
+                    <a class="button button--ghost" href="{{ report.download_url }}">Télécharger</a>
+                    {% else %}
+                    <span class="text text--muted">Téléchargement indisponible</span>
+                    {% endif %}
+                  </div>
+                </li>
+                {% endfor %}
+              </ul>
+              {% else %}
+              <p class="text text--muted">Aucun rapport disponible pour le moment.</p>
+              {% endif %}
+            </noscript>
+          </div>
+        </div>
+      </section>
+
       <section class="card card--setups" aria-labelledby="inplay-setups-title">
         <div class="card__header card__header--inline">
           <div class="card__header-content">
