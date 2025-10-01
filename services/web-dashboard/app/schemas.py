@@ -222,6 +222,57 @@ class LiveLogEntry(BaseModel):
     )
 
 
+class InPlaySetupStatus(str, Enum):
+    """Enumerate the possible lifecycle states for an InPlay setup."""
+
+    validated = "validated"
+    pending = "pending"
+    failed = "failed"
+
+
+class InPlayStrategySetup(BaseModel):
+    """Single trading setup delivered by the InPlay service."""
+
+    strategy: str
+    status: InPlaySetupStatus = Field(default=InPlaySetupStatus.pending)
+    entry: float | None = Field(default=None, description="Price level suggested for entering the trade")
+    target: float | None = Field(default=None, description="Target level expected for the move")
+    stop: float | None = Field(default=None, description="Stop loss protecting the trade")
+    probability: float | None = Field(
+        default=None,
+        description="Confidence score associated to the setup (expressed between 0 and 1)",
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description="Last update timestamp propagated by the InPlay service",
+    )
+
+
+class InPlaySymbolSetups(BaseModel):
+    """Group of setups available for a specific symbol."""
+
+    symbol: str
+    setups: List[InPlayStrategySetup] = Field(default_factory=list)
+
+
+class InPlayWatchlistSetups(BaseModel):
+    """Snapshot of setups monitored for a given watchlist."""
+
+    id: str
+    symbols: List[InPlaySymbolSetups] = Field(default_factory=list)
+    updated_at: datetime | None = Field(default=None, description="Timestamp of the latest update")
+
+
+class InPlayDashboardSetups(BaseModel):
+    """Aggregate all InPlay watchlists rendered in the dashboard."""
+
+    watchlists: List[InPlayWatchlistSetups] = Field(default_factory=list)
+    fallback_reason: str | None = Field(
+        default=None,
+        description="Explains why the fallback snapshot is displayed when the live stream is unavailable",
+    )
+
+
 class DashboardContext(BaseModel):
     """Container with all payloads rendered in the dashboard template."""
 
@@ -239,5 +290,9 @@ class DashboardContext(BaseModel):
     logs: List[LiveLogEntry] = Field(
         default_factory=list,
         description="Recent orchestration or execution events for the live console",
+    )
+    setups: InPlayDashboardSetups | None = Field(
+        default=None,
+        description="Latest trading setups published by the InPlay service",
     )
 

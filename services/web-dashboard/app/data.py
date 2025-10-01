@@ -17,6 +17,11 @@ from .schemas import (
     Alert,
     DashboardContext,
     Holding,
+    InPlayDashboardSetups,
+    InPlaySetupStatus,
+    InPlayStrategySetup,
+    InPlaySymbolSetups,
+    InPlayWatchlistSetups,
     LiveLogEntry,
     PerformanceMetrics,
     Portfolio,
@@ -43,6 +48,19 @@ MAX_LOG_ENTRIES = int(os.getenv("WEB_DASHBOARD_MAX_LOG_ENTRIES", "100"))
 ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert-engine:8000/")
 ALERT_ENGINE_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
 MAX_ALERTS = int(os.getenv("WEB_DASHBOARD_MAX_ALERTS", "20"))
+INPLAY_BASE_URL = os.getenv("WEB_DASHBOARD_INPLAY_BASE_URL", "http://inplay:8000/")
+INPLAY_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_INPLAY_TIMEOUT", "3.0"))
+INPLAY_WATCHLISTS = [
+    watchlist.strip()
+    for watchlist in os.getenv("WEB_DASHBOARD_INPLAY_WATCHLISTS", "momentum").split(",")
+    if watchlist.strip()
+]
+INPLAY_FALLBACK_MESSAGE = (
+    "Instantané statique utilisé faute de connexion au service InPlay."
+)
+INPLAY_DEGRADED_MESSAGE = (
+    "Flux InPlay partiellement disponible : certains instantanés proviennent du cache."
+)
 
 
 def _build_portfolios() -> List[Portfolio]:
@@ -240,6 +258,185 @@ def _coerce_optional_float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalise_inplay_status(value: object) -> InPlaySetupStatus:
+    if isinstance(value, InPlaySetupStatus):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == InPlaySetupStatus.validated.value:
+            return InPlaySetupStatus.validated
+        if lowered == InPlaySetupStatus.failed.value:
+            return InPlaySetupStatus.failed
+    return InPlaySetupStatus.pending
+
+
+def _normalise_inplay_strategy(entry: dict[str, object]) -> InPlayStrategySetup | None:
+    if not isinstance(entry, dict):
+        return None
+
+    raw_strategy = entry.get("strategy") or entry.get("name")
+    if not isinstance(raw_strategy, str) or not raw_strategy.strip():
+        return None
+    strategy = raw_strategy.strip()
+
+    status = _normalise_inplay_status(entry.get("status"))
+    entry_level = _coerce_optional_float(entry.get("entry"))
+    target_level = _coerce_optional_float(entry.get("target"))
+    stop_level = _coerce_optional_float(entry.get("stop"))
+    probability = _coerce_optional_float(entry.get("probability"))
+    if probability is not None:
+        probability = max(0.0, min(1.0, probability))
+
+    updated_at = _parse_timestamp(entry.get("updated_at") or entry.get("received_at"))
+
+    return InPlayStrategySetup(
+        strategy=strategy,
+        status=status,
+        entry=entry_level,
+        target=target_level,
+        stop=stop_level,
+        probability=probability,
+        updated_at=updated_at,
+    )
+
+
+def _normalise_inplay_symbol(entry: dict[str, object]) -> InPlaySymbolSetups | None:
+    if not isinstance(entry, dict):
+        return None
+
+    raw_symbol = entry.get("symbol") or entry.get("ticker")
+    if not isinstance(raw_symbol, str) or not raw_symbol.strip():
+        return None
+    symbol = raw_symbol.strip()
+
+    raw_setups = entry.get("setups")
+    if not isinstance(raw_setups, list):
+        raw_setups = []
+
+    setups: List[InPlayStrategySetup] = []
+    for item in raw_setups:
+        normalised = _normalise_inplay_strategy(item)
+        if normalised:
+            setups.append(normalised)
+
+    return InPlaySymbolSetups(symbol=symbol, setups=setups)
+
+
+def _normalise_inplay_watchlist(
+    payload: dict[str, object], default_id: str | None = None
+) -> InPlayWatchlistSetups | None:
+    if not isinstance(payload, dict):
+        return None
+
+    raw_id = payload.get("id") or payload.get("watchlist_id") or default_id
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        return None
+    watchlist_id = raw_id.strip()
+
+    raw_symbols = payload.get("symbols")
+    if not isinstance(raw_symbols, list):
+        raw_symbols = []
+
+    symbols: List[InPlaySymbolSetups] = []
+    for entry in raw_symbols:
+        normalised = _normalise_inplay_symbol(entry)
+        if normalised:
+            symbols.append(normalised)
+
+    return InPlayWatchlistSetups(
+        id=watchlist_id,
+        symbols=symbols,
+        updated_at=_parse_timestamp(payload.get("updated_at")),
+    )
+
+
+def _fallback_inplay_setups() -> InPlayDashboardSetups:
+    base_time = datetime.utcnow()
+    return InPlayDashboardSetups(
+        watchlists=[
+            InPlayWatchlistSetups(
+                id="demo-momentum",
+                updated_at=base_time,
+                symbols=[
+                    InPlaySymbolSetups(
+                        symbol="AAPL",
+                        setups=[
+                            InPlayStrategySetup(
+                                strategy="ORB",
+                                status=InPlaySetupStatus.pending,
+                                entry=189.95,
+                                target=192.1,
+                                stop=187.8,
+                                probability=0.64,
+                                updated_at=base_time,
+                            )
+                        ],
+                    ),
+                    InPlaySymbolSetups(
+                        symbol="MSFT",
+                        setups=[
+                            InPlayStrategySetup(
+                                strategy="Breakout",
+                                status=InPlaySetupStatus.validated,
+                                entry=404.2,
+                                target=409.5,
+                                stop=398.7,
+                                probability=0.58,
+                                updated_at=base_time,
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ],
+        fallback_reason=INPLAY_FALLBACK_MESSAGE,
+    )
+
+
+def _fetch_inplay_setups() -> InPlayDashboardSetups:
+    watchlists: List[InPlayWatchlistSetups] = []
+    errors_detected = False
+
+    configured = INPLAY_WATCHLISTS or ["momentum"]
+    base_url = _normalise_base_url(INPLAY_BASE_URL)
+
+    for watchlist_id in configured:
+        endpoint = urljoin(base_url, f"inplay/watchlists/{watchlist_id}")
+        try:
+            response = httpx.get(endpoint, timeout=INPLAY_TIMEOUT_SECONDS)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Impossible de récupérer la watchlist InPlay %s depuis %s: %s",
+                watchlist_id,
+                endpoint,
+                exc,
+            )
+            errors_detected = True
+            continue
+
+        payload = response.json()
+        snapshot = _normalise_inplay_watchlist(payload, default_id=watchlist_id)
+        if snapshot is None:
+            logger.warning(
+                "Payload InPlay inattendu pour la watchlist %s: %s",
+                watchlist_id,
+                payload,
+            )
+            errors_detected = True
+            continue
+
+        watchlists.append(snapshot)
+
+    if not watchlists:
+        return _fallback_inplay_setups()
+
+    setups = InPlayDashboardSetups(watchlists=watchlists)
+    if errors_detected:
+        setups.fallback_reason = INPLAY_DEGRADED_MESSAGE
+    return setups
 
 
 def _extract_exposure(entry: dict[str, object]) -> float:
@@ -618,6 +815,7 @@ def load_dashboard_context() -> DashboardContext:
         metrics=_fetch_performance_metrics(),
         strategies=strategies,
         logs=logs,
+        setups=_fetch_inplay_setups(),
     )
 
 

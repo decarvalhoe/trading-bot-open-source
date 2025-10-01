@@ -137,6 +137,92 @@
       </section>
       {% endif %}
 
+      <section class="card card--setups" aria-labelledby="inplay-setups-title">
+        <div class="card__header card__header--inline">
+          <h2 id="inplay-setups-title" class="heading heading--lg">Setups en temps réel</h2>
+          <p class="text text--muted">Propulsé par le flux InPlay</p>
+        </div>
+        <div class="card__body">
+          <p
+            id="inplay-setups-status"
+            class="inplay-setups__status text text--muted"
+            role="status"
+            aria-live="polite"
+          >
+            {% if context.setups and context.setups.fallback_reason %}
+            {{ context.setups.fallback_reason }}
+            {% else %}
+            Flux InPlay connecté.
+            {% endif %}
+          </p>
+          <div class="inplay-setups__grid" role="list" aria-describedby="inplay-setups-title">
+            {% if context.setups and context.setups.watchlists %}
+            {% for watchlist in context.setups.watchlists %}
+            {% for symbol in watchlist.symbols %}
+            {% for setup in symbol.setups %}
+            <article class="setup-card" role="listitem">
+              <div class="setup-card__header">
+                <span class="setup-card__strategy heading heading--md">{{ setup.strategy }}</span>
+                {% set status = setup.status.value if setup.status else setup.status %}
+                {% set status_class = 'badge--info' %}
+                {% if status == 'validated' %}
+                {% set status_class = 'badge--success' %}
+                {% elif status == 'failed' %}
+                {% set status_class = 'badge--critical' %}
+                {% elif status and status != 'pending' %}
+                {% set status_class = 'badge--warning' %}
+                {% endif %}
+                <span class="badge {{ status_class }}">{{ status.capitalize() if status else 'Pending' }}</span>
+              </div>
+              <p class="setup-card__meta text text--muted">
+                {{ symbol.symbol }}
+                {% if watchlist.id %}· Watchlist {{ watchlist.id }}{% endif %}
+                {% if setup.updated_at %}· Maj {{ setup.updated_at.strftime('%d/%m %H:%M') }}{% endif %}
+              </p>
+              <dl class="setup-card__metrics">
+                <dt class="setup-card__metric-label">Entrée</dt>
+                <dd class="setup-card__metric-value">
+                  {% if setup.entry is not none %}{{ '%.2f' | format(setup.entry) }}{% else %}—{% endif %}
+                </dd>
+                <dt class="setup-card__metric-label">Cible</dt>
+                <dd class="setup-card__metric-value">
+                  {% if setup.target is not none %}{{ '%.2f' | format(setup.target) }}{% else %}—{% endif %}
+                </dd>
+                <dt class="setup-card__metric-label">Stop</dt>
+                <dd class="setup-card__metric-value">
+                  {% if setup.stop is not none %}{{ '%.2f' | format(setup.stop) }}{% else %}—{% endif %}
+                </dd>
+                <dt class="setup-card__metric-label">Probabilité</dt>
+                <dd class="setup-card__metric-value">
+                  {% if setup.probability is not none %}
+                  {% if setup.probability <= 1 %}
+                  {{ '%.0f' | format(setup.probability * 100) }} %
+                  {% else %}
+                  {{ '%.0f' | format(setup.probability) }} %
+                  {% endif %}
+                  {% else %}
+                  —
+                  {% endif %}
+                </dd>
+              </dl>
+            </article>
+            {% endfor %}
+            {% endfor %}
+            {% endfor %}
+            {% else %}
+            <p class="text text--muted inplay-setups__empty">
+              Aucun setup en temps réel n'est disponible pour le moment.
+            </p>
+            {% endif %}
+          </div>
+          <noscript>
+            <p class="text text--muted">
+              Activez JavaScript pour suivre les mises à jour en direct du flux InPlay.
+            </p>
+          </noscript>
+        </div>
+      </section>
+
       <section class="card card--strategies" aria-labelledby="strategies-title">
         <div class="card__header card__header--inline">
           <h2 id="strategies-title" class="heading heading--lg">Stratégies</h2>

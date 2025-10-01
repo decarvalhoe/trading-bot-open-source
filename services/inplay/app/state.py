@@ -47,6 +47,7 @@ class InPlayState:
             target=payload.target,
             stop=payload.stop,
             probability=payload.probability,
+            status=payload.status,
             updated_at=payload.received_at,
         )
         async with self._lock:
