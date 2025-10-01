@@ -60,6 +60,22 @@ curl http://localhost:8011/health
 make dev-down
 ```
 
+### Lancer le parcours de démonstration complet
+
+Après avoir démarré la stack (`make demo-up`), vous pouvez exécuter le flux complet
+inscription → stratégie → exécution grâce au script suivant :
+
+```bash
+scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
+```
+
+La commande crée un compte de démonstration, assigne les entitlements nécessaires,
+active le profil, configure une stratégie, route un ordre, génère un rapport PDF,
+enregistre une alerte et publie un événement streaming. Le JSON retourné résume les
+identifiants utiles (utilisateur, stratégie, ordre, alerte, chemin du rapport) ainsi
+que les tokens JWT associés. Le script historique `scripts/dev/run_mvp_flow.py`
+redirige désormais vers cette implémentation.
+
 ### Architecture technique
 
 Le projet utilise une **architecture microservices** moderne :

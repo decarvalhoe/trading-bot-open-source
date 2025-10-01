@@ -28,23 +28,22 @@ erreur `OrderRouterClientError` afin que l'orchestrateur puisse placer la strat�
 | `order-router` | `POST /orders` | Route l'ordre standardisé et renvoie un `ExecutionReport`. |
 | `order-router` | `GET /orders/log` / `GET /executions` | Suivi des reconnaissances et des remplissages en format partagé. |
 
-## Script CLI `scripts/dev/run_mvp_flow.py`
+## Script CLI `scripts/dev/bootstrap_demo.py`
 
-Le script Python `run_mvp_flow.py` orchestre ce parcours sans dépendre de services
-réels : il consomme la configuration sandbox, construit un `OrderRequest` puis
-un `ExecutionPlan`, et affiche la structure complète en JSON.
+Le script `bootstrap_demo.py` enchaîne désormais les appels HTTP vers la stack
+docker locale pour provisionner un utilisateur, activer son profil, configurer
+une stratégie, router un ordre, générer un rapport, créer une alerte et publier
+un événement de streaming. Il prépare automatiquement les entitlements via le
+`billing-service` (plan + souscriptions) sauf si l'option `--skip-billing-setup`
+est spécifiée.
 
 ```bash
-$ scripts/dev/run_mvp_flow.py BTCUSDT 0.5 --side buy --price 30000
+$ scripts/dev/bootstrap_demo.py BTCUSDT 0.5 --order-type market \
+    --auth-url http://127.0.0.1:8011 --user-url http://127.0.0.1:8012
 ```
 
-La sortie contient :
-
-- la définition normalisée de l'ordre (`order`),
-- le `Quote` et l'`OrderBookSnapshot` synthétiques,
-- la structure `plan` utilisée par les services,
-- les limites associées à la paire (quantité max, fréquence de rafraîchissement, etc.).
-
-Ce script constitue une démonstration reproductible du flux MVP : les mêmes
-structures sont utilisées par les endpoints REST correspondants, garantissant
-l'alignement contractuel entre les services.
+La sortie JSON récapitule les identifiants utiles (utilisateur, stratégie,
+ordre, alerte, chemin du rapport, réponse streaming) ainsi que les tokens
+d'authentification générés pour le compte de démonstration. Le script
+`run_mvp_flow.py` agit comme un simple wrapper et délègue directement à ce
+nouveau flux bootstrap.
