@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import time
 from typing import Any, Dict
 
+import httpx
 import pytest
+import respx
 
 from infra.trading_models import Execution as ExecutionModel, Order as OrderModel
 
@@ -33,6 +37,15 @@ def _parse_timestamp(value: str | None) -> datetime:
     if timestamp.tzinfo is None:
         return timestamp.replace(tzinfo=timezone.utc)
     return timestamp.astimezone(timezone.utc)
+
+
+def _wait_for_calls(route, count: int, timeout: float = 1.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if route.call_count >= count:
+            return
+        time.sleep(0.05)
+    assert route.call_count >= count, f"Expected {count} streaming calls, got {route.call_count}"
 
 
 @pytest.mark.usefixtures("clean_database")
@@ -160,6 +173,73 @@ def test_execution_filters_by_account_symbol_and_time(client, db_session):
     start_payload = start_filtered.json()
     for item in start_payload["items"]:
         assert _parse_timestamp(item["executed_at"]) >= start_time
+
+
+@respx.mock
+@pytest.mark.usefixtures("clean_database")
+def test_streaming_events_emitted_on_order_creation(client):
+    route = respx.post("http://streaming.test/ingest/reports").mock(
+        return_value=httpx.Response(202, json={"status": "queued"})
+    )
+    report = _submit_order(
+        client,
+        account_id="acct-stream",
+        tags=["strategy:alpha"],
+    )
+
+    _wait_for_calls(route, 2)
+
+    assert route.calls, "No streaming payload captured"
+    first_request = route.calls[0].request
+    assert first_request.headers.get("x-service-token") == "reports-token"
+
+    payloads = [json.loads(call.request.content) for call in route.calls]
+    resources = [payload["payload"]["resource"] for payload in payloads]
+    assert "transactions" in resources
+    assert "logs" in resources
+
+    transaction_payload = next(
+        payload for payload in payloads if payload["payload"]["resource"] == "transactions"
+    )
+    transaction = transaction_payload["payload"]["items"][0]
+    assert transaction["portfolio"] == "acct-stream"
+    assert transaction["symbol"] == "BTCUSDT"
+    assert transaction["quantity"] == pytest.approx(report["filled_quantity"])
+
+    log_payload = next(
+        payload for payload in payloads if payload["payload"]["resource"] == "logs"
+    )
+    entry = log_payload["payload"].get("entry") or log_payload["payload"]["items"][0]
+    assert entry["status"] == "FILLED"
+    assert entry["symbol"] == "BTCUSDT"
+    assert entry["message"].startswith("FILLED")
+    assert log_payload["room_id"] == "public-room"
+    assert log_payload["source"] == "reports"
+
+
+@respx.mock
+@pytest.mark.usefixtures("clean_database")
+def test_streaming_event_emitted_on_cancellation(client):
+    route = respx.post("http://streaming.test/ingest/reports").mock(
+        return_value=httpx.Response(202, json={"status": "queued"})
+    )
+    report = _submit_order(client, account_id="acct-cancel")
+
+    _wait_for_calls(route, 2)
+
+    cancel_response = client.post(
+        f"/orders/{report['broker']}/cancel", json={"order_id": report["order_id"]}
+    )
+    assert cancel_response.status_code == 200
+
+    _wait_for_calls(route, 3)
+
+    last_payload = json.loads(route.calls[-1].request.content)
+    assert last_payload["payload"]["resource"] == "logs"
+    entry = last_payload["payload"].get("entry") or last_payload["payload"]["items"][0]
+    assert entry["status"] == "CANCELLED"
+    assert entry["symbol"] == report["symbol"]
+    assert "ordre" in entry["message"]
 
 
 def test_daily_notional_limit_enforced(client, router):
