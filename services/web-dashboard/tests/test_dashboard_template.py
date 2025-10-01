@@ -15,3 +15,5 @@ def test_dashboard_template_includes_inplay_section(monkeypatch):
     assert "inplay-setups-status" in html
     assert "Instantané statique" in html
     assert "Voir le rapport" in html
+    assert "Rapports" in html
+    assert "reports-center" in html

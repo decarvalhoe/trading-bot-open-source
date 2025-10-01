@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import PortfolioChart from "./components/PortfolioChart.jsx";
 import AlertManager from "./alerts/AlertManager.jsx";
 import AlertHistory from "./alerts/AlertHistory.jsx";
+import ReportsList from "./reports/ReportsList.jsx";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -77,6 +78,24 @@ function PortfolioChartApp({ endpoint, currency }) {
 }
 
 const bootstrap = loadBootstrapData();
+
+const reportsContainer = document.getElementById("reports-center");
+if (reportsContainer) {
+  let initialReports = [];
+  const rawReports = reportsContainer.dataset.reports || "[]";
+  try {
+    initialReports = JSON.parse(rawReports);
+  } catch (error) {
+    console.error("Impossible de parser la liste des rapports", error);
+  }
+  const sizeValue = Number.parseInt(reportsContainer.dataset.pageSize || "5", 10);
+  const root = createRoot(reportsContainer);
+  root.render(
+    <StrictMode>
+      <ReportsList reports={initialReports} pageSize={Number.isNaN(sizeValue) ? 5 : sizeValue} />
+    </StrictMode>
+  );
+}
 
 const chartContainer = document.getElementById("portfolio-chart");
 if (chartContainer) {

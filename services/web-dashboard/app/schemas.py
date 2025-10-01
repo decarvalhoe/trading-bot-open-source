@@ -143,6 +143,43 @@ class PerformanceMetrics(BaseModel):
     )
 
 
+class ReportListItem(BaseModel):
+    """Describe an exportable report surfaced in the dashboard."""
+
+    id: str | None = Field(
+        default=None,
+        description="Identifier of the report entry when available",
+    )
+    report_type: str = Field(
+        ...,
+        description="Human readable name describing the type of report",
+    )
+    period: str | None = Field(
+        default=None,
+        description="Human readable period covered by the report",
+    )
+    generated_at: datetime | None = Field(
+        default=None,
+        description="Timestamp of the latest generation for this report",
+    )
+    download_url: str | None = Field(
+        default=None,
+        description="Direct link allowing the user to download the report",
+    )
+    filename: str | None = Field(
+        default=None,
+        description="Suggested filename to use when downloading the report",
+    )
+    status: str | None = Field(
+        default=None,
+        description="Optional status for asynchronous report jobs",
+    )
+    source: str | None = Field(
+        default=None,
+        description="Origin endpoint or service that produced the entry",
+    )
+
+
 class StrategyRuntimeStatus(str, Enum):
     """Runtime status for a trading strategy managed by the orchestrator."""
 
@@ -290,6 +327,10 @@ class DashboardContext(BaseModel):
     metrics: PerformanceMetrics | None = Field(
         default=None,
         description="Aggregated performance analytics sourced from the reports service",
+    )
+    reports: List[ReportListItem] = Field(
+        default_factory=list,
+        description="Exports or scheduled jobs exposed by the reports service",
     )
     strategies: List[StrategyStatus] = Field(
         default_factory=list,

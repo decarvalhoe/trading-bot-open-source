@@ -8,6 +8,7 @@ import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from statistics import mean, stdev
+from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 from urllib.parse import quote, urljoin
 
@@ -28,6 +29,7 @@ from .schemas import (
     PortfolioHistorySeries,
     PortfolioTimeseriesPoint,
     RiskLevel,
+    ReportListItem,
     StrategyExecutionSnapshot,
     StrategyRuntimeStatus,
     StrategyStatus,
@@ -258,6 +260,136 @@ def _coerce_optional_float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _format_report_type(value: object) -> str:
+    if not isinstance(value, str):
+        return "Rapport personnalisé"
+    cleaned = value.replace("_", " ").strip()
+    if not cleaned:
+        return "Rapport personnalisé"
+    return cleaned[:1].upper() + cleaned[1:]
+
+
+def _format_period_range(start: datetime | None, end: datetime | None) -> str | None:
+    if start and end:
+        if start.date() == end.date():
+            return start.strftime("%d/%m/%Y")
+        return f"{start.strftime('%d/%m/%Y')} → {end.strftime('%d/%m/%Y')}"
+    if start:
+        return f"Depuis le {start.strftime('%d/%m/%Y')}"
+    if end:
+        return f"Jusqu'au {end.strftime('%d/%m/%Y')}"
+    return None
+
+
+def _extract_period_from_parameters(parameters: object) -> str | None:
+    if not isinstance(parameters, dict):
+        return None
+    start = parameters.get("start_date") or parameters.get("start") or parameters.get("from")
+    end = parameters.get("end_date") or parameters.get("end") or parameters.get("to")
+    start_dt = _parse_timestamp(start)
+    end_dt = _parse_timestamp(end)
+    period = _format_period_range(start_dt, end_dt)
+    if period:
+        return period
+    timeframe = parameters.get("timeframe") or parameters.get("window") or parameters.get("period")
+    if isinstance(timeframe, str) and timeframe.strip():
+        label = timeframe.replace("_", " ").strip()
+        return label[:1].upper() + label[1:]
+    return None
+
+
+def _normalise_report_entry(payload: dict[str, object], base_url: str) -> ReportListItem | None:
+    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+    report_type = _format_report_type(
+        (parameters or {}).get("report_type")
+        or payload.get("type")
+        or payload.get("name")
+    )
+    generated_at = (
+        _parse_timestamp(payload.get("completed_at"))
+        or _parse_timestamp(payload.get("updated_at"))
+        or _parse_timestamp(payload.get("created_at"))
+    )
+    period = _extract_period_from_parameters(parameters)
+    resource = payload.get("resource")
+    download_url: str | None = None
+    filename: str | None = None
+    if isinstance(resource, str) and resource.strip():
+        download_url = resource if resource.startswith("http") else urljoin(base_url, resource.lstrip("/"))
+        filename = Path(resource).name or None
+    identifier = payload.get("id")
+    if not download_url and isinstance(identifier, (str, int)):
+        download_url = urljoin(base_url, f"reports/jobs/{quote(str(identifier))}")
+    status = payload.get("status") if isinstance(payload.get("status"), str) else None
+    return ReportListItem(
+        id=str(identifier) if isinstance(identifier, (str, int)) else None,
+        report_type=report_type,
+        period=period,
+        generated_at=generated_at,
+        download_url=download_url,
+        filename=filename,
+        status=status,
+        source="jobs",
+    )
+
+
+def _map_jobs_payload(payload: object, base_url: str) -> List[ReportListItem]:
+    items: List[ReportListItem] = []
+    entries: object
+    if isinstance(payload, dict):
+        entries = payload.get("items") or payload.get("jobs") or []
+    else:
+        entries = payload
+    if not isinstance(entries, list):
+        return items
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        report = _normalise_report_entry(entry, base_url)
+        if report:
+            items.append(report)
+    return items
+
+
+def _map_performance_payload(payload: object, base_url: str) -> List[ReportListItem]:
+    entries: object = payload
+    if isinstance(payload, dict):
+        entries = payload.get("items") or payload.get("reports") or []
+    if not isinstance(entries, list):
+        return []
+    items: List[ReportListItem] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        account = entry.get("account") if isinstance(entry.get("account"), str) else None
+        start_dt = _parse_timestamp(entry.get("start_date") or entry.get("start"))
+        end_dt = _parse_timestamp(entry.get("end_date") or entry.get("end"))
+        period = _format_period_range(start_dt, end_dt)
+        generated_at = end_dt or _parse_timestamp(entry.get("as_of"))
+        slug = (account or "global").strip().lower().replace(" ", "-")
+        filename = f"performance-{slug}.csv"
+        query = "reports/performance?export=csv"
+        if account:
+            query += f"&account={quote(account)}"
+        download_url = urljoin(base_url, query)
+        report_type = "Performance portefeuille"
+        if account:
+            report_type = f"{report_type} · {account}"
+        items.append(
+            ReportListItem(
+                id=account or None,
+                report_type=report_type,
+                period=period,
+                generated_at=generated_at,
+                download_url=download_url,
+                filename=filename,
+                status=None,
+                source="performance",
+            )
+        )
+    return items
 
 
 def _normalise_inplay_status(value: object) -> InPlaySetupStatus:
@@ -562,6 +694,50 @@ def _fetch_performance_metrics() -> PerformanceMetrics:
     return metrics
 
 
+def load_reports_list() -> List[ReportListItem]:
+    """Retrieve available reports or export jobs from the reports service."""
+
+    base_url = _normalise_base_url(REPORTS_BASE_URL)
+    endpoints = [
+        ("reports/jobs", _map_jobs_payload),
+        ("reports/performance", _map_performance_payload),
+    ]
+
+    for path, mapper in endpoints:
+        endpoint = urljoin(base_url, path)
+        try:
+            response = httpx.get(endpoint, timeout=REPORTS_TIMEOUT_SECONDS)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                logger.info("Reports endpoint %s not available: %s", endpoint, exc)
+            else:
+                logger.warning("Unable to load reports from %s: %s", endpoint, exc)
+            continue
+        except httpx.HTTPError as exc:
+            logger.warning("Unable to reach reports endpoint %s: %s", endpoint, exc)
+            continue
+
+        try:
+            payload = response.json()
+        except ValueError:
+            logger.warning("Malformed JSON payload received from %s", endpoint)
+            continue
+
+        items = mapper(payload, base_url)
+        if not items:
+            continue
+
+        ordered = sorted(
+            items,
+            key=lambda report: report.generated_at or datetime.min,
+            reverse=True,
+        )
+        return ordered
+
+    return []
+
+
 def _extract_strategy_identifiers(record: dict[str, object]) -> List[str]:
     identifiers: List[str] = []
     raw_id = record.get("id")
@@ -839,6 +1015,7 @@ def load_dashboard_context() -> DashboardContext:
         transactions=_build_transactions(),
         alerts=_fetch_alerts_from_engine(),
         metrics=_fetch_performance_metrics(),
+        reports=load_reports_list(),
         strategies=strategies,
         logs=logs,
         setups=_fetch_inplay_setups(),
@@ -854,5 +1031,6 @@ def load_portfolio_history() -> List[PortfolioHistorySeries]:
 __all__ = [
     "load_dashboard_context",
     "load_portfolio_history",
+    "load_reports_list",
 ]
 
