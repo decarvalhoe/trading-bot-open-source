@@ -21,6 +21,7 @@ from .backtest import Backtester
 from .declarative import DeclarativeStrategyError, load_declarative_definition
 from .order_router_client import OrderRouterClient
 from .orchestrator import Orchestrator
+from .reports_client import ReportsPublisher
 from .strategies import base  # noqa: F401 - ensures registry initialised
 from .strategies.base import StrategyConfig, registry
 from .strategies import declarative, gap_fill, orb  # noqa: F401 - register plugins
@@ -168,6 +169,7 @@ orchestrator = Orchestrator(
     on_strategy_error=_handle_strategy_execution_error,
 )
 backtester = Backtester()
+reports_publisher = ReportsPublisher()
 
 configure_logging("algo-engine")
 
@@ -183,6 +185,7 @@ setup_metrics(app, service_name="algo-engine")
 @app.on_event("shutdown")
 async def _shutdown_clients() -> None:
     await order_router_client.aclose()
+    reports_publisher.close()
 
 
 class StrategyPayload(BaseModel):
@@ -459,7 +462,30 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
     except Exception as exc:  # pragma: no cover - simulation errors surface to API
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    store.update(strategy_id, last_backtest=summary.as_dict())
+    summary_dict = summary.as_dict()
+    store.update(strategy_id, last_backtest=summary_dict)
+    publish_payload: Dict[str, Any] = {
+        "strategy_id": strategy_id,
+        "strategy_name": record.name,
+        "strategy_type": record.strategy_type,
+        "account": (record.metadata or {}).get("account"),
+        "symbol": (
+            record.parameters.get("symbol")
+            if isinstance(record.parameters, dict)
+            else None
+        )
+        or (
+            (record.metadata or {}).get("symbol")
+            if isinstance(record.metadata, dict)
+            else None
+        ),
+        "initial_balance": payload.initial_balance,
+        "parameters": record.parameters,
+        "tags": record.tags,
+        "metadata": record.metadata,
+        "summary": summary_dict,
+    }
+    reports_publisher.publish_backtest(publish_payload)
     orchestrator.record_simulation(summary.as_dict())
     return summary.as_dict()
 

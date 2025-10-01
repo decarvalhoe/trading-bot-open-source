@@ -15,6 +15,7 @@ from services.reports.app.database import get_engine, reset_engine, session_scop
 from services.reports.app.main import app
 from services.reports.app.tables import (
     Base,
+    ReportBacktest,
     ReportBenchmark,
     ReportDaily,
     ReportIntraday,
@@ -197,6 +198,51 @@ def test_refresh_reports_creates_snapshots(tmp_path: Path) -> None:
 
     assert count
     assert strategies == {StrategyName.ORB, StrategyName.IB, StrategyName.GAP_FILL}
+
+
+def test_record_backtest_endpoint_persists_summary(tmp_path: Path) -> None:
+    _configure_database(tmp_path)
+
+    payload = {
+        "strategy_id": "strategy-123",
+        "strategy_name": "Momentum ORB",
+        "strategy_type": "orb",
+        "symbol": "AAPL",
+        "account": "backtest-account",
+        "initial_balance": 10_000.0,
+        "parameters": {"symbol": "AAPL"},
+        "tags": ["momentum"],
+        "metadata": {"report_strategy": "ORB"},
+        "summary": {
+            "trades": 4,
+            "total_return": 0.12,
+            "max_drawdown": 0.05,
+            "equity_curve": [10_000.0, 10_100.0, 9_800.0, 11_200.0],
+            "metrics_path": "/tmp/backtest.json",
+            "log_path": "/tmp/backtest.log",
+        },
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/reports/backtests", json=payload)
+        assert response.status_code == 201
+        backtests = client.get("/reports/daily").json()
+        assert backtests
+        entry = backtests[0]
+        assert entry["account"] == "backtest-account"
+        assert round(entry["pnl"], 2) == 1200.0
+        assert round(entry["max_drawdown"], 2) == 300.0
+
+        performance = client.get("/reports/performance").json()
+        assert performance
+        portfolio = performance[0]
+        assert portfolio["account"] == "backtest-account"
+        assert round(portfolio["total_return"], 2) == 1200.0
+
+    with session_scope() as session:
+        stored = session.query(ReportBacktest).one()
+        assert stored.strategy_id == payload["strategy_id"]
+        assert stored.metrics_path == payload["summary"]["metrics_path"]
 
 
 def test_daily_risk_report_endpoint(tmp_path: Path) -> None:

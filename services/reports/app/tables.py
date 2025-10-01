@@ -69,6 +69,28 @@ class ReportBenchmark(Base):
     return_value: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class ReportBacktest(Base):
+    __tablename__ = "report_backtests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    strategy_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    strategy_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    symbol: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    account: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    initial_balance: Mapped[float] = mapped_column(Float, nullable=False)
+    trades: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_return: Mapped[float] = mapped_column(Float, nullable=False)
+    max_drawdown: Mapped[float] = mapped_column(Float, nullable=False)
+    equity_curve: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    parameters: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    context: Mapped[dict[str, object] | None] = mapped_column("metadata", JSON, nullable=True)
+    metrics_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    log_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class ReportJobStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -94,6 +116,7 @@ __all__ = [
     "ReportIntraday",
     "ReportSnapshot",
     "ReportBenchmark",
+    "ReportBacktest",
     "ReportJob",
     "ReportJobStatus",
 ]
