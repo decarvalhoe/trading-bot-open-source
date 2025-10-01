@@ -27,6 +27,7 @@
     current: JSON.parse(JSON.stringify(initialState)),
     fallback: JSON.parse(JSON.stringify(initialState)),
     setupsFallbackActive: false,
+    sessionSnapshots: Object.create(null),
   };
 
   function ensureSetupsContainer(target) {
@@ -59,16 +60,36 @@
     logFilter: document.getElementById("log-filter"),
     setups: document.querySelector(".inplay-setups__grid"),
     setupsStatus: document.getElementById("inplay-setups-status"),
+    sessionFilter: document.getElementById("session-filter"),
   };
 
   const filters = {
     logStrategy: selectors.logFilter ? selectors.logFilter.value || "all" : "all",
+    session: selectors.sessionFilter ? selectors.sessionFilter.value || "all" : "all",
+  };
+
+  const sessionLabels = {
+    london: "Londres",
+    new_york: "New York",
+    asia: "Asie",
   };
 
   if (selectors.logFilter) {
     selectors.logFilter.addEventListener("change", (event) => {
       filters.logStrategy = event.target.value;
       renderLogs();
+    });
+  }
+
+  if (selectors.sessionFilter) {
+    selectors.sessionFilter.addEventListener("change", (event) => {
+      const value = event.target.value || "all";
+      filters.session = value;
+      if (filters.session !== "all") {
+        refreshSessionSnapshots(filters.session);
+      } else {
+        renderSetups();
+      }
     });
   }
 
@@ -107,6 +128,19 @@
       return `${Math.round(numeric * 100)} %`;
     }
     return `${Math.round(numeric)} %`;
+  }
+
+  function formatSessionLabel(value) {
+    if (!value) {
+      return "";
+    }
+    const key = value.toString().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(sessionLabels, key)) {
+      return sessionLabels[key];
+    }
+    return key
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (match) => match.toUpperCase());
   }
 
   function renderPortfolios() {
@@ -258,6 +292,12 @@
     const probability = raw.probability ?? raw.confidence ?? raw.score;
     const updatedAt =
       raw.updated_at || raw.updatedAt || raw.received_at || raw.receivedAt || null;
+    const sessionRaw =
+      raw.session || raw.session_name || raw.sessionName || raw.market || null;
+    let session = null;
+    if (typeof sessionRaw === "string" && sessionRaw.trim()) {
+      session = sessionRaw.trim().toLowerCase();
+    }
 
     return {
       strategy,
@@ -270,6 +310,7 @@
           ? Number(probability)
           : null,
       updated_at: updatedAt,
+      session,
     };
   }
 
@@ -334,6 +375,21 @@
     state.current.setups.fallback_reason = null;
     state.fallback.setups.fallback_reason = null;
     state.setupsFallbackActive = false;
+    updateSessionFilterOptions();
+    if (state.sessionSnapshots && normalised.id) {
+      Object.keys(state.sessionSnapshots).forEach((sessionKey) => {
+        const cache = state.sessionSnapshots[sessionKey];
+        if (!cache || typeof cache !== "object") {
+          return;
+        }
+        if (cache[normalised.id]) {
+          delete cache[normalised.id];
+          if (!Object.keys(cache).length) {
+            delete state.sessionSnapshots[sessionKey];
+          }
+        }
+      });
+    }
     return true;
   }
 
@@ -396,6 +452,7 @@
     if (!container) {
       return;
     }
+    updateSessionFilterOptions();
     container.innerHTML = "";
 
     const setupsState = ensureSetupsContainer(state.current);
@@ -404,14 +461,54 @@
       : [];
     const fallbackReason =
       setupsState.fallback_reason ?? setupsState.fallbackReason ?? null;
+    const sessionFilter = filters.session || "all";
+    const overrides =
+      sessionFilter !== "all" && state.sessionSnapshots
+        ? state.sessionSnapshots[sessionFilter]
+        : null;
 
-    let cardCount = 0;
+    const watchlistEntries = [];
+    const seenWatchlists = new Set();
+
     watchlists.forEach((watchlist) => {
       if (!watchlist || typeof watchlist !== "object") {
         return;
       }
       const watchlistId = (watchlist.id || "").toString();
-      const symbols = Array.isArray(watchlist.symbols) ? watchlist.symbols : [];
+      const override = overrides && watchlistId ? overrides[watchlistId] : null;
+      watchlistEntries.push({
+        id: watchlistId || (override && override.id) || "",
+        symbols: Array.isArray(watchlist.symbols) ? watchlist.symbols : [],
+        override,
+      });
+      if (watchlistId) {
+        seenWatchlists.add(watchlistId);
+      }
+    });
+
+    if (overrides) {
+      Object.keys(overrides).forEach((watchlistId) => {
+        if (seenWatchlists.has(watchlistId)) {
+          return;
+        }
+        const snapshot = overrides[watchlistId];
+        if (!snapshot || typeof snapshot !== "object") {
+          return;
+        }
+        watchlistEntries.push({
+          id: watchlistId || (snapshot.id || ""),
+          symbols: Array.isArray(snapshot.symbols) ? snapshot.symbols : [],
+          override: snapshot,
+        });
+      });
+    }
+
+    let cardCount = 0;
+    watchlistEntries.forEach((entry) => {
+      const watchlistId = (entry.id || "").toString();
+      const symbols = Array.isArray(entry.override?.symbols)
+        ? entry.override.symbols
+        : entry.symbols;
       symbols.forEach((symbolEntry) => {
         const symbol = symbolEntry && symbolEntry.symbol ? symbolEntry.symbol : "";
         const setups = Array.isArray(symbolEntry.setups)
@@ -419,6 +516,13 @@
           : [];
         setups.forEach((setup) => {
           if (!setup || typeof setup !== "object") {
+            return;
+          }
+          const setupSession =
+            typeof setup.session === "string" && setup.session.trim()
+              ? setup.session.trim().toLowerCase()
+              : null;
+          if (sessionFilter !== "all" && setupSession !== sessionFilter) {
             return;
           }
           const strategy = (setup.strategy || "").toString() || "Stratégie";
@@ -459,6 +563,9 @@
           if (watchlistId) {
             parts.push(`Watchlist ${watchlistId}`);
           }
+          if (setupSession) {
+            parts.push(`Session ${formatSessionLabel(setupSession)}`);
+          }
           if (setup.updated_at) {
             const updated = formatTimestamp(setup.updated_at);
             if (updated) {
@@ -485,15 +592,23 @@
     if (!cardCount) {
       const empty = document.createElement("p");
       empty.className = "text text--muted inplay-setups__empty";
-      empty.textContent =
-        fallbackReason ||
-        "Aucun setup en temps réel n'est disponible pour le moment.";
+      let statusMessage;
+      let statusLevel = "info";
+      if (fallbackReason) {
+        statusMessage =
+          fallbackReason ||
+          "Aucun setup en temps réel n'est disponible pour le moment.";
+        statusLevel = "warning";
+      } else if (sessionFilter !== "all") {
+        statusMessage = `Aucun setup disponible pour la session ${formatSessionLabel(
+          sessionFilter
+        )}.`;
+      } else {
+        statusMessage = "Aucun setup en temps réel n'est disponible pour le moment.";
+      }
+      empty.textContent = statusMessage;
       container.appendChild(empty);
-      updateSetupsStatus(
-        fallbackReason ||
-          "Aucun setup en temps réel n'est disponible pour le moment.",
-        fallbackReason ? "warning" : "info"
-      );
+      updateSetupsStatus(statusMessage, statusLevel);
     } else if (state.setupsFallbackActive) {
       updateSetupsStatus(
         fallbackReason ||
@@ -505,6 +620,185 @@
     } else {
       updateSetupsStatus("Flux InPlay connecté.", "success");
     }
+  }
+
+  function collectSessionsFromWatchlists(watchlists, target) {
+    watchlists.forEach((watchlist) => {
+      if (!watchlist || typeof watchlist !== "object") {
+        return;
+      }
+      const symbols = Array.isArray(watchlist.symbols) ? watchlist.symbols : [];
+      symbols.forEach((symbolEntry) => {
+        if (!symbolEntry || typeof symbolEntry !== "object") {
+          return;
+        }
+        const setups = Array.isArray(symbolEntry.setups)
+          ? symbolEntry.setups
+          : [];
+        setups.forEach((setup) => {
+          if (!setup || typeof setup !== "object") {
+            return;
+          }
+          const sessionValue =
+            typeof setup.session === "string" && setup.session.trim()
+              ? setup.session.trim().toLowerCase()
+              : null;
+          if (sessionValue) {
+            target.add(sessionValue);
+          }
+        });
+      });
+    });
+  }
+
+  function updateSessionFilterOptions() {
+    const select = selectors.sessionFilter;
+    if (!select) {
+      return;
+    }
+    const available = new Set();
+    const currentSetups = ensureSetupsContainer(state.current);
+    const fallbackSetups = ensureSetupsContainer(state.fallback);
+    collectSessionsFromWatchlists(
+      Array.isArray(currentSetups.watchlists) ? currentSetups.watchlists : [],
+      available
+    );
+    collectSessionsFromWatchlists(
+      Array.isArray(fallbackSetups.watchlists) ? fallbackSetups.watchlists : [],
+      available
+    );
+    if (state.sessionSnapshots) {
+      Object.values(state.sessionSnapshots).forEach((cache) => {
+        if (!cache || typeof cache !== "object") {
+          return;
+        }
+        Object.values(cache).forEach((snapshot) => {
+          if (!snapshot || typeof snapshot !== "object") {
+            return;
+          }
+          collectSessionsFromWatchlists([snapshot], available);
+        });
+      });
+    }
+
+    const previous = filters.session || select.value || "all";
+    Array.from(select.options).forEach((option) => {
+      if (!option || !option.value) {
+        return;
+      }
+      const value = option.value.toLowerCase();
+      if (value === "all") {
+        option.disabled = false;
+        return;
+      }
+      option.disabled = !available.has(value);
+    });
+
+    const selectedOption = Array.from(select.options).find(
+      (option) => option && option.value === previous
+    );
+    let nextValue = previous;
+    if (selectedOption && selectedOption.disabled) {
+      nextValue = "all";
+    }
+    if (!nextValue) {
+      nextValue = "all";
+    }
+    select.value = nextValue;
+    filters.session = nextValue;
+  }
+
+  function collectWatchlistIdsFromWatchlists(watchlists, target) {
+    watchlists.forEach((watchlist) => {
+      if (!watchlist || typeof watchlist !== "object") {
+        return;
+      }
+      if (watchlist.id) {
+        target.add(watchlist.id.toString());
+      }
+    });
+  }
+
+  async function refreshSessionSnapshots(sessionValue) {
+    const targetSession = sessionValue || filters.session || "all";
+    if (targetSession === "all") {
+      renderSetups();
+      return;
+    }
+    if (typeof fetch !== "function") {
+      renderSetups();
+      return;
+    }
+
+    const identifiers = new Set();
+    const currentSetups = ensureSetupsContainer(state.current);
+    const fallbackSetups = ensureSetupsContainer(state.fallback);
+    collectWatchlistIdsFromWatchlists(
+      Array.isArray(currentSetups.watchlists) ? currentSetups.watchlists : [],
+      identifiers
+    );
+    collectWatchlistIdsFromWatchlists(
+      Array.isArray(fallbackSetups.watchlists) ? fallbackSetups.watchlists : [],
+      identifiers
+    );
+    if (state.sessionSnapshots) {
+      Object.values(state.sessionSnapshots).forEach((cache) => {
+        if (!cache || typeof cache !== "object") {
+          return;
+        }
+        Object.values(cache).forEach((snapshot) => {
+          if (!snapshot || typeof snapshot !== "object") {
+            return;
+          }
+          collectWatchlistIdsFromWatchlists([snapshot], identifiers);
+        });
+      });
+    }
+
+    if (!identifiers.size) {
+      renderSetups();
+      return;
+    }
+
+    const results = Object.create(null);
+    await Promise.all(
+      Array.from(identifiers).map(async (watchlistId) => {
+        try {
+          const url = new URL(
+            `/inplay/watchlists/${encodeURIComponent(watchlistId)}`,
+            window.location.origin
+          );
+          url.searchParams.set("session", targetSession);
+          const response = await fetch(url.toString(), {
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const payload = await response.json();
+          const snapshot = sanitiseWatchlistSnapshot(payload, watchlistId);
+          if (snapshot) {
+            results[watchlistId] = snapshot;
+          }
+        } catch (error) {
+          console.warn(
+            `Impossible de charger la watchlist ${watchlistId} pour la session ${targetSession}`,
+            error
+          );
+        }
+      })
+    );
+
+    if (!Object.keys(results).length) {
+      renderSetups();
+      return;
+    }
+
+    if (!state.sessionSnapshots[targetSession]) {
+      state.sessionSnapshots[targetSession] = Object.create(null);
+    }
+    Object.assign(state.sessionSnapshots[targetSession], results);
+    renderSetups();
   }
 
   function updateLogFilterOptions() {

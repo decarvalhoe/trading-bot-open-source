@@ -28,6 +28,7 @@ GET /inplay/ws
             "target": 192.0,
             "stop": 189.5,
             "probability": 0.7,
+            "session": "london",
             "updated_at": "2024-03-19T14:35:00Z"
           }
         ]
@@ -43,11 +44,25 @@ GET /inplay/ws
 ### REST
 
 ```
-GET /inplay/watchlists/{watchlist_id}
+GET /inplay/watchlists/{watchlist_id}?session={session}
 ```
 
 * Retourne l'état courant de la watchlist (`momentum`, `futures`, etc.).
+* Paramètre optionnel `session` : filtre les setups par session de trading (`london`, `new_york`, `asia`).
+  Sans paramètre, l'API retourne l'intégralité des sessions disponibles.
 * Structure équivalente au payload WebSocket.
+
+## Sessions InPlay
+
+Chaque setup publié par le service est associé à une session de marché (`session`). Les valeurs supportées sont :
+
+| Session | Description | Valeur par défaut |
+| --- | --- | --- |
+| `london` | Séance européenne | ✅ (valeur implicite lorsque le champ est omis) |
+| `new_york` | Séance américaine | |
+| `asia` | Séance asiatique | |
+
+Le champ `session` est présent dans les payloads REST et WebSocket. Les clients peuvent exploiter ce champ pour filtrer les setups côté interface (ex. sélecteur de session dans le dashboard) ou limiter les données transférées via le paramètre de requête `session`.
 
 ## Intégration UI
 

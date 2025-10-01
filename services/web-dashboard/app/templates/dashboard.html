@@ -139,8 +139,19 @@
 
       <section class="card card--setups" aria-labelledby="inplay-setups-title">
         <div class="card__header card__header--inline">
-          <h2 id="inplay-setups-title" class="heading heading--lg">Setups en temps réel</h2>
-          <p class="text text--muted">Propulsé par le flux InPlay</p>
+          <div class="card__header-content">
+            <h2 id="inplay-setups-title" class="heading heading--lg">Setups en temps réel</h2>
+            <p class="text text--muted">Propulsé par le flux InPlay</p>
+          </div>
+          <label class="log-filter session-filter" for="session-filter">
+            <span class="text text--muted">Session</span>
+            <select id="session-filter" class="select">
+              <option value="all" selected>Toutes les sessions</option>
+              <option value="london">Londres</option>
+              <option value="new_york">New York</option>
+              <option value="asia">Asie</option>
+            </select>
+          </label>
         </div>
         <div class="card__body">
           <p

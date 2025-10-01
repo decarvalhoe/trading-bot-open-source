@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 
 SetupStatus = Literal["validated", "pending", "failed"]
+SessionName = Literal["london", "new_york", "asia"]
 
 
 class TickPayload(BaseModel):
@@ -17,6 +18,7 @@ class TickPayload(BaseModel):
     stop: float
     probability: float = Field(..., ge=0.0, le=1.0)
     status: SetupStatus = "pending"
+    session: SessionName = "london"
     watchlists: list[str] | None = None
     source: Literal["market-data", "manual"] = "market-data"
     received_at: datetime = Field(default_factory=datetime.utcnow)
@@ -30,6 +32,7 @@ class StrategySetup(BaseModel):
     stop: float
     probability: float
     status: SetupStatus = "pending"
+    session: SessionName = "london"
     updated_at: datetime
 
 

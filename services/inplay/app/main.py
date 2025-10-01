@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from typing import Callable
+from typing import Annotated, Callable
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
 
 from .config import Settings, get_settings
-from .schemas import TickPayload, WatchlistSnapshot, WatchlistStreamEvent
+from .schemas import SessionName, TickPayload, WatchlistSnapshot, WatchlistStreamEvent
 from .state import InPlayState
 from .stream import RedisTickStream, SimulatedTickStream, TickStream
 
@@ -77,6 +77,8 @@ def create_app(
                 await result
 
     app = FastAPI(title="In-Play Service", version="0.1.0", lifespan=lifespan)
+    app.state.inplay_state = state
+    app.state.websocket_manager = manager
     app.add_middleware(RequestContextMiddleware, service_name="inplay")
     setup_metrics(app, service_name="inplay")
 
@@ -93,10 +95,11 @@ def create_app(
     @app.get("/inplay/watchlists/{watchlist_id}", response_model=WatchlistSnapshot)
     async def get_watchlist(
         watchlist_id: str,
+        session: Annotated[SessionName | None, Query()] = None,
         state: InPlayState = Depends(get_state),
     ) -> WatchlistSnapshot:
         try:
-            return await state.get_watchlist(watchlist_id)
+            return await state.get_watchlist(watchlist_id, session=session)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"Unknown watchlist '{watchlist_id}'") from exc
 

@@ -246,6 +246,10 @@ class InPlayStrategySetup(BaseModel):
         default=None,
         description="Last update timestamp propagated by the InPlay service",
     )
+    session: str | None = Field(
+        default=None,
+        description="Trading session associated with the setup (london, new_york or asia)",
+    )
 
 
 class InPlaySymbolSetups(BaseModel):

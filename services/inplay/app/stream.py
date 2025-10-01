@@ -41,10 +41,13 @@ class SimulatedTickStream:
         self._queue: asyncio.Queue[TickPayload | None] = asyncio.Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._ready = threading.Event()
+        self._pending: list[TickPayload] = []
 
     async def listen(self) -> AsyncIterator[TickPayload]:
         self._loop = asyncio.get_running_loop()
         self._ready.set()
+        while self._pending:
+            await self._queue.put(self._pending.pop(0))
         while True:
             payload = await self._queue.get()
             if payload is None:
@@ -52,8 +55,9 @@ class SimulatedTickStream:
             yield payload
 
     def publish(self, payload: TickPayload) -> None:
-        if not self._ready.wait(timeout=1):
-            raise RuntimeError("Stream not initialised")
+        if not self._ready.is_set():
+            self._pending.append(payload)
+            return
         assert self._loop is not None
         fut = asyncio.run_coroutine_threadsafe(self._queue.put(payload), self._loop)
         fut.result()
