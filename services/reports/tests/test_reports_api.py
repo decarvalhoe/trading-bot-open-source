@@ -18,6 +18,8 @@ from services.reports.app.tables import (
     ReportBenchmark,
     ReportDaily,
     ReportIntraday,
+    ReportJob,
+    ReportJobStatus,
     ReportSnapshot,
 )
 from schemas.report import StrategyName, TradeOutcome
@@ -311,3 +313,111 @@ def test_render_report_returns_404_when_no_data(tmp_path: Path, monkeypatch: pyt
         )
 
     assert response.status_code == 404
+
+
+def test_generate_report_endpoint_creates_async_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure_database(tmp_path)
+    _seed_sample_data()
+    _configure_storage(tmp_path)
+
+    tasks_module = importlib.reload(importlib.import_module("services.reports.app.tasks"))
+
+    captured: dict[str, object] = {}
+
+    def fake_delay(report_id: str, payload: dict[str, object]) -> None:
+        captured["report_id"] = report_id
+        captured["payload"] = payload
+
+    monkeypatch.setattr(tasks_module.generate_report_job, "delay", fake_delay)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/reports/generate",
+            json={
+                "symbol": "AAPL",
+                "report_type": "symbol",
+                "timeframe": "both",
+                "mode": "async",
+            },
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    job_id = body["job_id"]
+    assert captured["report_id"] == job_id
+    assert captured["payload"] == {
+        "symbol": "AAPL",
+        "options": {
+            "report_type": "symbol",
+            "timeframe": "both",
+            "account": None,
+            "limit": None,
+            "mode": "async",
+        },
+    }
+
+    with session_scope() as session:
+        job = session.get(ReportJob, job_id)
+        assert job is not None
+        assert job.status == ReportJobStatus.PENDING
+        assert job.parameters["report_type"] == "symbol"
+        assert job.file_path is None
+
+
+def test_generate_report_job_task_updates_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_database(tmp_path)
+    _seed_sample_data()
+    _configure_storage(tmp_path)
+    dummy_html = _mock_weasyprint(monkeypatch)
+
+    tasks_module = importlib.reload(importlib.import_module("services.reports.app.tasks"))
+
+    with session_scope() as session:
+        job = ReportJob(
+            symbol="AAPL",
+            parameters={
+                "report_type": "symbol",
+                "timeframe": "both",
+                "account": None,
+                "limit": None,
+                "mode": "async",
+            },
+            status=ReportJobStatus.PENDING,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+
+    payload = {
+        "symbol": "AAPL",
+        "options": {
+            "report_type": "symbol",
+            "timeframe": "both",
+            "account": None,
+            "limit": None,
+            "mode": "async",
+        },
+    }
+
+    result_path = tasks_module.generate_report_job(job_id, payload)
+
+    assert result_path is not None
+    assert Path(result_path).exists()
+    assert dummy_html.last_rendered
+
+    with session_scope() as session:
+        refreshed = session.get(ReportJob, job_id)
+        assert refreshed is not None
+        assert refreshed.status == ReportJobStatus.SUCCESS
+        assert refreshed.file_path == result_path
+
+    with TestClient(app) as client:
+        client_get = client.get(f"/reports/jobs/{job_id}")
+
+    assert client_get.status_code == 200
+    payload = client_get.json()
+    assert payload["status"] == "success"
+    assert payload["resource"] == result_path
+    assert payload["symbol"] == "AAPL"

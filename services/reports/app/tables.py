@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from enum import Enum
+from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, Enum as SAEnum, Float, Integer, String
+from sqlalchemy import Date, DateTime, Enum as SAEnum, Float, Integer, JSON, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from schemas.report import StrategyName, Timeframe, TradeOutcome
@@ -67,10 +69,31 @@ class ReportBenchmark(Base):
     return_value: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class ReportJobStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+
+class ReportJob(Base):
+    __tablename__ = "report_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    symbol: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    parameters: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[ReportJobStatus] = mapped_column(
+        SAEnum(ReportJobStatus), nullable=False, default=ReportJobStatus.PENDING
+    )
+    file_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+
 __all__ = [
     "Base",
     "ReportDaily",
     "ReportIntraday",
     "ReportSnapshot",
     "ReportBenchmark",
+    "ReportJob",
+    "ReportJobStatus",
 ]

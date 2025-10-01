@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import Response
 
 from libs.observability.logging import RequestContextMiddleware, configure_logging
@@ -21,7 +21,7 @@ from schemas.report import DailyRiskReport, PortfolioPerformance, ReportResponse
 from .calculations import DailyRiskCalculator, ReportCalculator, load_report_from_snapshots
 from .config import Settings, get_settings
 from .database import get_engine, get_session
-from .tables import Base
+from .tables import Base, ReportJob, ReportJobStatus
 
 configure_logging("reports")
 
@@ -41,6 +41,7 @@ class RenderReportRequest(BaseModel):
     timeframe: Literal["daily", "intraday", "both"] = "both"
     account: str | None = None
     limit: int | None = Field(default=None, ge=1, le=365)
+    mode: Literal["sync", "async"] = "sync"
 
     @model_validator(mode="after")
     def validate_options(self) -> "RenderReportRequest":  # noqa: D401
@@ -50,6 +51,18 @@ class RenderReportRequest(BaseModel):
             raise ValueError("timeframe option is only supported for symbol reports")
         if self.report_type != "daily" and self.limit is not None:
             raise ValueError("limit option is only supported for daily risk reports")
+        return self
+
+
+class GenerateReportRequest(RenderReportRequest):
+    symbol: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_async_mode(self) -> "GenerateReportRequest":  # noqa: D401
+        """Ensure async jobs explicitly request asynchronous execution."""
+
+        if self.mode != "async":
+            raise ValueError("mode must be set to 'async' when generating asynchronous jobs")
         return self
 
 
@@ -248,6 +261,12 @@ async def render_report(
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> Response:
+    if request.mode == "async":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Asynchronous rendering must be initiated via /reports/generate",
+        )
+
     template_name, context = _build_render_payload(request, session, symbol)
     html = _render_template(template_name, **context)
     pdf_bytes = _render_pdf(html)
@@ -268,6 +287,48 @@ async def render_report(
         "X-Report-Path": str(output_path.resolve()),
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+
+@app.post("/reports/generate", status_code=status.HTTP_202_ACCEPTED, tags=["reports"])
+async def create_report_job(
+    request: GenerateReportRequest = Body(...),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    job = ReportJob(
+        symbol=request.symbol,
+        parameters=request.model_dump(exclude={"symbol"}),
+        status=ReportJobStatus.PENDING,
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+
+    payload = {
+        "symbol": request.symbol,
+        "options": request.model_dump(exclude={"symbol"}),
+    }
+    from .tasks import generate_report_job
+
+    generate_report_job.delay(job.id, payload)
+    return {"job_id": job.id}
+
+
+@app.get("/reports/jobs/{job_id}", tags=["reports"])
+async def get_report_job(job_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+    job = session.get(ReportJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Report job not found")
+
+    payload: dict[str, object] = {
+        "id": job.id,
+        "status": job.status.value,
+        "parameters": job.parameters,
+    }
+    if job.file_path:
+        payload["resource"] = job.file_path
+    if job.symbol:
+        payload["symbol"] = job.symbol
+    return payload
 
 
 __all__ = ["app"]
