@@ -10,14 +10,18 @@ configuration.
 
 | Bloc du dashboard | Source | Détails |
 | --- | --- | --- |
-| Portefeuilles, transactions, alertes | `services/web-dashboard/app/data.py` | Données d'exemple construites côté service pour illustrer la présentation des portefeuilles et flux récents. |
+| Portefeuilles, transactions | `order-router` (`GET /orders/log`) via `services/web-dashboard/app/order_router_client.py` | L'historique d'ordres est agrégé pour reconstituer les positions et transactions par portefeuille. En cas d'échec réseau, le service retombe sur un instantané statique et expose cette information via le champ `data_sources`. |
+| Alertes | `alert-engine` (`GET /alerts`) | Les alertes actives sont récupérées côté moteur et mises en cache en mémoire avec une liste de secours si l'appel échoue. |
 | Métriques de performance | `reports-service` (`GET /reports/daily`) | Agrégation quotidienne retournant P\&L, drawdown et incidents. Le dashboard normalise les rendements à partir du champ d'exposition (`exposure`, `notional_exposure`, etc.) lorsqu'il est fourni afin de calculer un rendement composé et un ratio de Sharpe annualisé. |
 | Setups InPlay | `services/inplay` (`GET /inplay/watchlists/{id}` + WebSocket `/inplay/ws`) | Les setups incluent un champ `session` (`london`, `new_york`, `asia`). Le dashboard expose un sélecteur pour filtrer l'affichage par session et peut recharger un instantané via `?session=`. |
 
 Lorsque la réponse du reports-service ne contient pas d'exposition, le calcul du
 Sharpe et du rendement cumulatif retombe sur les valeurs de P\&L brutes (sans
 normalisation). Les cartes signalent également l'indisponibilité des métriques
-lorsqu'un appel API échoue.
+lorsqu'un appel API échoue. Les sections « Portefeuilles » et « Transactions »
+reposent désormais sur le routeur d'ordres ; si l'appel `/orders/log` échoue,
+le contexte injecte `data_sources["portfolios"] = data_sources["transactions"] = "fallback"`
+et l'interface affiche un message « mode dégradé ».
 
 ## Configuration
 
@@ -30,6 +34,14 @@ Le service s'appuie sur les variables suivantes :
   `reports-service` (par défaut `http://reports:8000/`).
 - `WEB_DASHBOARD_REPORTS_TIMEOUT` : délai (en secondes) appliqué aux requêtes
   HTTP vers le reports-service (par défaut `5.0`).
+- `WEB_DASHBOARD_ORDER_ROUTER_BASE_URL` : racine HTTP utilisée pour joindre
+  `order-router` (par défaut `http://order-router:8000/`).
+- `WEB_DASHBOARD_ORDER_ROUTER_TIMEOUT` : délai appliqué aux requêtes vers
+  `order-router` (par défaut `5.0`).
+- `WEB_DASHBOARD_ORDER_LOG_LIMIT` : nombre maximal d'ordres récupérés pour
+  reconstruire les portefeuilles (par défaut `200`).
+- `WEB_DASHBOARD_MAX_TRANSACTIONS` : nombre d'exécutions affichées dans la
+  section « Transactions récentes » (par défaut `25`).
 
 Le module `services/web-dashboard/app/data.py` encapsule ces appels via
 `_fetch_performance_metrics()` et restitue un objet `PerformanceMetrics` injecté

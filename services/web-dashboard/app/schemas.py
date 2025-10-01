@@ -344,4 +344,8 @@ class DashboardContext(BaseModel):
         default=None,
         description="Latest trading setups published by the InPlay service",
     )
+    data_sources: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Map describing whether each dataset comes from live services or fallback data",
+    )
 

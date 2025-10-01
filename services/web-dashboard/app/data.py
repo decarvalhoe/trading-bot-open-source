@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from statistics import mean, stdev
@@ -14,6 +15,9 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
+from schemas.order_router import OrderRecord
+
+from .order_router_client import OrderRouterClient, OrderRouterError
 from .schemas import (
     Alert,
     DashboardContext,
@@ -64,8 +68,15 @@ INPLAY_DEGRADED_MESSAGE = (
     "Flux InPlay partiellement disponible : certains instantanés proviennent du cache."
 )
 
+ORDER_ROUTER_BASE_URL = os.getenv("WEB_DASHBOARD_ORDER_ROUTER_BASE_URL", "http://order-router:8000/")
+ORDER_ROUTER_TIMEOUT_SECONDS = float(
+    os.getenv("WEB_DASHBOARD_ORDER_ROUTER_TIMEOUT", "5.0")
+)
+ORDER_ROUTER_LOG_LIMIT = int(os.getenv("WEB_DASHBOARD_ORDER_LOG_LIMIT", "200"))
+MAX_TRANSACTIONS = int(os.getenv("WEB_DASHBOARD_MAX_TRANSACTIONS", "25"))
 
-def _build_portfolios() -> List[Portfolio]:
+
+def _fallback_portfolios() -> List[Portfolio]:
     return [
         Portfolio(
             name="Growth",
@@ -86,7 +97,7 @@ def _build_portfolios() -> List[Portfolio]:
     ]
 
 
-def _build_transactions() -> List[Transaction]:
+def _fallback_transactions() -> List[Transaction]:
     base_time = datetime.utcnow()
     return [
         Transaction(
@@ -114,6 +125,174 @@ def _build_transactions() -> List[Transaction]:
             portfolio="Growth",
         ),
     ]
+
+
+def _format_account_label(account_id: str) -> str:
+    cleaned = (account_id or "").strip()
+    if not cleaned:
+        return "Portefeuille"
+    normalised = cleaned.replace("_", " ").replace("-", " ")
+    words = [segment for segment in normalised.split(" ") if segment]
+    if not words:
+        return cleaned
+    return " ".join(word.capitalize() for word in words)
+
+
+def _iter_order_fills(order: OrderRecord) -> Iterable[tuple[datetime | None, float, float]]:
+    """Yield execution tuples (timestamp, price, quantity) for an order."""
+
+    executions = sorted(
+        order.executions,
+        key=lambda execution: execution.executed_at
+        or execution.created_at
+        or order.updated_at
+        or order.created_at,
+    )
+    emitted = False
+    for execution in executions:
+        quantity = _coerce_optional_float(execution.quantity)
+        price = _coerce_optional_float(execution.price)
+        if not quantity:
+            continue
+        emitted = True
+        yield (
+            execution.executed_at
+            or execution.created_at
+            or order.updated_at
+            or order.created_at,
+            price or 0.0,
+            abs(quantity),
+        )
+
+    if emitted:
+        return
+
+    fallback_quantity = _coerce_optional_float(order.filled_quantity)
+    if not fallback_quantity:
+        return
+    fallback_price = _coerce_optional_float(order.limit_price) or _coerce_optional_float(
+        order.stop_price
+    )
+    yield (
+        order.updated_at or order.submitted_at or order.created_at,
+        fallback_price or 0.0,
+        abs(fallback_quantity),
+    )
+
+
+def _build_portfolios_from_orders(orders: Sequence[OrderRecord]) -> List[Portfolio]:
+    if not orders:
+        return []
+
+    positions: dict[str, dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(
+            lambda: {
+                "net_quantity": 0.0,
+                "abs_quantity": 0.0,
+                "abs_notional": 0.0,
+                "last_price": 0.0,
+            }
+        )
+    )
+
+    for order in orders:
+        account = (order.account_id or "").strip() or "default"
+        symbol = (order.symbol or "").strip()
+        if not symbol:
+            continue
+        side = (order.side or "buy").lower()
+        direction = -1.0 if side.startswith("s") else 1.0
+        for executed_at, price, quantity in _iter_order_fills(order):
+            if not quantity:
+                continue
+            stats = positions[account][symbol]
+            stats["net_quantity"] += quantity * direction
+            stats["abs_quantity"] += quantity
+            stats["abs_notional"] += quantity * (price or 0.0)
+            if price:
+                stats["last_price"] = price
+
+    portfolios: List[Portfolio] = []
+    for account, symbols in sorted(positions.items(), key=lambda item: item[0].lower()):
+        holdings: List[Holding] = []
+        for symbol, stats in sorted(symbols.items(), key=lambda item: item[0]):
+            quantity = stats["net_quantity"]
+            total_traded = stats["abs_quantity"]
+            if not quantity and not total_traded:
+                continue
+            average_price = (
+                stats["abs_notional"] / total_traded if total_traded else stats["last_price"]
+            )
+            current_price = stats["last_price"] or average_price or 0.0
+            holdings.append(
+                Holding(
+                    symbol=symbol,
+                    quantity=quantity,
+                    average_price=average_price or 0.0,
+                    current_price=current_price,
+                )
+            )
+        holdings.sort(key=lambda holding: holding.symbol)
+        portfolios.append(
+            Portfolio(
+                name=_format_account_label(account),
+                owner=account,
+                holdings=holdings,
+            )
+        )
+    return portfolios
+
+
+def _build_transactions_from_orders(orders: Sequence[OrderRecord]) -> List[Transaction]:
+    if not orders:
+        return []
+
+    transactions: List[Transaction] = []
+    for order in orders:
+        account = (order.account_id or "").strip() or "default"
+        symbol = (order.symbol or "").strip()
+        if not symbol:
+            continue
+        side_raw = (order.side or "").lower()
+        side = "sell" if side_raw.startswith("s") else "buy"
+        for executed_at, price, quantity in _iter_order_fills(order):
+            if not quantity:
+                continue
+            timestamp = executed_at or order.updated_at or order.created_at or datetime.utcnow()
+            transactions.append(
+                Transaction(
+                    timestamp=timestamp,
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity,
+                    price=price,
+                    portfolio=account,
+                )
+            )
+
+    transactions.sort(key=lambda txn: txn.timestamp, reverse=True)
+    if len(transactions) > MAX_TRANSACTIONS:
+        transactions = transactions[:MAX_TRANSACTIONS]
+    return transactions
+
+
+def _load_order_log() -> tuple[List[OrderRecord], str]:
+    base_url = _normalise_base_url(ORDER_ROUTER_BASE_URL)
+    endpoint = urljoin(base_url, "orders/log")
+    try:
+        with OrderRouterClient(
+            base_url=base_url, timeout=ORDER_ROUTER_TIMEOUT_SECONDS
+        ) as client:
+            snapshot = client.fetch_orders(limit=ORDER_ROUTER_LOG_LIMIT)
+    except (httpx.HTTPError, OrderRouterError) as exc:
+        logger.warning("Unable to retrieve orders from %s: %s", endpoint, exc)
+        return [], "fallback"
+    except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
+        logger.exception("Unexpected error while retrieving orders from %s: %s", endpoint, exc)
+        return [], "fallback"
+
+    items = snapshot.items or []
+    return items, "live"
 
 
 def _fallback_alerts() -> List[Alert]:
@@ -960,7 +1139,7 @@ def _build_strategy_statuses() -> tuple[List[StrategyStatus], List[LiveLogEntry]
 def _build_portfolio_history(days: int = 30) -> List[PortfolioHistorySeries]:
     """Generate synthetic time series for each portfolio."""
 
-    portfolios = _build_portfolios()
+    portfolios = _fallback_portfolios()
     if days < 2:
         days = 2
 
@@ -1010,15 +1189,28 @@ def load_dashboard_context() -> DashboardContext:
     """Return consistent sample data for the dashboard view."""
 
     strategies, logs = _build_strategy_statuses()
+    orders, orders_mode = _load_order_log()
+    if orders_mode == "live":
+        portfolios = _build_portfolios_from_orders(orders)
+        transactions = _build_transactions_from_orders(orders)
+    else:
+        portfolios = _fallback_portfolios()
+        transactions = _fallback_transactions()
+
+    data_sources = {
+        "portfolios": orders_mode,
+        "transactions": orders_mode,
+    }
     return DashboardContext(
-        portfolios=_build_portfolios(),
-        transactions=_build_transactions(),
+        portfolios=portfolios,
+        transactions=transactions,
         alerts=_fetch_alerts_from_engine(),
         metrics=_fetch_performance_metrics(),
         reports=load_reports_list(),
         strategies=strategies,
         logs=logs,
         setups=_fetch_inplay_setups(),
+        data_sources=data_sources,
     )
 
 
