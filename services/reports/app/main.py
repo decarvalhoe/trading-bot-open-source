@@ -70,6 +70,23 @@ def _render_pdf(html: str) -> bytes:
     return html_document.write_pdf()
 
 
+class RiskSummary(BaseModel):
+    """Aggregate risk metrics derived from DailyRiskCalculator."""
+
+    total_pnl: float = 0.0
+    max_drawdown: float = Field(0.0, ge=0.0)
+    incident_count: int = Field(0, ge=0)
+    recent: list[DailyRiskReport] = Field(default_factory=list)
+
+
+class SymbolSummary(BaseModel):
+    """Combined strategy and risk summary for a trading symbol."""
+
+    symbol: str
+    report: ReportResponse | None = None
+    risk: RiskSummary
+
+
 def _load_symbol_report(
     session: Session,
     symbol: str,
@@ -142,6 +159,41 @@ def create_tables() -> None:
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get(
+    "/symbols/{symbol}/summary",
+    response_model=SymbolSummary,
+    tags=["reports"],
+)
+async def symbol_summary(
+    symbol: str,
+    limit: int = Query(default=30, ge=1, le=365, description="Maximum number of daily risk rows"),
+    session: Session = Depends(get_session),
+) -> SymbolSummary:
+    report = load_report_from_snapshots(session, symbol)
+    if report is None:
+        calculator = ReportCalculator(session)
+        report = calculator.build_report(symbol)
+    has_report = bool(report.daily or report.intraday)
+
+    risk_calculator = DailyRiskCalculator(session)
+    recent = risk_calculator.generate_for_symbol(symbol, limit=limit)
+    total_pnl = sum(item.pnl for item in recent)
+    max_drawdown = max((item.max_drawdown for item in recent), default=0.0)
+    incident_count = sum(len(item.incidents) for item in recent)
+    risk = RiskSummary(
+        total_pnl=total_pnl,
+        max_drawdown=max_drawdown,
+        incident_count=incident_count,
+        recent=recent,
+    )
+
+    if not has_report and not recent:
+        raise HTTPException(status_code=404, detail=f"No analytics available for symbol '{symbol}'")
+
+    payload_report = report if has_report else None
+    return SymbolSummary(symbol=symbol, report=payload_report, risk=risk)
 
 
 @app.get("/reports/daily", response_model=list[DailyRiskReport], tags=["reports"])

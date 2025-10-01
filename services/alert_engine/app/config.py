@@ -32,18 +32,20 @@ class AlertEngineSettings:
                 for symbol in symbols_env.split(",")
                 if symbol.strip()
             )
+        market_data_url = os.getenv("ALERT_ENGINE_MARKET_DATA_URL", defaults.market_data_url)
+        reports_url = os.getenv("ALERT_ENGINE_REPORTS_URL", defaults.reports_url)
         return cls(
             database_url=os.getenv("ALERT_ENGINE_DATABASE_URL", defaults.database_url),
             events_database_url=os.getenv(
                 "ALERT_ENGINE_EVENTS_DATABASE_URL",
                 os.getenv("ALERT_EVENTS_DATABASE_URL", defaults.events_database_url),
             ),
-            market_data_url=os.getenv("ALERT_ENGINE_MARKET_DATA_URL", defaults.market_data_url),
+            market_data_url=market_data_url,
             market_data_stream_url=os.getenv(
                 "ALERT_ENGINE_MARKET_DATA_STREAM_URL",
-                defaults.market_data_stream_url,
+                market_data_url,
             ),
-            reports_url=os.getenv("ALERT_ENGINE_REPORTS_URL", defaults.reports_url),
+            reports_url=reports_url,
             notification_url=os.getenv("ALERT_ENGINE_NOTIFICATION_URL", defaults.notification_url),
             evaluation_interval_seconds=float(
                 os.getenv(

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+
+from schemas.market import ExecutionVenue
 
 
 class TradingViewSignal(BaseModel):
@@ -42,3 +44,55 @@ class PersistedTick(BaseModel):
     size: float | None = None
     side: str | None = None
     extra: dict[str, Any] | None = None
+
+
+class MarketContextSnapshot(BaseModel):
+    """Aggregated snapshot combining quote, volume and indicator data."""
+
+    symbol: str
+    venue: ExecutionVenue
+    price: float
+    bid: float
+    ask: float
+    spread_bps: float
+    volume: float
+    total_bid_volume: float
+    total_ask_volume: float
+    indicators: dict[str, float] = Field(default_factory=dict)
+    timestamp: datetime
+
+    model_config = ConfigDict(json_encoders={datetime: lambda value: value.isoformat()})
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: D401
+        """Ensure timestamps are timezone aware for downstream services."""
+
+        if self.timestamp.tzinfo is None:
+            object.__setattr__(self, "timestamp", self.timestamp.replace(tzinfo=timezone.utc))
+
+
+class MarketStreamEvent(BaseModel):
+    """Structure for streaming payloads consumed by alert-engine."""
+
+    price: float
+    volume: float | None = None
+    bid: float | None = None
+    ask: float | None = None
+    metadata: dict[str, Any] | None = None
+    timestamp: datetime
+
+    model_config = ConfigDict(json_encoders={datetime: lambda value: value.isoformat()})
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: D401
+        """Normalise timestamps to UTC for deterministic tests."""
+
+        if self.timestamp.tzinfo is None:
+            object.__setattr__(self, "timestamp", self.timestamp.replace(tzinfo=timezone.utc))
+
+
+__all__ = [
+    "MarketContextSnapshot",
+    "MarketStreamEvent",
+    "PersistedBar",
+    "PersistedTick",
+    "TradingViewSignal",
+]
