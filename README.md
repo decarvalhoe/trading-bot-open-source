@@ -46,6 +46,38 @@ curl http://localhost:8011/health
 make dev-down
 ```
 
+### Demo trading stack
+
+To explore the monitoring and alerting services together, start the full demo stack:
+
+```bash
+make demo-up
+```
+
+The command builds the additional FastAPI services, applies Alembic migrations and wires
+Redis/PostgreSQL before exposing the following ports:
+
+- `8013` — `order-router` (execution plans and simulated brokers)
+- `8014` — `algo-engine` (strategy catalogue and backtesting)
+- `8015` — `market_data` (spot quotes, orderbooks and TradingView webhooks)
+- `8016` — `reports` (risk reports and PDF generation)
+- `8017` — `alert_engine` (rule evaluation with streaming ingestion)
+- `8018` — `notification-service` (alert delivery history)
+- `8019` — `streaming` (room ingest + WebSocket fan-out)
+- `8020` — `streaming_gateway` (overlay OAuth flows and TradingView bridge)
+- `8021` — `inplay` (watchlist WebSocket updates)
+- `8022` — `web-dashboard` (HTML dashboard backed by reports + alerts APIs)
+
+Generated artefacts are stored in `data/generated-reports/` (PDF exports) and
+`data/alert-events/` (shared SQLite database for alerts history). Default service tokens
+(`reports-token`, `inplay-token`, `demo-alerts-token`) and external API secrets can be
+overridden through environment variables before running the stack. Stop every container
+with:
+
+```bash
+make demo-down
+```
+
 ### Database migrations
 
 Use the Makefile helpers to manage Alembic migrations locally (the commands default to

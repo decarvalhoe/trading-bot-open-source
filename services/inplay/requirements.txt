@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+pydantic>=2
+redis[hiredis]>=5
+prometheus-client>=0.20

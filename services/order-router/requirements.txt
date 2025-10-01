@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=2
+psycopg2-binary
+httpx>=0.24
+pydantic>=2
+prometheus-client>=0.20
+alembic
