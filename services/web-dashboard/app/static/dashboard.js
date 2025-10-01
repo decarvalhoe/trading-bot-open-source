@@ -21,6 +21,7 @@
       strategies: [],
       logs: [],
       setups: { watchlists: [], fallback_reason: null },
+      data_sources: {},
     };
   const streamingConfig = bootstrapData.streaming || {};
   const state = {
@@ -62,6 +63,68 @@
     setupsStatus: document.getElementById("inplay-setups-status"),
     sessionFilter: document.getElementById("session-filter"),
   };
+
+  const datasetNotices = {
+    portfolios: {
+      getContainer: () => selectors.portfolios,
+      message:
+        "Mode dégradé : les portefeuilles sont issus du dernier instantané disponible (order-router indisponible).",
+    },
+    transactions: {
+      getContainer: () => selectors.transactions,
+      message:
+        "Mode dégradé : transactions simulées car l'historique du routeur d'ordres est inaccessible.",
+    },
+  };
+
+  function getDatasetSource(dataset) {
+    if (!state.current.data_sources || typeof state.current.data_sources !== "object") {
+      return "unknown";
+    }
+    return state.current.data_sources[dataset] || "unknown";
+  }
+
+  function updateDatasetSource(dataset, mode) {
+    if (!dataset) {
+      return;
+    }
+    if (!state.current.data_sources || typeof state.current.data_sources !== "object") {
+      state.current.data_sources = {};
+    }
+    if (mode) {
+      state.current.data_sources[dataset] = mode;
+    }
+  }
+
+  function updateDatasetNotice(dataset) {
+    const descriptor = datasetNotices[dataset];
+    if (!descriptor) {
+      return;
+    }
+    const container = descriptor.getContainer ? descriptor.getContainer() : null;
+    if (!container || !(container instanceof HTMLElement)) {
+      return;
+    }
+    const status = getDatasetSource(dataset);
+    const isFallback = status === "fallback" || status === "degraded";
+    container.setAttribute("data-source", status);
+    const cardBody = container.closest(".card__body");
+    if (!cardBody) {
+      return;
+    }
+    let notice = cardBody.querySelector(`[data-role='${dataset}-status']`);
+    if (isFallback) {
+      if (!notice) {
+        notice = document.createElement("p");
+        notice.dataset.role = `${dataset}-status`;
+        notice.className = "text text--muted dataset-status dataset-status--warning";
+        cardBody.insertBefore(notice, cardBody.firstChild);
+      }
+      notice.textContent = descriptor.message;
+    } else if (notice) {
+      notice.remove();
+    }
+  }
 
   const filters = {
     logStrategy: selectors.logFilter ? selectors.logFilter.value || "all" : "all",
@@ -148,6 +211,7 @@
     if (!container) {
       return;
     }
+    updateDatasetNotice("portfolios");
     container.innerHTML = "";
     state.current.portfolios.forEach((portfolio) => {
       const item = document.createElement("li");
@@ -200,6 +264,7 @@
     if (!container) {
       return;
     }
+    updateDatasetNotice("transactions");
     container.innerHTML = "";
     state.current.transactions.forEach((transaction) => {
       const row = document.createElement("tr");
@@ -1094,9 +1159,11 @@
     const resource = payload.resource || payload.type;
     if (resource === "portfolios" && Array.isArray(payload.items)) {
       state.current.portfolios = payload.items;
+      updateDatasetSource("portfolios", payload.mode || payload.source || "live");
       renderPortfolios();
     } else if (resource === "transactions" && Array.isArray(payload.items)) {
       state.current.transactions = payload.items;
+      updateDatasetSource("transactions", payload.mode || payload.source || "live");
       renderTransactions();
     } else if (resource === "alerts" && Array.isArray(payload.items)) {
       state.current.alerts = payload.items;
