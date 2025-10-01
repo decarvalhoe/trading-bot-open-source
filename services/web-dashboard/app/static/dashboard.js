@@ -298,6 +298,11 @@
     if (typeof sessionRaw === "string" && sessionRaw.trim()) {
       session = sessionRaw.trim().toLowerCase();
     }
+    const reportUrlRaw = raw.report_url || raw.reportUrl || null;
+    let reportUrl = null;
+    if (typeof reportUrlRaw === "string" && reportUrlRaw.trim()) {
+      reportUrl = reportUrlRaw.trim();
+    }
 
     return {
       strategy,
@@ -311,6 +316,7 @@
           : null,
       updated_at: updatedAt,
       session,
+      report_url: reportUrl,
     };
   }
 
@@ -582,6 +588,19 @@
           appendMetric(metrics, "Stop", formatLevel(setup.stop));
           appendMetric(metrics, "Probabilité", formatProbability(setup.probability));
           card.appendChild(metrics);
+
+          if (setup.report_url) {
+            const actions = document.createElement("div");
+            actions.className = "setup-card__actions";
+            const reportLink = document.createElement("a");
+            reportLink.className = "button button--secondary";
+            reportLink.href = setup.report_url;
+            reportLink.target = "_blank";
+            reportLink.rel = "noopener noreferrer";
+            reportLink.textContent = "Voir le rapport";
+            actions.appendChild(reportLink);
+            card.appendChild(actions);
+          }
 
           container.appendChild(card);
           cardCount += 1;

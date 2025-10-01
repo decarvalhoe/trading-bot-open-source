@@ -680,6 +680,16 @@ body {
   color: var(--color-text);
 }
 
+.setup-card__actions {
+  margin-top: var(--space-sm);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.setup-card__actions .button {
+  text-decoration: none;
+}
+
 .inplay-setups__empty {
   margin: 0;
   text-align: center;

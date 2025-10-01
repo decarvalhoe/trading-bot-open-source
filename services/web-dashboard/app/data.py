@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from statistics import mean, stdev
 from typing import Dict, Iterable, List, Sequence
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import httpx
 
@@ -301,6 +301,12 @@ def _normalise_inplay_strategy(entry: dict[str, object]) -> InPlayStrategySetup 
     if isinstance(raw_session, str) and raw_session.strip():
         session = raw_session.strip().lower().replace(" ", "_")
 
+    report_url = entry.get("report_url") or entry.get("reportUrl")
+    if isinstance(report_url, str) and report_url.strip():
+        report_url = report_url.strip()
+    else:
+        report_url = None
+
     return InPlayStrategySetup(
         strategy=strategy,
         status=status,
@@ -310,6 +316,7 @@ def _normalise_inplay_strategy(entry: dict[str, object]) -> InPlayStrategySetup 
         probability=probability,
         updated_at=updated_at,
         session=session,
+        report_url=report_url,
     )
 
 
@@ -330,6 +337,10 @@ def _normalise_inplay_symbol(entry: dict[str, object]) -> InPlaySymbolSetups | N
     for item in raw_setups:
         normalised = _normalise_inplay_strategy(item)
         if normalised:
+            if not normalised.report_url:
+                encoded_symbol = quote(symbol, safe="")
+                encoded_strategy = quote(normalised.strategy, safe="")
+                normalised.report_url = f"/inplay/setups/{encoded_symbol}/{encoded_strategy}"
             setups.append(normalised)
 
     return InPlaySymbolSetups(symbol=symbol, setups=setups)
@@ -383,6 +394,7 @@ def _fallback_inplay_setups() -> InPlayDashboardSetups:
                                 probability=0.64,
                                 updated_at=base_time,
                                 session="london",
+                                report_url="/inplay/setups/AAPL/ORB",
                             )
                         ],
                     ),
@@ -398,6 +410,7 @@ def _fallback_inplay_setups() -> InPlayDashboardSetups:
                                 probability=0.58,
                                 updated_at=base_time,
                                 session="new_york",
+                                report_url="/inplay/setups/MSFT/Breakout",
                             )
                         ],
                     ),

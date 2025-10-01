@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import suppress
 from typing import Annotated, Callable
+from urllib.parse import urljoin
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
 
 from .config import Settings, get_settings
-from .schemas import SessionName, TickPayload, WatchlistSnapshot, WatchlistStreamEvent
+from .schemas import (
+    SessionName,
+    StrategyReportPayload,
+    TickPayload,
+    WatchlistSnapshot,
+    WatchlistStreamEvent,
+)
 from .state import InPlayState
 from .stream import RedisTickStream, SimulatedTickStream, TickStream
 
@@ -45,6 +54,8 @@ def _default_stream_factory() -> TickStream:
 
 
 configure_logging("inplay")
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -88,6 +99,30 @@ def create_app(
     async def get_manager() -> WebSocketManager:
         return manager
 
+    def _normalise_base_url(value: str) -> str:
+        return value if value.endswith("/") else f"{value}/"
+
+    async def _fetch_json(
+        client: httpx.AsyncClient, url: str, timeout: float
+    ) -> dict[str, object] | None:
+        try:
+            response = await client.get(url, timeout=timeout)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            logger.warning("Requête HTTP échouée vers %s: %s", url, exc)
+            return None
+        except httpx.HTTPError as exc:
+            logger.warning("Impossible d'appeler %s: %s", url, exc)
+            return None
+
+        payload = response.json()
+        if isinstance(payload, dict):
+            return payload
+        logger.warning("Payload inattendu reçu depuis %s: %s", url, payload)
+        return None
+
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -120,6 +155,62 @@ def create_app(
                 await websocket.receive_text()
         except WebSocketDisconnect:
             await manager.disconnect(websocket)
+
+    @app.get(
+        "/inplay/setups/{symbol}/{strategy}",
+        response_model=StrategyReportPayload,
+        tags=["inplay"],
+    )
+    async def get_strategy_report(
+        symbol: str,
+        strategy: str,
+        state: InPlayState = Depends(get_state),
+    ) -> StrategyReportPayload:
+        setup = await state.get_strategy_setup(symbol, strategy)
+        if setup is None:
+            raise HTTPException(status_code=404, detail="Setup introuvable")
+
+        reports_base = _normalise_base_url(settings.reports_base_url)
+        market_base = _normalise_base_url(settings.market_data_base_url)
+        reports_endpoint = urljoin(reports_base, f"symbols/{setup.symbol}/summary")
+        market_endpoint = urljoin(market_base, f"spot/{setup.symbol}")
+
+        async with httpx.AsyncClient() as client:
+            report_task = _fetch_json(
+                client,
+                reports_endpoint,
+                settings.reports_timeout_seconds,
+            )
+            market_task = _fetch_json(
+                client,
+                market_endpoint,
+                settings.market_data_timeout_seconds,
+            )
+            report_payload, market_payload = await asyncio.gather(
+                report_task,
+                market_task,
+                return_exceptions=False,
+            )
+
+        report_data = None
+        risk_data = None
+        if report_payload:
+            report_section = report_payload.get("report")
+            if isinstance(report_section, dict):
+                report_data = report_section
+            risk_section = report_payload.get("risk")
+            if isinstance(risk_section, dict):
+                risk_data = risk_section
+
+        return StrategyReportPayload(
+            symbol=setup.symbol,
+            strategy=setup.strategy,
+            session=setup.session,
+            setup=setup,
+            report=report_data,
+            risk=risk_data,
+            market=market_payload,
+        )
 
     return app
 
