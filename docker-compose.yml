@@ -1,4 +1,4 @@
-﻿services:
+services:
   postgres:
     image: postgres:16
     environment:
@@ -47,6 +47,284 @@
     ports:
       - "8012:8000"
 
+  order-router:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: order-router
+        SERVICE_PACKAGE: order_router
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+      STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
+      STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN:-reports-token}
+      STREAMING_ROOM_ID: ${STREAMING_ROOM_ID:-public-room}
+    depends_on:
+      - postgres
+      - redis
+      - streaming
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8013:8000"
+
+  algo-engine:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: algo-engine
+        SERVICE_PACKAGE: algo_engine
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      ORDER_ROUTER_URL: http://order-router:8000
+      ORDER_ROUTER_TIMEOUT: "5.0"
+      ORDER_ROUTER_API_KEY: ${ORDER_ROUTER_API_KEY:-demo-router-key}
+    depends_on:
+      - order-router
+      - market_data
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8014:8000"
+
+  market_data:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: market_data
+        SERVICE_PACKAGE: market_data
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      MARKET_DATA_DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+      TRADINGVIEW_HMAC_SECRET: ${TRADINGVIEW_HMAC_SECRET:-demo-hmac-secret}
+      BINANCE_API_KEY: ${BINANCE_API_KEY:-demo-binance-key}
+      BINANCE_API_SECRET: ${BINANCE_API_SECRET:-demo-binance-secret}
+      IBKR_HOST: ${IBKR_HOST:-ibkr-gateway}
+      IBKR_PORT: ${IBKR_PORT:-4001}
+      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-1}
+    depends_on:
+      - postgres
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8015:8000"
+
+  reports:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: reports
+        SERVICE_PACKAGE: reports
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      REPORTS_DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+      REPORTS_CELERY_BROKER: redis://redis:6379/0
+      REPORTS_CELERY_BACKEND: redis://redis:6379/1
+      REPORTS_REFRESH_INTERVAL: "300"
+      REPORTS_STORAGE_PATH: /app/generated-reports
+      STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
+      STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN:-reports-token}
+      STREAMING_ROOM_ID: ${STREAMING_ROOM_ID:-public-room}
+    depends_on:
+      - postgres
+      - redis
+      - market_data
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+      - ./data/generated-reports:/app/generated-reports
+    ports:
+      - "8016:8000"
+
+  alert_engine:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: alert_engine
+        SERVICE_PACKAGE: alert_engine
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      ALERT_ENGINE_DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+      ALERT_ENGINE_EVENTS_DATABASE_URL: sqlite:////data/alert_events.db
+      ALERT_ENGINE_MARKET_DATA_URL: http://market_data:8000
+      ALERT_ENGINE_MARKET_DATA_STREAM_URL: http://market_data:8000
+      ALERT_ENGINE_REPORTS_URL: http://reports:8000
+      ALERT_ENGINE_NOTIFICATION_URL: http://notification-service:8000
+      ALERT_ENGINE_STREAM_SYMBOLS: ${ALERT_ENGINE_STREAM_SYMBOLS:-BTCUSDT,ETHUSDT}
+    depends_on:
+      - postgres
+      - redis
+      - market_data
+      - reports
+      - notification-service
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+      - ./data/alert-events:/data
+    ports:
+      - "8017:8000"
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: notification-service
+        SERVICE_PACKAGE: notification_service
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      NOTIFICATION_SERVICE_EVENTS_DATABASE_URL: sqlite:////data/alert_events.db
+      NOTIFICATION_SERVICE_SLACK_DEFAULT_WEBHOOK: ${NOTIFICATION_SERVICE_SLACK_DEFAULT_WEBHOOK:-https://hooks.slack.com/services/demo}
+      NOTIFICATION_SERVICE_TELEGRAM_BOT_TOKEN: ${NOTIFICATION_SERVICE_TELEGRAM_BOT_TOKEN:-demo-telegram-token}
+      NOTIFICATION_SERVICE_TELEGRAM_DEFAULT_CHAT_ID: ${NOTIFICATION_SERVICE_TELEGRAM_DEFAULT_CHAT_ID:-demo-chat}
+      NOTIFICATION_SERVICE_TWILIO_ACCOUNT_SID: ${NOTIFICATION_SERVICE_TWILIO_ACCOUNT_SID:-demo-sid}
+      NOTIFICATION_SERVICE_TWILIO_AUTH_TOKEN: ${NOTIFICATION_SERVICE_TWILIO_AUTH_TOKEN:-demo-token}
+      NOTIFICATION_SERVICE_TWILIO_FROM_NUMBER: ${NOTIFICATION_SERVICE_TWILIO_FROM_NUMBER:-+10000000000}
+    depends_on:
+      - redis
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+      - ./data/alert-events:/data
+    ports:
+      - "8018:8000"
+
+  streaming:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: streaming
+        SERVICE_PACKAGE: streaming
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      STREAMING_PIPELINE_BACKEND: ${STREAMING_PIPELINE_BACKEND:-memory}
+      STREAMING_REDIS_URL: redis://redis:6379/2
+      STREAMING_NATS_URL: ${STREAMING_NATS_URL:-nats://nats:4222}
+      STREAMING_SERVICE_TOKEN_REPORTS: ${STREAMING_SERVICE_TOKEN_REPORTS:-reports-token}
+      STREAMING_SERVICE_TOKEN_INPLAY: ${STREAMING_SERVICE_TOKEN_INPLAY:-inplay-token}
+      STREAMING_ENTITLEMENTS_CAPABILITY: ${STREAMING_ENTITLEMENTS_CAPABILITY:-can.stream_public}
+    depends_on:
+      - redis
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8019:8000"
+
+  streaming_gateway:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: streaming_gateway
+        SERVICE_PACKAGE: streaming_gateway
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      STREAMING_GATEWAY_REDIS_URL: redis://redis:6379/2
+      STREAMING_GATEWAY_NATS_URL: ${STREAMING_GATEWAY_NATS_URL:-nats://nats:4222}
+      STREAMING_GATEWAY_PUBLIC_BASE_URL: http://streaming_gateway:8000
+      STREAMING_GATEWAY_ALLOWED_ORIGINS: ${STREAMING_GATEWAY_ALLOWED_ORIGINS:-https://obsproject.com,https://studio.obsproject.com}
+      STREAMING_GATEWAY_TRADINGVIEW_HMAC_SECRET: ${STREAMING_GATEWAY_TRADINGVIEW_HMAC_SECRET:-demo-tradingview-secret}
+      STREAMING_GATEWAY_OVERLAY_TOKEN_SECRET: ${STREAMING_GATEWAY_OVERLAY_TOKEN_SECRET:-demo-overlay-secret}
+      STREAMING_GATEWAY_ENCRYPTION_KEY: ${STREAMING_GATEWAY_ENCRYPTION_KEY:-ZGVtby1lbmNyeXB0aW9uLWtleQ==}
+      STREAMING_GATEWAY_TWITCH_CLIENT_ID: ${STREAMING_GATEWAY_TWITCH_CLIENT_ID:-demo-twitch-id}
+      STREAMING_GATEWAY_TWITCH_CLIENT_SECRET: ${STREAMING_GATEWAY_TWITCH_CLIENT_SECRET:-demo-twitch-secret}
+      STREAMING_GATEWAY_YOUTUBE_CLIENT_ID: ${STREAMING_GATEWAY_YOUTUBE_CLIENT_ID:-demo-youtube-id}
+      STREAMING_GATEWAY_YOUTUBE_CLIENT_SECRET: ${STREAMING_GATEWAY_YOUTUBE_CLIENT_SECRET:-demo-youtube-secret}
+      STREAMING_GATEWAY_DISCORD_CLIENT_ID: ${STREAMING_GATEWAY_DISCORD_CLIENT_ID:-demo-discord-id}
+      STREAMING_GATEWAY_DISCORD_CLIENT_SECRET: ${STREAMING_GATEWAY_DISCORD_CLIENT_SECRET:-demo-discord-secret}
+      STREAMING_GATEWAY_DISCORD_BOT_TOKEN: ${STREAMING_GATEWAY_DISCORD_BOT_TOKEN:-demo-discord-bot-token}
+    depends_on:
+      - streaming
+      - redis
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8020:8000"
+
+  inplay:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: inplay
+        SERVICE_PACKAGE: inplay
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      INPLAY_REDIS_URL: redis://redis:6379/3
+      STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
+      STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN_INPLAY:-inplay-token}
+    depends_on:
+      - redis
+      - streaming
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8021:8000"
+
+  web-dashboard:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: web-dashboard
+        SERVICE_PACKAGE: web_dashboard
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      WEB_DASHBOARD_STREAMING_BASE_URL: http://streaming_gateway:8000
+      WEB_DASHBOARD_STREAMING_ROOM_ID: ${WEB_DASHBOARD_STREAMING_ROOM_ID:-public-room}
+      WEB_DASHBOARD_STREAMING_VIEWER_ID: ${WEB_DASHBOARD_STREAMING_VIEWER_ID:-demo-viewer}
+      WEB_DASHBOARD_REPORTS_BASE_URL: http://reports:8000
+      WEB_DASHBOARD_REPORTS_TIMEOUT: "5.0"
+      WEB_DASHBOARD_ALERT_ENGINE_URL: http://alert_engine:8000
+      WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT: "5.0"
+      WEB_DASHBOARD_ALERTS_TOKEN: ${WEB_DASHBOARD_ALERTS_TOKEN:-demo-alerts-token}
+      WEB_DASHBOARD_ALERT_EVENTS_DATABASE_URL: sqlite:////data/alert_events.db
+    depends_on:
+      - alert_engine
+      - reports
+      - streaming_gateway
+      - streaming
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+      - ./data/alert-events:/data
+      - ./services/web-dashboard/app/static:/app/service/web_dashboard/app/static:ro
+      - ./services/web-dashboard/app/templates:/app/service/web_dashboard/app/templates:ro
+    ports:
+      - "8022:8000"
+
   prometheus:
     image: prom/prometheus:v2.53.1
     command:
@@ -59,6 +337,16 @@
     depends_on:
       - auth-service
       - user-service
+      - order-router
+      - algo-engine
+      - market_data
+      - reports
+      - alert_engine
+      - notification-service
+      - streaming
+      - streaming_gateway
+      - inplay
+      - web-dashboard
 
   grafana:
     image: grafana/grafana:10.4.5

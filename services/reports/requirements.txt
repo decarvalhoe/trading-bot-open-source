@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=2
+psycopg2-binary
+pydantic>=2
+jinja2
+weasyprint
+prometheus-client>=0.20
+alembic

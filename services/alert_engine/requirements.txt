@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy>=2
+pydantic>=2
+httpx>=0.24
+prometheus-client>=0.20
