@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from typing import Dict, Iterable, Tuple
+from urllib.parse import quote
 
 from .schemas import (
     SessionName,
@@ -38,6 +39,13 @@ class WatchlistState:
             symbols.append(SymbolSetups(symbol=symbol, setups=setups))
         return WatchlistSnapshot(id=self.id, symbols=symbols, updated_at=self.updated_at)
 
+    def iter_setups(self, symbol: str | None = None) -> Iterable[StrategySetup]:
+        if symbol is not None:
+            yield from self._setups.get(symbol, {}).values()
+            return
+        for setups in self._setups.values():
+            yield from setups.values()
+
 
 class InPlayState:
     def __init__(self, watchlists: Dict[str, Iterable[str]]):
@@ -48,6 +56,12 @@ class InPlayState:
         }
 
     async def apply_tick(self, payload: TickPayload) -> list[WatchlistSnapshot]:
+        report_url = payload.report_url
+        if not report_url:
+            encoded_symbol = quote(payload.symbol, safe="")
+            encoded_strategy = quote(payload.strategy, safe="")
+            report_url = f"/inplay/setups/{encoded_symbol}/{encoded_strategy}"
+
         setup = StrategySetup(
             symbol=payload.symbol,
             strategy=payload.strategy,
@@ -58,6 +72,7 @@ class InPlayState:
             status=payload.status,
             session=payload.session,
             updated_at=payload.received_at,
+            report_url=report_url,
         )
         async with self._lock:
             updated: list[WatchlistSnapshot] = []
@@ -67,6 +82,20 @@ class InPlayState:
                 if watchlist and watchlist.apply_setup(setup):
                     updated.append(watchlist.snapshot())
             return updated
+
+    async def get_strategy_setup(
+        self, symbol: str, strategy: str
+    ) -> StrategySetup | None:
+        async with self._lock:
+            candidates: list[StrategySetup] = []
+            for watchlist in self._watchlists.values():
+                for item in watchlist.iter_setups(symbol=symbol):
+                    if item.strategy.lower() == strategy.lower():
+                        candidates.append(item)
+            if not candidates:
+                return None
+            candidates.sort(key=lambda item: item.updated_at, reverse=True)
+            return candidates[0]
 
     async def get_watchlist(
         self, watchlist_id: str, session: SessionName | None = None

@@ -250,6 +250,10 @@ class InPlayStrategySetup(BaseModel):
         default=None,
         description="Trading session associated with the setup (london, new_york or asia)",
     )
+    report_url: str | None = Field(
+        default=None,
+        description="Lien vers le rapport détaillé pour la stratégie",
+    )
 
 
 class InPlaySymbolSetups(BaseModel):

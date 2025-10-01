@@ -46,6 +46,7 @@ def test_tick_stream_updates_watchlist_and_websocket() -> None:
         assert setups[0]["probability"] == payload.probability
         assert setups[0]["status"] == payload.status
         assert setups[0]["session"] == "london"
+        assert setups[0]["report_url"].endswith("/ORB")
 
         with client.websocket_connect("/inplay/ws") as websocket:
             initial = websocket.receive_json()
@@ -70,6 +71,7 @@ def test_tick_stream_updates_watchlist_and_websocket() -> None:
             assert latest_setup["probability"] == updated_payload.probability
             assert latest_setup["status"] == updated_payload.status
             assert latest_setup["session"] == "london"
+            assert latest_setup["report_url"].endswith("/ORB")
 
 
 def test_watchlist_session_filtering() -> None:
@@ -124,9 +126,11 @@ def test_watchlist_session_filtering() -> None:
         assert filtered_setups
         assert all(setup["session"] == "asia" for setup in filtered_setups)
         assert all(setup["strategy"] == "Breakout" for setup in filtered_setups)
+        assert all(setup["report_url"].endswith("Breakout") for setup in filtered_setups)
 
         response_default = client.get("/inplay/watchlists/momentum")
         assert response_default.status_code == 200
         combined_setups = response_default.json()["symbols"][0]["setups"]
         assert any(setup["session"] == "london" for setup in combined_setups)
         assert any(setup["session"] == "asia" for setup in combined_setups)
+        assert any(setup["report_url"].endswith("ORB") for setup in combined_setups)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,10 @@ class TickPayload(BaseModel):
     watchlists: list[str] | None = None
     source: Literal["market-data", "manual"] = "market-data"
     received_at: datetime = Field(default_factory=datetime.utcnow)
+    report_url: str | None = Field(
+        default=None,
+        description="Lien pointant vers les détails du rapport de stratégie",
+    )
 
 
 class StrategySetup(BaseModel):
@@ -34,6 +38,20 @@ class StrategySetup(BaseModel):
     status: SetupStatus = "pending"
     session: SessionName = "london"
     updated_at: datetime
+    report_url: str | None = Field(
+        default=None,
+        description="Lien enrichi renvoyant vers les détails du rapport",
+    )
+
+
+class StrategyReportPayload(BaseModel):
+    symbol: str
+    strategy: str
+    session: SessionName | None = None
+    setup: StrategySetup
+    report: dict[str, Any] | None = None
+    risk: dict[str, Any] | None = None
+    market: dict[str, Any] | None = None
 
 
 class SymbolSetups(BaseModel):

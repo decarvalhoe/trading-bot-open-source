@@ -216,6 +216,18 @@
                   {% endif %}
                 </dd>
               </dl>
+              {% if setup.report_url %}
+              <div class="setup-card__actions">
+                <a
+                  class="button button--secondary"
+                  href="{{ setup.report_url }}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Voir le rapport
+                </a>
+              </div>
+              {% endif %}
             </article>
             {% endfor %}
             {% endfor %}
