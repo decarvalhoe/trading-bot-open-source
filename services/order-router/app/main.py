@@ -1,10 +1,13 @@
 """Order router service centralising broker connectivity."""
 from __future__ import annotations
 
-from datetime import datetime
+import asyncio
 import logging
+import os
 import threading
+from concurrent.futures import Future
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -14,6 +17,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
+
+import httpx
 
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
@@ -39,6 +44,7 @@ from schemas.order_router import (
     PaginatedOrders,
     RiskOverrides,
 )
+from services.streaming.app.schemas import StreamIngestPayload
 
 from .database import get_session
 
@@ -57,6 +63,250 @@ from .risk_rules import (
 
 
 logger = logging.getLogger("order-router.risk")
+streaming_logger = logging.getLogger("order-router.streaming")
+
+
+@dataclass
+class StreamingConfig:
+    ingest_url: str | None
+    service_token: str | None
+    room_id: str
+    timeout: float = 5.0
+    max_attempts: int = 3
+    backoff_factor: float = 0.5
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.ingest_url and self.service_token)
+
+    @classmethod
+    def from_env(cls) -> "StreamingConfig":
+        return cls(
+            ingest_url=os.getenv("STREAMING_INGEST_URL"),
+            service_token=os.getenv("STREAMING_SERVICE_TOKEN"),
+            room_id=os.getenv("STREAMING_ROOM_ID", "public-room"),
+        )
+
+
+class StreamingIngestClient:
+    """Async client responsible for forwarding events to the streaming service."""
+
+    def __init__(self, config: StreamingConfig) -> None:
+        self._config = config
+        self._client: httpx.AsyncClient | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        if config.enabled and config.ingest_url and config.service_token:
+            base_url = config.ingest_url.rstrip("/")
+            self._client = httpx.AsyncClient(
+                base_url=base_url,
+                headers={"X-Service-Token": config.service_token},
+                timeout=config.timeout,
+            )
+        self._max_attempts = max(1, config.max_attempts)
+        self._backoff_factor = max(0.0, config.backoff_factor)
+
+    @property
+    def enabled(self) -> bool:
+        return self._client is not None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        if not self.enabled:
+            return
+        self._loop = loop
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    def publish(self, payload: Dict[str, Any]) -> None:
+        if not self._client or not self._loop:
+            return
+        future: Future[None] = asyncio.run_coroutine_threadsafe(
+            self._send_with_retry(payload), self._loop
+        )
+        future.add_done_callback(self._log_failure)
+
+    async def _send_with_retry(self, payload: Dict[str, Any]) -> None:
+        assert self._client is not None  # for mypy
+        body = StreamIngestPayload(
+            room_id=self._config.room_id,
+            source="reports",
+            payload=payload,
+        ).model_dump()
+        last_error: Exception | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                response = await self._client.post("/ingest/reports", json=body)
+                response.raise_for_status()
+                return
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500:
+                    streaming_logger.warning(
+                        "Streaming ingest rejected payload (status=%s)",
+                        exc.response.status_code,
+                    )
+                    return
+                last_error = exc
+            except httpx.RequestError as exc:
+                last_error = exc
+            if attempt < self._max_attempts:
+                await asyncio.sleep(self._backoff_factor * attempt)
+        if last_error is not None:
+            streaming_logger.error(
+                "Unable to forward streaming payload after %s attempts",
+                self._max_attempts,
+                exc_info=last_error,
+            )
+
+    @staticmethod
+    def _log_failure(future: Future[None]) -> None:
+        try:
+            future.result()
+        except Exception as exc:  # pragma: no cover - background logging
+            streaming_logger.warning("Streaming ingest task failed", exc_info=exc)
+
+
+class OrderEventsPublisher:
+    def order_persisted(
+        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+    ) -> None:
+        raise NotImplementedError
+
+    def order_cancelled(self, order: OrderModel, report: ExecutionReport) -> None:
+        raise NotImplementedError
+
+
+class NullOrderEventsPublisher(OrderEventsPublisher):
+    def order_persisted(
+        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+    ) -> None:  # pragma: no cover - intentional no-op
+        return
+
+    def order_cancelled(self, order: OrderModel, report: ExecutionReport) -> None:  # pragma: no cover - intentional no-op
+        return
+
+
+class StreamingOrderEventsPublisher(OrderEventsPublisher):
+    def __init__(self, client: StreamingIngestClient | None) -> None:
+        self._client = client
+
+    def order_persisted(
+        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+    ) -> None:
+        if not self._client or not self._client.enabled:
+            return
+        if report.filled_quantity > 0:
+            transaction = self._build_transaction(order, report, account_id)
+            self._client.publish({"resource": "transactions", "items": [transaction]})
+        log_entry = self._build_log_entry(
+            timestamp=report.submitted_at,
+            status=report.status.value,
+            symbol=report.symbol,
+            order_id=report.order_id,
+            tags=report.tags or order.tags,
+            broker=order.broker,
+            side=order.side.value,
+            account_id=account_id,
+            quantity=report.quantity,
+            filled_quantity=report.filled_quantity,
+            avg_price=report.avg_price or order.price,
+        )
+        self._client.publish({"resource": "logs", "entry": log_entry})
+
+    def order_cancelled(self, order: OrderModel, report: ExecutionReport) -> None:
+        if not self._client or not self._client.enabled:
+            return
+        log_entry = self._build_log_entry(
+            timestamp=report.submitted_at,
+            status=report.status.value,
+            symbol=report.symbol,
+            order_id=report.order_id,
+            tags=report.tags,
+            broker=order.broker,
+            side=order.side,
+            account_id=order.account_id,
+            quantity=float(order.quantity or 0),
+            filled_quantity=float(order.filled_quantity or Decimal("0")),
+            avg_price=report.avg_price,
+        )
+        self._client.publish({"resource": "logs", "entry": log_entry})
+
+    @staticmethod
+    def _normalise_timestamp(value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat()
+
+    def _build_transaction(
+        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+    ) -> Dict[str, Any]:
+        price = report.avg_price or order.price or 0.0
+        return {
+            "timestamp": self._normalise_timestamp(report.submitted_at),
+            "portfolio": account_id,
+            "symbol": report.symbol,
+            "side": order.side.value,
+            "quantity": report.filled_quantity,
+            "price": price,
+        }
+
+    def _build_log_entry(
+        self,
+        *,
+        timestamp: datetime,
+        status: str,
+        symbol: str,
+        order_id: str,
+        tags: Optional[List[str]],
+        broker: str,
+        side: str | None,
+        account_id: str | None,
+        quantity: float | Decimal | None,
+        filled_quantity: float | Decimal | None,
+        avg_price: float | Decimal | None,
+    ) -> Dict[str, Any]:
+        status_text = status.upper()
+        message_parts = [status_text, symbol]
+        if order_id:
+            message_parts.append(f"(ordre {order_id})")
+        entry: Dict[str, Any] = {
+            "timestamp": self._normalise_timestamp(timestamp),
+            "message": " ".join(part for part in message_parts if part),
+            "status": status_text,
+            "symbol": symbol,
+            "order_id": order_id,
+        }
+        strategy_hint = self._extract_strategy_hint(tags)
+        if strategy_hint:
+            entry["strategy_hint"] = strategy_hint
+        extra: Dict[str, Any] = {}
+        if broker:
+            extra["broker"] = broker
+        if side:
+            extra["side"] = side
+        if account_id:
+            extra["account_id"] = account_id
+        if quantity is not None:
+            extra["quantity"] = float(quantity)
+        if filled_quantity is not None:
+            extra["filled_quantity"] = float(filled_quantity)
+        if avg_price is not None:
+            extra["avg_price"] = float(avg_price)
+        if extra:
+            entry["extra"] = extra
+        return entry
+
+    @staticmethod
+    def _extract_strategy_hint(tags: Optional[List[str]]) -> Optional[str]:
+        if not tags:
+            return None
+        for tag in tags:
+            if isinstance(tag, str) and tag.startswith("strategy:"):
+                return tag.split(":", 1)[1]
+        return None
 
 
 class OrderPersistenceError(Exception):
@@ -85,6 +335,7 @@ class OrderRouter:
         adapters: List[BrokerAdapter],
         risk_engine: RiskEngine,
         limit_store: DynamicLimitStore,
+        events_publisher: OrderEventsPublisher | None = None,
     ) -> None:
         self._adapters = {adapter.name: adapter for adapter in adapters}
         self._risk_engine = risk_engine
@@ -92,6 +343,7 @@ class OrderRouter:
         self._risk_alerts: List[RiskSignal] = []
         self._lock = threading.RLock()
         self._state = RouterState()
+        self._events = events_publisher or NullOrderEventsPublisher()
 
     def list_brokers(self) -> List[str]:
         return sorted(self._adapters.keys())
@@ -210,8 +462,11 @@ class OrderRouter:
         except SQLAlchemyError as exc:
             logger.exception("Failed to persist order %s", report.order_id)
             raise OrderPersistenceError("database error while persisting order") from exc
+        else:
+            self._events.order_persisted(order, report, account_id)
 
     def _record_cancellation(self, session: Session, report: ExecutionReport) -> None:
+        order_model: OrderModel | None = None
         try:
             with session.begin():
                 order_model = (
@@ -268,6 +523,9 @@ class OrderRouter:
                 "Failed to log cancellation for order %s", report.order_id
             )
             raise OrderPersistenceError("database error while logging cancellation") from exc
+        else:
+            if order_model is not None:
+                self._events.order_cancelled(order_model, report)
 
     def _build_execution_models(
         self,
@@ -454,6 +712,10 @@ _notional_limits = {limit.symbol: limit.notional_limit() for limit in _supported
 _limit_store = DynamicLimitStore(_symbol_limits)
 _limit_store.set_stop_loss("default", 50_000.0)
 
+_streaming_config = StreamingConfig.from_env()
+_streaming_client = StreamingIngestClient(_streaming_config)
+_events_publisher = StreamingOrderEventsPublisher(_streaming_client)
+
 router = OrderRouter(
     adapters=[BinanceAdapter(), IBKRAdapter()],
     risk_engine=RiskEngine(
@@ -465,6 +727,7 @@ router = OrderRouter(
         ]
     ),
     limit_store=_limit_store,
+    events_publisher=_events_publisher,
 )
 
 configure_logging("order-router")
@@ -473,6 +736,31 @@ app = FastAPI(title="Order Router", version="0.1.0")
 install_entitlements_middleware(app, required_capabilities=["can.route_orders"])
 app.add_middleware(RequestContextMiddleware, service_name="order-router")
 setup_metrics(app, service_name="order-router")
+
+
+@app.on_event("startup")
+async def _configure_streaming_client() -> None:
+    global _streaming_client, _events_publisher, _streaming_config
+    if _streaming_client.enabled:
+        await _streaming_client.aclose()
+    _streaming_config = StreamingConfig.from_env()
+    _streaming_client = StreamingIngestClient(_streaming_config)
+    _events_publisher = StreamingOrderEventsPublisher(_streaming_client)
+    router._events = _events_publisher  # type: ignore[attr-defined]
+    if _streaming_client.enabled:
+        _streaming_client.bind_loop(asyncio.get_running_loop())
+        streaming_logger.info(
+            "Streaming ingest enabled for room %s", _streaming_config.room_id
+        )
+    else:
+        streaming_logger.info(
+            "Streaming ingest disabled (missing STREAMING_INGEST_URL or STREAMING_SERVICE_TOKEN)"
+        )
+
+
+@app.on_event("shutdown")
+async def _shutdown_streaming_client() -> None:
+    await _streaming_client.aclose()
 
 
 class ExecutionPlanResponse(BaseModel):

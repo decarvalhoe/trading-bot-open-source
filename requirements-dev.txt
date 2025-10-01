@@ -8,6 +8,7 @@ detect-secrets>=1.4.0
 pytest>=7.4.0
 pytest-asyncio>=0.24.0
 httpx>=0.24.0
+respx>=0.20.0
 openfeature-sdk>=0.8.3
 schemathesis>=4.1.0
 coverage>=7.6

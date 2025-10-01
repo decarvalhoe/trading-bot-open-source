@@ -21,6 +21,9 @@ Variables d'environnement disponibles :
 - `STREAMING_PIPELINE_BACKEND`: `memory` (par défaut), `redis` ou `nats` pour sélectionner le bus de diffusion.
 - `STREAMING_REDIS_URL` / `STREAMING_NATS_URL`: URLs des backends respectifs.
 - `STREAMING_SERVICE_TOKEN_REPORTS` et `STREAMING_SERVICE_TOKEN_INPLAY`: jetons partagés utilisés par les services producteurs lors des appels d'ingestion.
+- `STREAMING_INGEST_URL` : URL de base (HTTP) utilisée par les producteurs comme `order-router` pour publier les événements d'exécution (`http://streaming:8000` en développement).
+- `STREAMING_SERVICE_TOKEN` : jeton d'authentification présenté par `order-router` lors des appels `POST /ingest/reports`.
+- `STREAMING_ROOM_ID` (optionnel) : identifiant de la room cible pour les rapports temps réel (défaut `public-room`).
 - `STREAMING_ENTITLEMENTS_CAPABILITY`: capacité requise côté client (défaut `can.stream_public`).
 
 En développement/test, `ENTITLEMENTS_BYPASS=1` autorise les connexions sans contacter le service d'entitlements.

@@ -50,6 +50,9 @@ def db_module(tmp_path_factory: pytest.TempPathFactory):
     db_path = tmp_path_factory.mktemp("order_router_db") / "test.sqlite"
     os.environ.setdefault("ENTITLEMENTS_BYPASS", "1")
     os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
+    os.environ["STREAMING_INGEST_URL"] = "http://streaming.test"
+    os.environ["STREAMING_SERVICE_TOKEN"] = "reports-token"
+    os.environ["STREAMING_ROOM_ID"] = "public-room"
 
     module = importlib.import_module("libs.db.db")
     module = importlib.reload(module)
