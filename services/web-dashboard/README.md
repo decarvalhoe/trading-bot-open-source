@@ -12,6 +12,7 @@ configuration.
 | --- | --- | --- |
 | Portefeuilles, transactions, alertes | `services/web-dashboard/app/data.py` | Données d'exemple construites côté service pour illustrer la présentation des portefeuilles et flux récents. |
 | Métriques de performance | `reports-service` (`GET /reports/daily`) | Agrégation quotidienne retournant P\&L, drawdown et incidents. Le dashboard normalise les rendements à partir du champ d'exposition (`exposure`, `notional_exposure`, etc.) lorsqu'il est fourni afin de calculer un rendement composé et un ratio de Sharpe annualisé. |
+| Setups InPlay | `services/inplay` (`GET /inplay/watchlists/{id}` + WebSocket `/inplay/ws`) | Les setups incluent un champ `session` (`london`, `new_york`, `asia`). Le dashboard expose un sélecteur pour filtrer l'affichage par session et peut recharger un instantané via `?session=`. |
 
 Lorsque la réponse du reports-service ne contient pas d'exposition, le calcul du
 Sharpe et du rendement cumulatif retombe sur les valeurs de P\&L brutes (sans
@@ -35,6 +36,10 @@ Le module `services/web-dashboard/app/data.py` encapsule ces appels via
 dans le contexte Jinja. Toute adaptation (nouvelle source, transformation
 supplémentaire) doit se faire dans ce module pour conserver une interface
 centralisée.
+
+### Filtrage des sessions InPlay
+
+La section « Setups en temps réel » propose un sélecteur de session (`Toutes les sessions`, `Londres`, `New York`, `Asie`). Le filtrage est appliqué côté navigateur et déclenche, si besoin, une requête `GET /inplay/watchlists/{id}?session=...` pour synchroniser l'instantané InPlay. Sans sélection particulière, toutes les sessions restent visibles et les mises à jour temps réel continuent d'être diffusées via le WebSocket.
 
 ## Tests
 

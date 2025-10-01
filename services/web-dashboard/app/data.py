@@ -290,6 +290,16 @@ def _normalise_inplay_strategy(entry: dict[str, object]) -> InPlayStrategySetup 
         probability = max(0.0, min(1.0, probability))
 
     updated_at = _parse_timestamp(entry.get("updated_at") or entry.get("received_at"))
+    raw_session = (
+        entry.get("session")
+        or entry.get("session_name")
+        or entry.get("sessionName")
+        or entry.get("market")
+        or None
+    )
+    session: str | None = None
+    if isinstance(raw_session, str) and raw_session.strip():
+        session = raw_session.strip().lower().replace(" ", "_")
 
     return InPlayStrategySetup(
         strategy=strategy,
@@ -299,6 +309,7 @@ def _normalise_inplay_strategy(entry: dict[str, object]) -> InPlayStrategySetup 
         stop=stop_level,
         probability=probability,
         updated_at=updated_at,
+        session=session,
     )
 
 
@@ -371,6 +382,7 @@ def _fallback_inplay_setups() -> InPlayDashboardSetups:
                                 stop=187.8,
                                 probability=0.64,
                                 updated_at=base_time,
+                                session="london",
                             )
                         ],
                     ),
@@ -385,6 +397,7 @@ def _fallback_inplay_setups() -> InPlayDashboardSetups:
                                 stop=398.7,
                                 probability=0.58,
                                 updated_at=base_time,
+                                session="new_york",
                             )
                         ],
                     ),
