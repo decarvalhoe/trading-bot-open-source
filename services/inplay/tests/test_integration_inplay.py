@@ -21,6 +21,7 @@ def test_tick_stream_updates_watchlist_and_websocket() -> None:
         target=191.5,
         stop=189.0,
         probability=0.65,
+        status="pending",
         watchlists=["momentum"],
     )
 
@@ -41,6 +42,7 @@ def test_tick_stream_updates_watchlist_and_websocket() -> None:
         setups = data["symbols"][0]["setups"]
         assert setups[0]["strategy"] == "ORB"
         assert setups[0]["probability"] == payload.probability
+        assert setups[0]["status"] == payload.status
 
         with client.websocket_connect("/inplay/ws") as websocket:
             initial = websocket.receive_json()
@@ -53,6 +55,7 @@ def test_tick_stream_updates_watchlist_and_websocket() -> None:
                 target=192.0,
                 stop=189.5,
                 probability=0.7,
+                status="validated",
                 watchlists=["momentum"],
             )
             stream.publish(updated_payload)
@@ -61,3 +64,4 @@ def test_tick_stream_updates_watchlist_and_websocket() -> None:
             latest_setup = message["payload"]["symbols"][0]["setups"][0]
             assert latest_setup["target"] == updated_payload.target
             assert latest_setup["probability"] == updated_payload.probability
+            assert latest_setup["status"] == updated_payload.status

@@ -6,6 +6,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+SetupStatus = Literal["validated", "pending", "failed"]
+
+
 class TickPayload(BaseModel):
     symbol: str
     strategy: str
@@ -13,6 +16,7 @@ class TickPayload(BaseModel):
     target: float
     stop: float
     probability: float = Field(..., ge=0.0, le=1.0)
+    status: SetupStatus = "pending"
     watchlists: list[str] | None = None
     source: Literal["market-data", "manual"] = "market-data"
     received_at: datetime = Field(default_factory=datetime.utcnow)
@@ -25,6 +29,7 @@ class StrategySetup(BaseModel):
     target: float
     stop: float
     probability: float
+    status: SetupStatus = "pending"
     updated_at: datetime
 
 

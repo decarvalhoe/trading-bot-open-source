@@ -14,12 +14,39 @@
 
   const initialState =
     bootstrapData.context ||
-    { portfolios: [], transactions: [], alerts: [], strategies: [], logs: [] };
+    {
+      portfolios: [],
+      transactions: [],
+      alerts: [],
+      strategies: [],
+      logs: [],
+      setups: { watchlists: [], fallback_reason: null },
+    };
   const streamingConfig = bootstrapData.streaming || {};
   const state = {
     current: JSON.parse(JSON.stringify(initialState)),
     fallback: JSON.parse(JSON.stringify(initialState)),
+    setupsFallbackActive: false,
   };
+
+  function ensureSetupsContainer(target) {
+    if (!target.setups || typeof target.setups !== "object") {
+      target.setups = { watchlists: [], fallback_reason: null };
+      return target.setups;
+    }
+    const fallbackReason =
+      target.setups.fallback_reason ?? target.setups.fallbackReason ?? null;
+    let watchlists = target.setups.watchlists ?? target.setups.watchLists;
+    if (!Array.isArray(watchlists)) {
+      watchlists = [];
+    }
+    target.setups = { watchlists, fallback_reason: fallbackReason };
+    return target.setups;
+  }
+
+  ensureSetupsContainer(state.current);
+  ensureSetupsContainer(state.fallback);
+  state.setupsFallbackActive = false;
 
   const alertsReactRoot = document.getElementById("alerts-manager");
 
@@ -30,6 +57,8 @@
     strategies: document.querySelector(".strategy-table__body"),
     logs: document.getElementById("log-entries"),
     logFilter: document.getElementById("log-filter"),
+    setups: document.querySelector(".inplay-setups__grid"),
+    setupsStatus: document.getElementById("inplay-setups-status"),
   };
 
   const filters = {
@@ -64,6 +93,20 @@
       hour: "2-digit",
       minute: "2-digit",
     });
+  }
+
+  function formatProbability(value) {
+    if (value === null || value === undefined) {
+      return "—";
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "—";
+    }
+    if (numeric >= 0 && numeric <= 1) {
+      return `${Math.round(numeric * 100)} %`;
+    }
+    return `${Math.round(numeric)} %`;
   }
 
   function renderPortfolios() {
@@ -176,6 +219,292 @@
       `;
       container.appendChild(item);
     });
+  }
+
+  function updateSetupsStatus(message, tone = "info") {
+    const statusNode = selectors.setupsStatus;
+    if (!statusNode) {
+      return;
+    }
+    const toneClass = tone ? ` inplay-setups__status--${tone}` : "";
+    statusNode.className = `inplay-setups__status text${toneClass}`;
+    statusNode.textContent = message || "";
+  }
+
+  function sanitiseSetupStatus(value) {
+    if (!value) {
+      return "pending";
+    }
+    if (typeof value === "string") {
+      return value.toLowerCase();
+    }
+    if (value && typeof value === "object" && typeof value.value === "string") {
+      return value.value.toLowerCase();
+    }
+    return "pending";
+  }
+
+  function sanitiseStrategySetup(raw) {
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const strategy = (raw.strategy || raw.name || "").toString().trim();
+    if (!strategy) {
+      return null;
+    }
+    const entry = raw.entry ?? raw.entry_price ?? raw.entryPrice;
+    const target = raw.target ?? raw.target_price ?? raw.targetPrice;
+    const stop = raw.stop ?? raw.stop_price ?? raw.stopPrice;
+    const probability = raw.probability ?? raw.confidence ?? raw.score;
+    const updatedAt =
+      raw.updated_at || raw.updatedAt || raw.received_at || raw.receivedAt || null;
+
+    return {
+      strategy,
+      status: sanitiseSetupStatus(raw.status),
+      entry: entry !== undefined && entry !== null ? Number(entry) : null,
+      target: target !== undefined && target !== null ? Number(target) : null,
+      stop: stop !== undefined && stop !== null ? Number(stop) : null,
+      probability:
+        probability !== undefined && probability !== null
+          ? Number(probability)
+          : null,
+      updated_at: updatedAt,
+    };
+  }
+
+  function sanitiseSymbolSetups(raw) {
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const symbol = (raw.symbol || raw.ticker || "").toString().trim();
+    if (!symbol) {
+      return null;
+    }
+    const rawSetups = Array.isArray(raw.setups) ? raw.setups : [];
+    const setups = rawSetups
+      .map((setup) => sanitiseStrategySetup(setup))
+      .filter((setup) => setup !== null);
+    return { symbol, setups };
+  }
+
+  function sanitiseWatchlistSnapshot(raw, fallbackId) {
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const identifier =
+      (raw.id || raw.watchlist_id || raw.watchlistId || fallbackId || "")
+        .toString()
+        .trim();
+    if (!identifier) {
+      return null;
+    }
+    const rawSymbols = Array.isArray(raw.symbols) ? raw.symbols : [];
+    const symbols = rawSymbols
+      .map((symbol) => sanitiseSymbolSetups(symbol))
+      .filter((symbol) => symbol !== null);
+    return {
+      id: identifier,
+      updated_at: raw.updated_at || raw.updatedAt || null,
+      symbols,
+    };
+  }
+
+  function upsertWatchlist(target, snapshot) {
+    const index = target.findIndex((entry) => entry && entry.id === snapshot.id);
+    if (index >= 0) {
+      target[index] = snapshot;
+    } else {
+      target.push(snapshot);
+    }
+  }
+
+  function applyWatchlistSnapshot(snapshot) {
+    const normalised = sanitiseWatchlistSnapshot(snapshot);
+    if (!normalised) {
+      return false;
+    }
+    ensureSetupsContainer(state.current);
+    ensureSetupsContainer(state.fallback);
+    upsertWatchlist(state.current.setups.watchlists, normalised);
+    upsertWatchlist(
+      state.fallback.setups.watchlists,
+      JSON.parse(JSON.stringify(normalised))
+    );
+    state.current.setups.fallback_reason = null;
+    state.fallback.setups.fallback_reason = null;
+    state.setupsFallbackActive = false;
+    return true;
+  }
+
+  function applyWatchlistPayload(payload) {
+    if (!payload) {
+      return false;
+    }
+    let applied = false;
+    const candidates = [];
+    if (Array.isArray(payload)) {
+      candidates.push(...payload);
+    } else {
+      if (Array.isArray(payload.watchlists)) {
+        candidates.push(...payload.watchlists);
+      }
+      if (Array.isArray(payload.items)) {
+        candidates.push(...payload.items);
+      }
+      if (!candidates.length && (payload.symbols || payload.id || payload.watchlist_id)) {
+        candidates.push(payload);
+      }
+    }
+
+    candidates.forEach((candidate) => {
+      if (applyWatchlistSnapshot(candidate)) {
+        applied = true;
+      }
+    });
+
+    if (applied) {
+      renderSetups();
+    }
+    return applied;
+  }
+
+  function formatLevel(value) {
+    if (value === null || value === undefined) {
+      return "—";
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "—";
+    }
+    return numeric.toFixed(2);
+  }
+
+  function appendMetric(metrics, label, value) {
+    const dt = document.createElement("dt");
+    dt.className = "setup-card__metric-label";
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.className = "setup-card__metric-value";
+    dd.textContent = value;
+    metrics.appendChild(dt);
+    metrics.appendChild(dd);
+  }
+
+  function renderSetups() {
+    const container = selectors.setups;
+    if (!container) {
+      return;
+    }
+    container.innerHTML = "";
+
+    const setupsState = ensureSetupsContainer(state.current);
+    const watchlists = Array.isArray(setupsState.watchlists)
+      ? setupsState.watchlists
+      : [];
+    const fallbackReason =
+      setupsState.fallback_reason ?? setupsState.fallbackReason ?? null;
+
+    let cardCount = 0;
+    watchlists.forEach((watchlist) => {
+      if (!watchlist || typeof watchlist !== "object") {
+        return;
+      }
+      const watchlistId = (watchlist.id || "").toString();
+      const symbols = Array.isArray(watchlist.symbols) ? watchlist.symbols : [];
+      symbols.forEach((symbolEntry) => {
+        const symbol = symbolEntry && symbolEntry.symbol ? symbolEntry.symbol : "";
+        const setups = Array.isArray(symbolEntry.setups)
+          ? symbolEntry.setups
+          : [];
+        setups.forEach((setup) => {
+          if (!setup || typeof setup !== "object") {
+            return;
+          }
+          const strategy = (setup.strategy || "").toString() || "Stratégie";
+          const statusValue = (setup.status || "pending").toString().toLowerCase();
+          let badgeClass = "badge--info";
+          if (statusValue === "validated") {
+            badgeClass = "badge--success";
+          } else if (statusValue === "failed") {
+            badgeClass = "badge--critical";
+          } else if (statusValue !== "pending") {
+            badgeClass = "badge--warning";
+          }
+          const statusLabel =
+            statusValue.charAt(0).toUpperCase() + statusValue.slice(1);
+
+          const card = document.createElement("article");
+          card.className = "setup-card";
+          card.setAttribute("role", "listitem");
+
+          const header = document.createElement("div");
+          header.className = "setup-card__header";
+          const strategyNode = document.createElement("span");
+          strategyNode.className = "setup-card__strategy heading heading--md";
+          strategyNode.textContent = strategy;
+          const statusBadge = document.createElement("span");
+          statusBadge.className = `badge ${badgeClass}`;
+          statusBadge.textContent = statusLabel;
+          header.appendChild(strategyNode);
+          header.appendChild(statusBadge);
+          card.appendChild(header);
+
+          const meta = document.createElement("p");
+          meta.className = "setup-card__meta text text--muted";
+          const parts = [];
+          if (symbol) {
+            parts.push(symbol);
+          }
+          if (watchlistId) {
+            parts.push(`Watchlist ${watchlistId}`);
+          }
+          if (setup.updated_at) {
+            const updated = formatTimestamp(setup.updated_at);
+            if (updated) {
+              parts.push(`Maj ${updated}`);
+            }
+          }
+          meta.textContent = parts.join(" · ");
+          card.appendChild(meta);
+
+          const metrics = document.createElement("dl");
+          metrics.className = "setup-card__metrics";
+          appendMetric(metrics, "Entrée", formatLevel(setup.entry));
+          appendMetric(metrics, "Cible", formatLevel(setup.target));
+          appendMetric(metrics, "Stop", formatLevel(setup.stop));
+          appendMetric(metrics, "Probabilité", formatProbability(setup.probability));
+          card.appendChild(metrics);
+
+          container.appendChild(card);
+          cardCount += 1;
+        });
+      });
+    });
+
+    if (!cardCount) {
+      const empty = document.createElement("p");
+      empty.className = "text text--muted inplay-setups__empty";
+      empty.textContent =
+        fallbackReason ||
+        "Aucun setup en temps réel n'est disponible pour le moment.";
+      container.appendChild(empty);
+      updateSetupsStatus(
+        fallbackReason ||
+          "Aucun setup en temps réel n'est disponible pour le moment.",
+        fallbackReason ? "warning" : "info"
+      );
+    } else if (state.setupsFallbackActive) {
+      updateSetupsStatus(
+        fallbackReason ||
+          "Flux indisponible : affichage du dernier instantané connu.",
+        "warning"
+      );
+    } else if (fallbackReason) {
+      updateSetupsStatus(fallbackReason, "warning");
+    } else {
+      updateSetupsStatus("Flux InPlay connecté.", "success");
+    }
   }
 
   function updateLogFilterOptions() {
@@ -381,6 +710,7 @@
   }
 
   function renderAll() {
+    renderSetups();
     renderStrategies();
     renderPortfolios();
     renderTransactions();
@@ -403,6 +733,8 @@
 
   function restoreFallback() {
     state.current = JSON.parse(JSON.stringify(state.fallback));
+    ensureSetupsContainer(state.current);
+    state.setupsFallbackActive = true;
     renderAll();
     if (alertsReactRoot) {
       document.dispatchEvent(
@@ -434,6 +766,18 @@
       return;
     }
 
+    if (message && message.type === "watchlist.update" && message.payload) {
+      if (applyWatchlistPayload(message.payload)) {
+        return;
+      }
+    }
+
+    if (payload && payload.type === "watchlist.update" && payload.payload) {
+      if (applyWatchlistPayload(payload.payload)) {
+        return;
+      }
+    }
+
     const resource = payload.resource || payload.type;
     if (resource === "portfolios" && Array.isArray(payload.items)) {
       state.current.portfolios = payload.items;
@@ -460,6 +804,10 @@
       state.current.strategies = payload.items;
       renderStrategies();
       renderLogs();
+    } else if (resource === "inplay.watchlists" || resource === "inplay.setups") {
+      const snapshot =
+        payload.snapshot || payload.watchlists || payload.items || payload;
+      applyWatchlistPayload(snapshot);
     } else if (resource === "logs" || resource === "executions") {
       const items = [];
       if (Array.isArray(payload.items)) {
