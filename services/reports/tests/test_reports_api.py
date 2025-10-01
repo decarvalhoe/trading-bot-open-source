@@ -151,6 +151,36 @@ def test_reports_endpoint_computes_metrics(tmp_path: Path) -> None:
     assert round(intraday_metrics["target"], 2) == 194.25
 
 
+def test_symbol_summary_endpoint_returns_combined_metrics(tmp_path: Path) -> None:
+    _configure_database(tmp_path)
+    _seed_sample_data()
+
+    with TestClient(app) as client:
+        response = client.get("/symbols/AAPL/summary", params={"limit": 5})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["symbol"] == "AAPL"
+    assert payload["report"]["symbol"] == "AAPL"
+
+    risk = payload["risk"]
+    assert round(risk["total_pnl"], 2) == 0.8
+    assert round(risk["max_drawdown"], 2) == 1.2
+    assert risk["incident_count"] == 1
+    assert len(risk["recent"]) == 3
+    loss_day = next(item for item in risk["recent"] if item["session_date"] == "2024-03-19")
+    assert loss_day["incidents"], "Loss day should expose incident metadata"
+
+
+def test_symbol_summary_returns_404_when_no_data(tmp_path: Path) -> None:
+    _configure_database(tmp_path)
+
+    with TestClient(app) as client:
+        response = client.get("/symbols/UNKNOWN/summary")
+
+    assert response.status_code == 404
+
+
 def test_refresh_reports_creates_snapshots(tmp_path: Path) -> None:
     _configure_database(tmp_path)
     _seed_sample_data()

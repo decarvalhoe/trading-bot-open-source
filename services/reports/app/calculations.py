@@ -151,10 +151,12 @@ class DailyRiskCalculator:
     def __init__(self, session: Session):
         self._session = session
 
-    def _fetch_rows(self, account: str | None) -> list[ReportDaily]:
+    def _fetch_rows(self, account: str | None, symbol: str | None = None) -> list[ReportDaily]:
         statement = select(ReportDaily)
         if account:
             statement = statement.where(ReportDaily.account == account)
+        if symbol:
+            statement = statement.where(ReportDaily.symbol == symbol)
         statement = statement.order_by(ReportDaily.account, ReportDaily.session_date, ReportDaily.id)
         return list(self._session.scalars(statement))
 
@@ -175,11 +177,9 @@ class DailyRiskCalculator:
             )
         return incidents
 
-    def generate(self, account: str | None = None, limit: int | None = 30) -> List[DailyRiskReport]:
-        rows = self._fetch_rows(account)
+    def _aggregate(self, rows: Sequence[ReportDaily], limit: int | None) -> List[DailyRiskReport]:
         if not rows:
             return []
-
         grouped: dict[str, dict[date, list[ReportDaily]]] = defaultdict(dict)
         for row in rows:
             bucket = grouped.setdefault(row.account, {}).setdefault(row.session_date, [])
@@ -217,6 +217,19 @@ class DailyRiskCalculator:
         if limit is not None and limit > 0:
             summaries = summaries[:limit]
         return summaries
+
+    def generate(self, account: str | None = None, limit: int | None = 30) -> List[DailyRiskReport]:
+        rows = self._fetch_rows(account)
+        return self._aggregate(rows, limit)
+
+    def generate_for_symbol(
+        self,
+        symbol: str,
+        account: str | None = None,
+        limit: int | None = 30,
+    ) -> List[DailyRiskReport]:
+        rows = self._fetch_rows(account, symbol)
+        return self._aggregate(rows, limit)
 
     def _load_benchmarks(
         self, account: str | None, dates: Sequence[date]
