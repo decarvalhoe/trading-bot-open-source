@@ -98,6 +98,10 @@ class PortfolioPerformance(BaseModel):
     average_return: float
     volatility: float
     sharpe_ratio: float
+    sortino_ratio: float
+    alpha: float
+    beta: float
+    tracking_error: float
     max_drawdown: float = Field(..., ge=0.0)
     observation_count: int = Field(..., ge=0)
     positive_days: int = Field(..., ge=0)
