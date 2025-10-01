@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import importlib
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import Response
@@ -21,7 +21,7 @@ from schemas.report import DailyRiskReport, PortfolioPerformance, ReportResponse
 from .calculations import DailyRiskCalculator, ReportCalculator, load_report_from_snapshots
 from .config import Settings, get_settings
 from .database import get_engine, get_session
-from .tables import Base, ReportJob, ReportJobStatus
+from .tables import Base, ReportBacktest, ReportJob, ReportJobStatus
 
 configure_logging("reports")
 
@@ -100,6 +100,28 @@ class SymbolSummary(BaseModel):
     risk: RiskSummary
 
 
+class BacktestMetricsPayload(BaseModel):
+    trades: int = Field(..., ge=0)
+    total_return: float
+    max_drawdown: float = Field(..., ge=0.0)
+    equity_curve: list[float] = Field(..., min_length=1)
+    metrics_path: str | None = None
+    log_path: str | None = None
+
+
+class BacktestSummaryPayload(BaseModel):
+    strategy_id: str
+    strategy_name: str
+    strategy_type: str
+    symbol: str | None = None
+    account: str | None = None
+    initial_balance: float = Field(..., gt=0)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    summary: BacktestMetricsPayload
+
+
 def _load_symbol_report(
     session: Session,
     symbol: str,
@@ -172,6 +194,34 @@ def create_tables() -> None:
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/reports/backtests", status_code=status.HTTP_201_CREATED, tags=["reports"])
+async def record_backtest(
+    payload: BacktestSummaryPayload,
+    session: Session = Depends(get_session),
+) -> dict[str, int]:
+    record = ReportBacktest(
+        strategy_id=payload.strategy_id,
+        strategy_name=payload.strategy_name,
+        strategy_type=payload.strategy_type,
+        symbol=payload.symbol,
+        account=payload.account,
+        initial_balance=payload.initial_balance,
+        trades=payload.summary.trades,
+        total_return=payload.summary.total_return,
+        max_drawdown=payload.summary.max_drawdown,
+        equity_curve=payload.summary.equity_curve,
+        metrics_path=payload.summary.metrics_path,
+        log_path=payload.summary.log_path,
+        parameters=payload.parameters or None,
+        tags=payload.tags or None,
+        context=payload.metadata or None,
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return {"id": record.id}
 
 
 @app.get(

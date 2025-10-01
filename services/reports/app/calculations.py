@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from collections import defaultdict
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import StringIO
 from statistics import mean, pstdev
 from typing import Iterable, List, Sequence
@@ -23,7 +23,27 @@ from schemas.report import (
     TradeOutcome,
 )
 
-from .tables import ReportBenchmark, ReportDaily, ReportIntraday, ReportSnapshot
+from .tables import (
+    ReportBacktest,
+    ReportBenchmark,
+    ReportDaily,
+    ReportIntraday,
+    ReportSnapshot,
+)
+
+
+def _normalise_strategy(value: str | None) -> str | None:
+    if not value:
+        return None
+    return "".join(ch for ch in value.lower() if ch.isalnum()) or None
+
+
+_STRATEGY_LOOKUP = {
+    key: item
+    for item in StrategyName
+    for key in {_normalise_strategy(item.value), _normalise_strategy(item.name)}
+    if key
+}
 
 
 class ReportCalculator:
@@ -44,20 +64,79 @@ class ReportCalculator:
         wins = sum(1 for outcome in outcomes if outcome is TradeOutcome.WIN)
         return wins / len(outcomes)
 
+    def _load_backtests(self, symbol: str) -> list[ReportBacktest]:
+        statement = select(ReportBacktest).where(ReportBacktest.symbol == symbol)
+        return list(self._session.scalars(statement))
+
+    @staticmethod
+    def _resolve_strategy_name(*values: str | None) -> StrategyName | None:
+        for value in values:
+            key = _normalise_strategy(value)
+            if key and key in _STRATEGY_LOOKUP:
+                return _STRATEGY_LOOKUP[key]
+        return None
+
+    def _metrics_from_backtest(self, row: ReportBacktest) -> StrategyMetrics | None:
+        metadata = row.context if isinstance(row.context, dict) else {}
+        strategy = self._resolve_strategy_name(
+            row.strategy_type,
+            row.strategy_name,
+            metadata.get("report_strategy"),
+        )
+        if strategy is None:
+            return None
+
+        equity_curve = [float(value) for value in row.equity_curve or []]
+        returns = [
+            current - previous
+            for previous, current in zip(equity_curve, equity_curve[1:])
+        ]
+        wins = [value for value in returns if value > 0]
+        losses = [value for value in returns if value < 0]
+        sample_size = max(row.trades, len(returns)) or 1
+        expectancy = mean(returns) if returns else row.total_return * row.initial_balance
+        probability = len(wins) / len(returns) if returns else 0.0
+        target = mean(wins) if wins else max(equity_curve) - equity_curve[0] if equity_curve else 0.0
+        stop = abs(mean(losses)) if losses else 0.0
+        return StrategyMetrics(
+            strategy=strategy,
+            probability=probability,
+            target=target,
+            stop=stop,
+            expectancy=expectancy,
+            sample_size=sample_size,
+        )
+
+    @staticmethod
+    def _merge_metrics(first: StrategyMetrics, second: StrategyMetrics) -> StrategyMetrics:
+        total_samples = first.sample_size + second.sample_size
+        if total_samples <= 0:
+            return first
+
+        def _weighted(a: float, b: float) -> float:
+            return (a * first.sample_size + b * second.sample_size) / total_samples
+
+        return StrategyMetrics(
+            strategy=first.strategy,
+            probability=_weighted(first.probability, second.probability),
+            target=_weighted(first.target, second.target),
+            stop=_weighted(first.stop, second.stop),
+            expectancy=_weighted(first.expectancy, second.expectancy),
+            sample_size=total_samples,
+        )
+
     def _build_section(
         self,
         symbol: str,
         timeframe: Timeframe,
     ) -> ReportSection | None:
         rows = list(self._rows_for_timeframe(symbol, timeframe))
-        if not rows:
-            return None
+        metrics_map: dict[StrategyName, StrategyMetrics] = {}
 
         grouped: dict[StrategyName, list[ReportDaily | ReportIntraday]] = defaultdict(list)
         for row in rows:
             grouped[row.strategy].append(row)
 
-        strategies: list[StrategyMetrics] = []
         for strategy in StrategyName:
             bucket = grouped.get(strategy, [])
             if not bucket:
@@ -66,7 +145,7 @@ class ReportCalculator:
             expectancy_values = [item.pnl for item in bucket]
             targets = [item.target_price for item in bucket]
             stops = [item.stop_price for item in bucket]
-            metrics = StrategyMetrics(
+            metrics_map[strategy] = StrategyMetrics(
                 strategy=strategy,
                 probability=self._success_ratio(outcomes),
                 target=mean(targets),
@@ -74,12 +153,29 @@ class ReportCalculator:
                 expectancy=mean(expectancy_values),
                 sample_size=len(bucket),
             )
-            strategies.append(metrics)
 
-        if not strategies:
+        backtests: list[ReportBacktest] = []
+        if timeframe is Timeframe.DAILY:
+            backtests = self._load_backtests(symbol)
+            for backtest in backtests:
+                metrics = self._metrics_from_backtest(backtest)
+                if metrics is None:
+                    continue
+                if metrics.strategy in metrics_map:
+                    metrics_map[metrics.strategy] = self._merge_metrics(
+                        metrics_map[metrics.strategy], metrics
+                    )
+                else:
+                    metrics_map[metrics.strategy] = metrics
+
+        if not metrics_map:
             return None
 
-        updated_at = max((row.created_at for row in rows), default=datetime.utcnow())
+        updated_candidates = [row.created_at for row in rows]
+        if timeframe is Timeframe.DAILY:
+            updated_candidates.extend(backtest.created_at for backtest in backtests)
+        updated_at = max(updated_candidates, default=datetime.utcnow())
+        strategies = [metrics_map[name] for name in StrategyName if name in metrics_map]
         return ReportSection(timeframe=timeframe, strategies=strategies, updated_at=updated_at)
 
     def build_report(self, symbol: str) -> ReportResponse:
@@ -160,6 +256,60 @@ class DailyRiskCalculator:
         statement = statement.order_by(ReportDaily.account, ReportDaily.session_date, ReportDaily.id)
         return list(self._session.scalars(statement))
 
+    def _fetch_backtests(
+        self,
+        account: str | None,
+        symbol: str | None = None,
+    ) -> list[ReportBacktest]:
+        statement = select(ReportBacktest)
+        if account:
+            statement = statement.where(ReportBacktest.account == account)
+        if symbol:
+            statement = statement.where(ReportBacktest.symbol == symbol)
+        statement = statement.order_by(ReportBacktest.created_at.desc())
+        return list(self._session.scalars(statement))
+
+    @staticmethod
+    def _backtest_account(row: ReportBacktest) -> str:
+        if row.account:
+            return row.account
+        if row.strategy_name:
+            return f"backtest:{row.strategy_name}"
+        return f"backtest:{row.strategy_id}"
+
+    @staticmethod
+    def _max_drawdown_value(equity_curve: Sequence[float]) -> float:
+        if not equity_curve:
+            return 0.0
+        peak = equity_curve[0]
+        max_drawdown = 0.0
+        for value in equity_curve:
+            peak = max(peak, value)
+            max_drawdown = max(max_drawdown, peak - value)
+        return max_drawdown
+
+    def _convert_backtests(
+        self, rows: Sequence[ReportBacktest]
+    ) -> List[DailyRiskReport]:
+        reports: list[DailyRiskReport] = []
+        for row in rows:
+            equity_curve = [float(value) for value in row.equity_curve or []]
+            pnl = (
+                equity_curve[-1] - equity_curve[0]
+                if len(equity_curve) >= 2
+                else row.total_return * row.initial_balance
+            )
+            reports.append(
+                DailyRiskReport(
+                    session_date=row.created_at.date(),
+                    account=self._backtest_account(row),
+                    pnl=pnl,
+                    max_drawdown=self._max_drawdown_value(equity_curve),
+                    incidents=[],
+                )
+            )
+        return reports
+
     @staticmethod
     def _incidents(rows: Sequence[ReportDaily]) -> list[DailyRiskIncident]:
         incidents: list[DailyRiskIncident] = []
@@ -220,7 +370,13 @@ class DailyRiskCalculator:
 
     def generate(self, account: str | None = None, limit: int | None = 30) -> List[DailyRiskReport]:
         rows = self._fetch_rows(account)
-        return self._aggregate(rows, limit)
+        backtests = self._fetch_backtests(account)
+        combined = self._aggregate(rows, None)
+        combined.extend(self._convert_backtests(backtests))
+        combined.sort(key=lambda report: (report.session_date, report.account), reverse=True)
+        if limit is not None and limit > 0:
+            combined = combined[:limit]
+        return combined
 
     def generate_for_symbol(
         self,
@@ -229,7 +385,13 @@ class DailyRiskCalculator:
         limit: int | None = 30,
     ) -> List[DailyRiskReport]:
         rows = self._fetch_rows(account, symbol)
-        return self._aggregate(rows, limit)
+        backtests = self._fetch_backtests(account, symbol)
+        combined = self._aggregate(rows, None)
+        combined.extend(self._convert_backtests(backtests))
+        combined.sort(key=lambda report: (report.session_date, report.account), reverse=True)
+        if limit is not None and limit > 0:
+            combined = combined[:limit]
+        return combined
 
     def _load_benchmarks(
         self, account: str | None, dates: Sequence[date]
@@ -312,7 +474,8 @@ class DailyRiskCalculator:
 
     def performance(self, account: str | None = None) -> list[PortfolioPerformance]:
         rows = self._fetch_rows(account)
-        if not rows:
+        backtests = self._fetch_backtests(account)
+        if not rows and not backtests:
             return []
 
         grouped: dict[str, dict[date, list[ReportDaily]]] = defaultdict(dict)
@@ -374,7 +537,57 @@ class DailyRiskCalculator:
             )
             performances.append(performance)
 
+        performances.extend(self._build_backtest_performance(backtests))
         performances.sort(key=lambda item: (item.account, item.start_date or date.min))
+        return performances
+
+    def _build_backtest_performance(
+        self, rows: Sequence[ReportBacktest]
+    ) -> list[PortfolioPerformance]:
+        performances: list[PortfolioPerformance] = []
+        for row in rows:
+            equity_curve = [float(value) for value in row.equity_curve or []]
+            returns = [
+                current - previous
+                for previous, current in zip(equity_curve, equity_curve[1:])
+            ]
+            cumulative_return = (
+                equity_curve[-1] - equity_curve[0]
+                if len(equity_curve) >= 2
+                else row.total_return * row.initial_balance
+            )
+            average_return = mean(returns) if returns else 0.0
+            volatility = pstdev(returns) if len(returns) > 1 else 0.0
+            sharpe_ratio = average_return / volatility if volatility > 0 else 0.0
+            sortino_ratio = self._compute_sortino(returns)
+            observation_count = len(returns)
+            positive_days = sum(1 for value in returns if value > 0)
+            negative_days = sum(1 for value in returns if value < 0)
+            start_date = (
+                row.created_at.date() - timedelta(days=observation_count - 1)
+                if observation_count > 0
+                else row.created_at.date()
+            )
+            performances.append(
+                PortfolioPerformance(
+                    account=self._backtest_account(row),
+                    start_date=start_date,
+                    end_date=row.created_at.date(),
+                    total_return=cumulative_return,
+                    cumulative_return=cumulative_return,
+                    average_return=average_return,
+                    volatility=volatility,
+                    sharpe_ratio=sharpe_ratio,
+                    sortino_ratio=sortino_ratio,
+                    alpha=0.0,
+                    beta=0.0,
+                    tracking_error=0.0,
+                    max_drawdown=self._max_drawdown_value(equity_curve),
+                    observation_count=observation_count,
+                    positive_days=positive_days,
+                    negative_days=negative_days,
+                )
+            )
         return performances
 
     @staticmethod
