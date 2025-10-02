@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 .PHONY: setup dev-up dev-down demo-up demo-down lint test e2e e2e-sh migrate-generate migrate-up migrate-down \
-        web-dashboard-e2e
+        web_dashboard-e2e
 
 ALEMBIC_CONFIG ?= infra/migrations/alembic.ini
 ALEMBIC_DATABASE_URL ?= postgresql+psycopg2://trading:trading@localhost:5432/trading
@@ -14,15 +14,15 @@ setup:
 
 dev-up:
 	docker compose up -d postgres redis
-	docker compose up -d --build auth-service user-service
+	docker compose up -d --build auth_service user_service
 
 dev-down:
 	docker compose down -v
 
 demo-up:
 	docker compose up -d postgres redis
-	docker compose up -d --build streaming streaming_gateway market_data order-router algo-engine \
-	reports alert_engine notification-service inplay web-dashboard auth-service user-service \
+	docker compose up -d --build streaming streaming_gateway market_data order_router algo_engine \
+	reports alert_engine notification_service inplay web_dashboard auth_service user_service \
 	prometheus grafana
 
 demo-down:
@@ -46,8 +46,8 @@ e2e:
 e2e-sh:
 	bash ./scripts/e2e/auth_e2e.sh
 
-web-dashboard-e2e:
-	python -m pytest services/web-dashboard/tests/e2e
+web_dashboard-e2e:
+	python -m pytest services/web_dashboard/tests/e2e
 
 migrate-generate:
 	@if [ -z "$(message)" ]; then \

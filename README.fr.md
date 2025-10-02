@@ -46,7 +46,7 @@ trading-bot-open-source/
 
 | Domaine | Périmètre | Statut | Prérequis d'Activation |
 | --- | --- | --- | --- |
-| Stratégies & recherche | Strategy Designer visuel, imports déclaratifs, assistant IA, API de backtest | Livré (designer & backtests), Bêta opt-in (assistant) | `make demo-up`, `pip install -r services/algo-engine/requirements.txt`, `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| Stratégies & recherche | Strategy Designer visuel, imports déclaratifs, assistant IA, API de backtest | Livré (designer & backtests), Bêta opt-in (assistant) | `make demo-up`, `pip install -r services/algo_engine/requirements.txt`, `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
 | Trading & exécution | Routeur d'ordres sandbox, script bootstrap, connecteurs marché (Binance, IBKR, DTC) | Livré (sandbox + Binance/IBKR), Expérimental (DTC) | `scripts/dev/bootstrap_demo.py`, identifiants exchanges selon besoin |
 | Monitoring temps réel | Passerelle streaming, flux WebSocket InPlay, intégrations OBS/overlay | Livré (dashboard + alertes), Bêta (automatisation OBS) | Jetons de service (`reports`, `inplay`, `streaming`), secrets OAuth optionnels |
 | Reporting & analytics | API rapports quotidiens, exports PDF, métriques de risque | Livré (rapports), Enrichissement en cours (dashboards risque) | Répertoire `data/generated-reports/` accessible ; stack Prometheus/Grafana |
@@ -88,7 +88,7 @@ make demo-up
 La commande construit les services FastAPI additionnels, applique les migrations Alembic et câble Redis/PostgreSQL avant d'exposer les ports suivants. Activez l'assistant IA stratégies en option et les connecteurs avec :
 
 ```bash
-pip install -r services/algo-engine/requirements.txt
+pip install -r services/algo_engine/requirements.txt
 export AI_ASSISTANT_ENABLED=1
 export OPENAI_API_KEY="sk-votre-cle"
 ```

@@ -25,4 +25,4 @@ if [[ -f "${ENCRYPTED_ENV_FILE}" ]]; then
 fi
 
 docker compose up -d --build
-echo "-> dev up. config-service: http://localhost:8000"
+echo "-> dev up. config_service: http://localhost:8000"

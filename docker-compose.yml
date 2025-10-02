@@ -15,10 +15,10 @@ services:
     ports:
       - "6379:6379"
 
-  auth-service:
+  auth_service:
     build:
       context: .
-      dockerfile: services/auth-service/Dockerfile
+      dockerfile: services/auth_service/Dockerfile
     env_file:
       - .env.dev
     environment:
@@ -33,10 +33,10 @@ services:
     ports:
       - "8011:8000"
 
-  user-service:
+  user_service:
     build:
       context: .
-      dockerfile: services/user-service/Dockerfile
+      dockerfile: services/user_service/Dockerfile
     env_file:
       - .env.dev
     environment:
@@ -47,12 +47,12 @@ services:
     ports:
       - "8012:8000"
 
-  order-router:
+  order_router:
     build:
       context: .
       dockerfile: infra/docker/fastapi-service.Dockerfile
       args:
-        SERVICE_DIR: order-router
+        SERVICE_DIR: order_router
         SERVICE_PACKAGE: order_router
         SERVICE_MODULE: app.main
     env_file:
@@ -72,22 +72,22 @@ services:
     ports:
       - "8013:8000"
 
-  algo-engine:
+  algo_engine:
     build:
       context: .
       dockerfile: infra/docker/fastapi-service.Dockerfile
       args:
-        SERVICE_DIR: algo-engine
+        SERVICE_DIR: algo_engine
         SERVICE_PACKAGE: algo_engine
         SERVICE_MODULE: app.main
     env_file:
       - .env.dev
     environment:
-      ORDER_ROUTER_URL: http://order-router:8000
+      ORDER_ROUTER_URL: http://order_router:8000
       ORDER_ROUTER_TIMEOUT: "5.0"
       ORDER_ROUTER_API_KEY: ${ORDER_ROUTER_API_KEY:-demo-router-key}
     depends_on:
-      - order-router
+      - order_router
       - market_data
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
@@ -167,14 +167,14 @@ services:
       ALERT_ENGINE_MARKET_DATA_URL: http://market_data:8000
       ALERT_ENGINE_MARKET_DATA_STREAM_URL: http://market_data:8000
       ALERT_ENGINE_REPORTS_URL: http://reports:8000
-      ALERT_ENGINE_NOTIFICATION_URL: http://notification-service:8000
+      ALERT_ENGINE_NOTIFICATION_URL: http://notification_service:8000
       ALERT_ENGINE_STREAM_SYMBOLS: ${ALERT_ENGINE_STREAM_SYMBOLS:-BTCUSDT,ETHUSDT}
     depends_on:
       - postgres
       - redis
       - market_data
       - reports
-      - notification-service
+      - notification_service
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -182,12 +182,12 @@ services:
     ports:
       - "8017:8000"
 
-  notification-service:
+  notification_service:
     build:
       context: .
       dockerfile: infra/docker/fastapi-service.Dockerfile
       args:
-        SERVICE_DIR: notification-service
+        SERVICE_DIR: notification_service
         SERVICE_PACKAGE: notification_service
         SERVICE_MODULE: app.main
     env_file:
@@ -291,12 +291,12 @@ services:
     ports:
       - "8021:8000"
 
-  web-dashboard:
+  web_dashboard:
     build:
       context: .
       dockerfile: infra/docker/fastapi-service.Dockerfile
       args:
-        SERVICE_DIR: web-dashboard
+        SERVICE_DIR: web_dashboard
         SERVICE_PACKAGE: web_dashboard
         SERVICE_MODULE: app.main
     env_file:
@@ -320,8 +320,8 @@ services:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
       - ./data/alert-events:/data
-      - ./services/web-dashboard/app/static:/app/service/web_dashboard/app/static:ro
-      - ./services/web-dashboard/app/templates:/app/service/web_dashboard/app/templates:ro
+      - ./services/web_dashboard/app/static:/app/service/web_dashboard/app/static:ro
+      - ./services/web_dashboard/app/templates:/app/service/web_dashboard/app/templates:ro
     ports:
       - "8022:8000"
 
@@ -335,18 +335,18 @@ services:
     ports:
       - "9090:9090"
     depends_on:
-      - auth-service
-      - user-service
-      - order-router
-      - algo-engine
+      - auth_service
+      - user_service
+      - order_router
+      - algo_engine
       - market_data
       - reports
       - alert_engine
-      - notification-service
+      - notification_service
       - streaming
       - streaming_gateway
       - inplay
-      - web-dashboard
+      - web_dashboard
 
   grafana:
     image: grafana/grafana:10.4.5
