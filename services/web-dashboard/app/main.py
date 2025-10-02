@@ -9,7 +9,18 @@ from pathlib import Path
 from typing import Iterator, Literal
 from urllib.parse import urljoin
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,6 +34,7 @@ from libs.alert_events import AlertEventBase, AlertEventRepository
 from .data import load_dashboard_context, load_portfolio_history
 from .alerts_client import AlertsEngineClient, AlertsEngineError
 from .schemas import Alert, AlertCreateRequest, AlertUpdateRequest
+from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -354,6 +366,74 @@ async def save_strategy(payload: StrategySaveRequest) -> dict[str, object]:
         return {"status": "imported"}
 
 
+@app.post("/strategies/import/upload")
+async def upload_strategy_file(
+    file: UploadFile = File(...),
+    name: str | None = Form(None),
+    source_format: Literal["yaml", "python"] | None = Form(None),
+) -> dict[str, object]:
+    """Allow users to upload an existing YAML/Python file to the algo-engine."""
+
+    try:
+        content_bytes = await file.read()
+    except Exception as error:  # pragma: no cover - defensive guard
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lecture du fichier impossible.",
+        ) from error
+
+    if not content_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le fichier envoyé est vide.",
+        )
+
+    try:
+        content = content_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le fichier doit être encodé en UTF-8.",
+        ) from error
+
+    filename = file.filename or ""
+    guessed_format = "yaml"
+    if filename.lower().endswith(".py"):
+        guessed_format = "python"
+    elif filename.lower().endswith((".yaml", ".yml")):
+        guessed_format = "yaml"
+
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, "strategies/import")
+    payload = {
+        "name": name or (filename.rsplit(".", 1)[0] if filename else "Stratégie importée"),
+        "format": source_format or guessed_format,
+        "content": content,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.post(
+                target_url,
+                json=payload,
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Le moteur de stratégies est indisponible pour le moment."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        try:
+            detail = response.json()
+        except ValueError:
+            detail = {"message": response.text or "Erreur lors de l'import de la stratégie."}
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    try:
+        return response.json()
+    except ValueError:  # pragma: no cover - defensive guard when response is empty
+        return {"status": "imported"}
+
+
 @app.post("/strategies/generate")
 async def generate_strategy(payload: StrategyGenerationRequestPayload) -> dict[str, object]:
     """Delegate strategy generation to the AI assistant microservice."""
@@ -448,6 +528,7 @@ def render_strategies(request: Request) -> HTMLResponse:
     save_endpoint = request.url_for("save_strategy")
     ai_generate_endpoint = request.url_for("generate_strategy")
     ai_import_endpoint = request.url_for("import_assistant_strategy")
+    upload_endpoint = request.url_for("upload_strategy_file")
     return templates.TemplateResponse(
         "strategies.html",
         {
@@ -455,6 +536,9 @@ def render_strategies(request: Request) -> HTMLResponse:
             "save_endpoint": save_endpoint,
             "ai_generate_endpoint": ai_generate_endpoint,
             "ai_import_endpoint": ai_import_endpoint,
+            "upload_endpoint": upload_endpoint,
+            "preset_summaries": STRATEGY_PRESET_SUMMARIES,
+            "presets": STRATEGY_PRESETS,
             "active_page": "strategies",
         },
     )

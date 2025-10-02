@@ -2,7 +2,8 @@ import React, { useMemo, useRef, useState } from "react";
 import BlockPalette from "./BlockPalette.jsx";
 import DesignerCanvas from "./DesignerCanvas.jsx";
 import { BLOCK_DEFINITIONS, cloneDefaultConfig } from "./designerConstants.js";
-import { buildExports } from "./serializer.js";
+import { buildExports, deserializeStrategy } from "./serializer.js";
+import { STRATEGY_PRESETS, findPresetById } from "./presets.js";
 
 const INDICATOR_TYPES = new Set(
   Object.keys(BLOCK_DEFINITIONS).filter((type) => type.startsWith("indicator"))
@@ -458,10 +459,54 @@ function removeNode(nodes, nodeId) {
   return changed ? filtered : nodes;
 }
 
+function PresetPalette({ presets, onApply }) {
+  if (!Array.isArray(presets) || presets.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="designer-panel designer-panel--presets" aria-labelledby="presets-title">
+      <div className="designer-panel__header">
+        <h2 id="presets-title" className="heading heading--md">
+          Modèles rapides
+        </h2>
+        <p className="text text--muted">
+          Chargez une base préconfigurée puis personnalisez-la dans la composition.
+        </p>
+      </div>
+      <div className="designer-panel__body" role="list" aria-label="Modèles de stratégies">
+        {presets.map((preset) => (
+          <article
+            key={preset.id}
+            className="palette-item palette-item--preset"
+            role="listitem"
+          >
+            <header className="palette-item__header">
+              <div>
+                <span className="palette-item__title heading heading--sm">{preset.label}</span>
+              </div>
+              <button
+                type="button"
+                className="button button--ghost"
+                onClick={() => onApply?.(preset.id)}
+                data-testid={`preset-apply-${preset.id}`}
+              >
+                Charger
+              </button>
+            </header>
+            <p className="palette-item__description text">{preset.description}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function StrategyDesigner({
+  saveEndpoint = "/strategies/save",
   defaultName = "Nouvelle stratégie",
   defaultFormat = "yaml",
-  saveEndpoint = "/strategies/save",
+  presets = STRATEGY_PRESETS,
 }) {
   const idRef = useRef(1);
   const [name, setName] = useState(defaultName);
@@ -479,6 +524,90 @@ export default function StrategyDesigner({
     () => validateStrategy(conditions, actions),
     [conditions, actions]
   );
+  const presetList = useMemo(
+    () => (Array.isArray(presets) ? presets : []),
+    [presets]
+  );
+  const fileInputRef = useRef(null);
+
+  const createNodeId = () => `node-${idRef.current++}`;
+
+  const applyHydrationResult = (result, successMessage, fallbackName = "") => {
+    const hasErrors = !result || (Array.isArray(result.errors) && result.errors.length > 0);
+    if (hasErrors) {
+      const message = result?.errors?.length
+        ? result.errors.join(" ")
+        : "Impossible d'importer la stratégie fournie.";
+      setStatus({ type: "error", message });
+      return false;
+    }
+
+    setConditions(Array.isArray(result.conditions) ? result.conditions : []);
+    setActions(Array.isArray(result.actions) ? result.actions : []);
+    setFormat(result.format === "python" ? "python" : "yaml");
+    const resolvedName = (result.name || "").trim() || (fallbackName || "").trim();
+    if (resolvedName) {
+      setName(resolvedName);
+    }
+    setLastResponse(null);
+    setStatus({ type: "success", message: successMessage });
+    return true;
+  };
+
+  const handlePresetApply = (presetId) => {
+    const preset =
+      presetList.find((item) => item.id === presetId) || findPresetById(presetId);
+    if (!preset) {
+      setStatus({ type: "error", message: "Modèle introuvable." });
+      return;
+    }
+    const result = deserializeStrategy({
+      code: preset.content,
+      format: preset.format,
+      createId: createNodeId,
+    });
+    applyHydrationResult(result, `Modèle « ${preset.label} » chargé.`, preset.label);
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (event) => {
+    const { files } = event.target;
+    const file = files && files[0];
+    if (!file) {
+      return;
+    }
+
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    let inferredFormat = "yaml";
+    if (extension === "py" || file.type.includes("python")) {
+      inferredFormat = "python";
+    } else if (extension === "yaml" || extension === "yml") {
+      inferredFormat = "yaml";
+    }
+
+    try {
+      const content = await file.text();
+      const result = deserializeStrategy({
+        code: content,
+        format: inferredFormat,
+        createId: createNodeId,
+      });
+      const fallbackName = file.name.replace(/\.[^.]+$/, "").trim();
+      applyHydrationResult(result, `Fichier « ${file.name} » importé.`, fallbackName);
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: "Impossible de lire le fichier sélectionné.",
+      });
+    } finally {
+      if (event.target) {
+        event.target.value = "";
+      }
+    }
+  };
 
   const handleDrop = ({ section, targetId, type }) => {
     const definition = BLOCK_DEFINITIONS[type];
@@ -634,6 +763,22 @@ export default function StrategyDesigner({
               <option value="python">Python</option>
             </select>
           </label>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={handleImportClick}
+            data-testid="designer-import-button"
+          >
+            Importer un fichier
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".yaml,.yml,.py,.json,.txt"
+            style={{ display: "none" }}
+            onChange={handleFileSelected}
+            data-testid="designer-file-input"
+          />
           <button type="submit" className="button button--primary">
             Enregistrer la stratégie
           </button>
@@ -651,7 +796,10 @@ export default function StrategyDesigner({
       ) : null}
 
       <div className="strategy-designer__layout">
-        <BlockPalette onAdd={handleAdd} />
+        <div className="designer-sidebar">
+          <PresetPalette presets={presetList} onApply={handlePresetApply} />
+          <BlockPalette onAdd={handleAdd} />
+        </div>
         <DesignerCanvas
           conditions={conditions}
           actions={actions}

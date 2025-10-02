@@ -98,3 +98,30 @@ async def test_strategy_designer_validation_feedback(page: Page, dashboard_base_
     await take_profit_block.get_by_label("Valeur").fill("")
     await expect(validation_panel.get_by_text("Erreurs de configuration")).to_be_visible()
     await expect(validation_panel.locator("li")).to_contain_text("Take-profit")
+
+
+async def test_strategy_designer_applies_preset(page: Page, dashboard_base_url: str):
+    await page.goto(f"{dashboard_base_url}/strategies", wait_until="networkidle")
+
+    await expect(page.get_by_role("heading", name="Éditeur visuel")).to_be_visible()
+
+    await page.get_by_test_id("preset-apply-momentum_breakout").click()
+
+    await expect(page.get_by_text("Modèle « Cassure momentum » chargé.")).to_be_visible()
+    await expect(page.get_by_label("Nom de la stratégie")).to_have_value("Cassure Momentum")
+    await expect(page.locator("[data-node-type='condition']").first).to_be_visible()
+    await expect(page.locator("[data-node-type='take_profit']").first).to_be_visible()
+
+
+async def test_strategy_designer_imports_yaml_file(tmp_path, page: Page, dashboard_base_url: str):
+    content = """name: Import Test\nrules:\n  - when:\n      field: close\n      operator: gt\n      value: 120\n    signal:\n      steps:\n        - type: order\n          action: buy\n          size: 1\n        - type: stop_loss\n          mode: percent\n          value: 4\n"""
+    file_path = tmp_path / "existing-strategy.yaml"
+    file_path.write_text(content, encoding="utf-8")
+
+    await page.goto(f"{dashboard_base_url}/strategies", wait_until="networkidle")
+
+    await page.get_by_test_id("designer-file-input").set_input_files(str(file_path))
+
+    await expect(page.get_by_text(f"Fichier « {file_path.name} » importé.")).to_be_visible()
+    await expect(page.get_by_label("Nom de la stratégie")).to_have_value("Import Test")
+    await expect(page.locator("[data-node-type='stop_loss']").first).to_be_visible()
