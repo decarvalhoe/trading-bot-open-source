@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Literal
 from urllib.parse import urljoin
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,6 +23,7 @@ from libs.alert_events import AlertEventBase, AlertEventRepository
 from .data import load_dashboard_context, load_portfolio_history
 from .alerts_client import AlertsEngineClient, AlertsEngineError
 from .schemas import Alert, AlertCreateRequest, AlertUpdateRequest
+from pydantic import BaseModel, Field
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -38,6 +40,8 @@ STREAMING_ROOM_ID = os.getenv("WEB_DASHBOARD_STREAMING_ROOM_ID", "public-room")
 STREAMING_VIEWER_ID = os.getenv("WEB_DASHBOARD_STREAMING_VIEWER_ID", "demo-viewer")
 ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alerts-engine:8000/")
 ALERT_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
+ALGO_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALGO_ENGINE_URL", "http://algo-engine:8000/")
+ALGO_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALGO_ENGINE_TIMEOUT", "5.0"))
 
 security = HTTPBearer(auto_error=False)
 
@@ -112,6 +116,14 @@ def shutdown_alerts_client() -> None:
         return
     client.close()
     _alerts_client_factory.cache_clear()
+
+
+class StrategySaveRequest(BaseModel):
+    """Payload accepted by the strategy import endpoint."""
+
+    name: str = Field(..., min_length=1)
+    format: Literal["yaml", "python"]
+    code: str = Field(..., min_length=1)
 
 
 @app.get("/health")
@@ -262,6 +274,39 @@ def delete_alert(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.post("/strategies/save")
+async def save_strategy(payload: StrategySaveRequest) -> dict[str, object]:
+    """Relay strategy definitions to the algo-engine import endpoint."""
+
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, "strategies/import")
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.post(
+                target_url,
+                json={
+                    "name": payload.name,
+                    "format": payload.format,
+                    "content": payload.code,
+                },
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Le moteur de stratégies est indisponible pour le moment."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        try:
+            detail = response.json()
+        except ValueError:  # pragma: no cover - fallback when JSON parsing fails
+            detail = {"message": response.text or "Erreur lors de l'import de la stratégie."}
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    try:
+        return response.json()
+    except ValueError:  # pragma: no cover - defensive guard when response is empty
+        return {"status": "imported"}
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def render_dashboard(request: Request) -> HTMLResponse:
     """Render an HTML dashboard that surfaces key trading signals."""
@@ -284,6 +329,35 @@ def render_dashboard(request: Request) -> HTMLResponse:
                 "history_endpoint": request.url_for("list_alert_history"),
                 "token": alerts_token,
             },
+            "active_page": "dashboard",
+        },
+    )
+
+
+@app.get("/strategies", response_class=HTMLResponse)
+def render_strategies(request: Request) -> HTMLResponse:
+    """Render the visual strategy designer page."""
+
+    save_endpoint = request.url_for("save_strategy")
+    return templates.TemplateResponse(
+        "strategies.html",
+        {
+            "request": request,
+            "save_endpoint": save_endpoint,
+            "active_page": "strategies",
+        },
+    )
+
+
+@app.get("/account", response_class=HTMLResponse)
+def render_account(request: Request) -> HTMLResponse:
+    """Render the account and API key management page."""
+
+    return templates.TemplateResponse(
+        "account.html",
+        {
+            "request": request,
+            "active_page": "account",
         },
     )
 
