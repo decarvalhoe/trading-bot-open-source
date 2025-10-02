@@ -35,6 +35,7 @@ from libs.alert_events import AlertEventBase, AlertEventRepository
 from .data import load_dashboard_context, load_portfolio_history
 from .alerts_client import AlertsEngineClient, AlertsEngineError
 from .schemas import Alert, AlertCreateRequest, AlertUpdateRequest
+from .documentation import load_strategy_documentation
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -768,6 +769,21 @@ def render_strategies(request: Request) -> HTMLResponse:
     """Render the visual strategy designer page."""
 
     return _render_strategies_page(request)
+
+
+@app.get("/strategies/documentation", response_class=HTMLResponse)
+def render_strategy_documentation(request: Request) -> HTMLResponse:
+    """Expose the declarative strategy schema and tutorials."""
+
+    documentation = load_strategy_documentation()
+    return templates.TemplateResponse(
+        "strategy_documentation.html",
+        {
+            "request": request,
+            "documentation": documentation,
+            "active_page": "strategy-docs",
+        },
+    )
 
 
 @app.post("/strategies/clone", response_class=HTMLResponse, name="clone_strategy_action")

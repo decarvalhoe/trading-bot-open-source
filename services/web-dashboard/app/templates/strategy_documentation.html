@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Documentation stratégies</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="layout__header">
+      <nav class="app-nav" aria-label="Navigation principale">
+        <a
+          href="{{ request.url_for('render_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'dashboard' else '' }}"
+          aria-current="{{ 'page' if active_page == 'dashboard' else 'false' }}"
+        >
+          Tableau de bord
+        </a>
+        <a
+          href="{{ request.url_for('render_strategies') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"
+        >
+          Stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_strategy_documentation') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategy-docs' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategy-docs' else 'false' }}"
+        >
+          Documentation stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_account') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
+          aria-current="{{ 'page' if active_page == 'account' else 'false' }}"
+        >
+          Compte &amp; API
+        </a>
+      </nav>
+      <h1 class="heading heading--xl">Documentation stratégies</h1>
+      <p class="text text--muted">
+        Explorez le schéma déclaratif et les ressources pas-à-pas pour tirer parti du designer et
+        de l'algo-engine.
+      </p>
+      <p
+        class="badge badge--neutral docs-schema-badge"
+        role="status"
+        aria-label="Version du schéma"
+      >
+        Schéma déclaratif — version {{ documentation.schema_version }}
+      </p>
+    </header>
+    <main class="layout__main layout__main--docs">
+      <article class="card card--docs" aria-labelledby="strategy-docs-title">
+        <div class="card__header">
+          <h2 id="strategy-docs-title" class="heading heading--lg">Schéma &amp; API</h2>
+          <p class="text text--muted">
+            Contenu extrait de <code>docs/strategies/README.md</code> et synchronisé à chaque build.
+          </p>
+        </div>
+        <div class="card__body docs-content">
+          {{ documentation.body_html | safe }}
+        </div>
+      </article>
+      <section class="card card--tutorials" aria-labelledby="tutorials-title">
+        <div class="card__header">
+          <h2 id="tutorials-title" class="heading heading--lg">Tutoriels</h2>
+          <p class="text text--muted">
+            Démonstrations interactives et guides associés aux nouvelles stratégies déclaratives.
+          </p>
+        </div>
+        <div class="card__body docs-tutorials">
+          {% if documentation.tutorials %}
+          {% for tutorial in documentation.tutorials %}
+          <article
+            class="tutorial-card"
+            aria-labelledby="tutorial-{{ tutorial.slug }}-title"
+            data-tutorial="{{ tutorial.slug }}"
+          >
+            <header class="tutorial-card__header">
+              <h3 id="tutorial-{{ tutorial.slug }}-title" class="heading heading--md">
+                {{ tutorial.title }}
+              </h3>
+              {% if tutorial.source_url %}
+              <a class="button button--ghost" href="{{ tutorial.source_url }}">Consulter la source</a>
+              {% endif %}
+            </header>
+            {% if tutorial.embed_kind == 'iframe' and tutorial.embed_url %}
+            <div class="tutorial-card__embed">
+              <iframe
+                src="{{ tutorial.embed_url }}"
+                title="{{ tutorial.embed_title or ('Tutoriel ' + tutorial.title) }}"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+              ></iframe>
+            </div>
+            {% elif tutorial.embed_kind == 'video' and tutorial.embed_url %}
+            <div class="tutorial-card__embed">
+              <video controls preload="metadata">
+                <source src="{{ tutorial.embed_url }}" type="video/mp4" />
+                Votre navigateur ne supporte pas la lecture de cette vidéo.
+              </video>
+            </div>
+            {% elif tutorial.embed_html %}
+            <div class="tutorial-card__embed tutorial-card__embed--placeholder">
+              {{ tutorial.embed_html | safe }}
+            </div>
+            {% endif %}
+            <div class="tutorial-card__notes">
+              {{ tutorial.notes_html | safe }}
+            </div>
+          </article>
+          {% endfor %}
+          {% else %}
+          <p class="text text--muted">Aucun tutoriel n'est disponible pour le moment.</p>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
