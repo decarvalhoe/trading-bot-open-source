@@ -4,6 +4,15 @@ from decimal import Decimal
 import pytest
 
 from infra.trading_models import Execution as ExecutionModel, Order as OrderModel
+from schemas.market import (
+    ExecutionFill,
+    ExecutionReport,
+    ExecutionStatus,
+    ExecutionVenue,
+    OrderSide,
+    OrderType,
+)
+from schemas.order_router import ExecutionIntent
 from libs.portfolio import encode_portfolio_key, encode_position_key
 
 
@@ -136,3 +145,60 @@ def test_reload_state_publishes_snapshot(db_session, publisher_cls):
     assert portfolio["owner"] == "acct-reload"
     assert portfolio["id"] == encode_portfolio_key("acct-reload")
     assert pytest.approx(portfolio["total_value"], rel=1e-6) == pytest.approx(1.5 * 30_500)
+
+
+def test_simulated_execution_streams_virtual_portfolios(publisher_cls):
+    client = DummyClient()
+    publisher = publisher_cls(client)
+    timestamp = datetime.now(timezone.utc)
+    report = ExecutionReport(
+        order_id="SIM-TEST",
+        status=ExecutionStatus.FILLED,
+        broker="binance",
+        venue=ExecutionVenue.BINANCE_SPOT,
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        quantity=1.0,
+        filled_quantity=1.0,
+        avg_price=25_000.0,
+        submitted_at=timestamp,
+        fills=[ExecutionFill(quantity=1.0, price=25_000.0, timestamp=timestamp)],
+        tags=["strategy:test"],
+    )
+    order = ExecutionIntent(
+        broker="binance",
+        venue="binance.spot",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=1.0,
+        price=25_000.0,
+        tags=["strategy:test"],
+    )
+
+    publisher.simulated_execution(order, report, "sim-account")
+
+    resources = {payload["resource"] for payload in client.payloads}
+    assert {"transactions", "logs", "portfolios"}.issubset(resources)
+
+    transaction_payload = next(
+        payload for payload in client.payloads if payload["resource"] == "transactions"
+    )
+    transaction = transaction_payload["items"][0]
+    assert transaction["mode"] == "dry_run"
+    assert transaction.get("simulated") is True
+
+    log_payload = next(
+        payload for payload in client.payloads if payload["resource"] == "logs"
+    )
+    entry = log_payload.get("entry") or log_payload.get("items", [{}])[0]
+    assert entry["mode"] == "dry_run"
+    assert entry.get("simulated") is True
+    assert entry["status"].startswith("SIMULATED")
+
+    portfolio_payload = next(
+        payload for payload in client.payloads if payload["resource"] == "portfolios"
+    )
+    assert portfolio_payload["mode"] == "dry_run"
+    assert portfolio_payload.get("type") == "positions"
+    assert portfolio_payload["items"], "Expected virtual holdings to be published"

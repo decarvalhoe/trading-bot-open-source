@@ -12,7 +12,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from infra.trading_models import Execution as ExecutionModel, Order as OrderModel, TradingBase
+from infra.trading_models import (
+    Execution as ExecutionModel,
+    Order as OrderModel,
+    SimulatedExecution as SimulatedExecutionModel,
+    TradingBase,
+)
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,6 +103,7 @@ def clean_database(db_module, router) -> Generator[None, None, None]:
     """Ensure each test starts from an empty persistence layer."""
     session = db_module.SessionLocal()
     try:
+        session.query(SimulatedExecutionModel).delete()
         session.query(ExecutionModel).delete()
         session.query(OrderModel).delete()
         session.commit()
@@ -112,6 +118,7 @@ def clean_database(db_module, router) -> Generator[None, None, None]:
 
     session = db_module.SessionLocal()
     try:
+        session.query(SimulatedExecutionModel).delete()
         session.query(ExecutionModel).delete()
         session.query(OrderModel).delete()
         session.commit()
