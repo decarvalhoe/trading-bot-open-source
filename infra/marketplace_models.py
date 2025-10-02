@@ -34,7 +34,9 @@ class Listing(Base):
     price_cents: int = Column(Integer, nullable=False)
     currency: str = Column(String(3), nullable=False, default="USD")
     connect_account_id: str = Column(String(64), nullable=False)
-    status: str = Column(String(16), nullable=False, default="published")
+    status: str = Column(String(16), nullable=False, default="pending")
+    review_notes: Optional[str] = Column(Text)
+    reviewed_at: Optional[datetime] = Column(DateTime(timezone=True))
     performance_score: Optional[float] = Column(Float, nullable=True)
     risk_score: Optional[float] = Column(Float, nullable=True)
     created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -108,7 +110,8 @@ class MarketplaceSubscription(Base):
         nullable=True,
     )
     payment_reference: Optional[str] = Column(String(128))
-    status: str = Column(String(16), nullable=False, default="active")
+    connect_transfer_reference: Optional[str] = Column(String(128))
+    status: str = Column(String(16), nullable=False, default="pending")
     created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     listing = relationship("Listing", back_populates="subscriptions")

@@ -60,10 +60,18 @@ def test_subscription_upsert_through_webhook():
         "type": "customer.subscription.created",
         "data": {
             "object": {
+                "id": "sub_basic",
                 "customer": "cus_123",
                 "status": "active",
                 "current_period_end": int(time.time()),
-                "plan": {"id": "price_basic", "nickname": "basic", "product": "prod_basic"},
+                "trial_end": int(time.time()) + 86400,
+                "plan": {
+                    "id": "price_basic",
+                    "nickname": "basic",
+                    "product": "prod_basic",
+                    "interval": "month",
+                    "trial_period_days": 14,
+                },
             }
         },
     }
@@ -78,3 +86,55 @@ def test_subscription_upsert_through_webhook():
         sub = session.query(Subscription).filter_by(customer_id="cus_123").one()
         assert sub.status == "active"
         assert sub.plan.stripe_price_id == "price_basic"
+        assert sub.plan.billing_interval == "monthly"
+        assert sub.plan.trial_period_days == 14
+        assert sub.trial_end is not None
+        assert sub.connect_account_id is None
+        assert sub.payment_reference == "sub_basic"
+
+
+def test_webhook_extracts_connect_payout_details():
+    client = TestClient(app)
+    payment_intent_id = "pi_12345"
+    body = {
+        "type": "customer.subscription.updated",
+        "data": {
+            "object": {
+                "customer": "cus_789",
+                "status": "active",
+                "current_period_end": int(time.time()),
+                "plan": {
+                    "id": "price_premium",
+                    "nickname": "premium",
+                    "product": "prod_premium",
+                    "interval": "year",
+                },
+                "latest_invoice": {
+                    "id": "in_123",
+                    "payment_intent": {
+                        "id": payment_intent_id,
+                        "transfer_data": {"destination": "acct_999"},
+                        "charges": {
+                            "data": [
+                                {
+                                    "id": "ch_1",
+                                    "transfer": "tr_1",
+                                }
+                            ]
+                        },
+                    },
+                },
+            }
+        },
+    }
+    payload = json.dumps(body).encode()
+    headers = {"stripe-signature": sign(payload, os.environ["STRIPE_WEBHOOK_SECRET"])}
+
+    response = client.post("/webhooks/stripe", data=payload, headers=headers)
+    assert response.status_code == 200
+
+    with db_module.SessionLocal() as session:
+        sub = session.query(Subscription).filter_by(customer_id="cus_789").one()
+        assert sub.plan.billing_interval == "annual"
+        assert sub.connect_account_id == "acct_999"
+        assert sub.payment_reference == "tr_1"

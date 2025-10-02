@@ -33,6 +33,7 @@ class AlertEvent(AlertEventBase):
     notification_id: int | None = Column(Integer, nullable=True)
     notification_channel: str | None = Column(String(32), nullable=True, index=True)
     notification_target: str | None = Column(String(255), nullable=True)
+    notification_type: str | None = Column(String(32), nullable=True, index=True)
 
     def mark_delivered(self, status: str, detail: str | None = None) -> None:
         """Update delivery information for the event."""

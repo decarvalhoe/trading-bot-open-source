@@ -33,6 +33,8 @@ def create_plan(payload: PlanIn, db: Session = Depends(get_db)):
         name=payload.name,
         stripe_price_id=payload.stripe_price_id,
         description=payload.description,
+        billing_interval=payload.billing_interval,
+        trial_period_days=payload.trial_period_days,
     )
     return {"id": plan.id, "code": plan.code, "name": plan.name}
 

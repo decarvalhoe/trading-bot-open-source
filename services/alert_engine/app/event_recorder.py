@@ -43,7 +43,12 @@ class AlertEventRecorder:
         return cls(repository=AlertEventRepository(), session_factory=SessionLocal)
 
     async def record(
-        self, trigger: AlertTrigger, *, source: str = "alert-engine"
+        self,
+        trigger: AlertTrigger,
+        *,
+        source: str = "alert-engine",
+        channels: list[dict] | None = None,
+        notification_type: str | None = "trigger",
     ) -> "AlertEvent":
         """Persist a trigger asynchronously to avoid blocking the event loop."""
 
@@ -54,6 +59,16 @@ class AlertEventRecorder:
                 strategy = (rule.name if rule else "unknown").strip() or "unknown"
                 severity = rule.severity if rule else "info"
                 symbol = rule.symbol if rule else "UNKNOWN"
+                channel_value: str | None = None
+                if channels:
+                    enabled = [
+                        channel.get("type")
+                        for channel in channels
+                        if channel and channel.get("enabled", True)
+                    ]
+                    if enabled:
+                        channel_value = ",".join(sorted({str(value) for value in enabled}))
+
                 return self.repository.record_event(
                     session,
                     trigger_id=trigger.id,
@@ -65,6 +80,8 @@ class AlertEventRecorder:
                     triggered_at=trigger.triggered_at,
                     context=trigger.context or {},
                     source=source,
+                    notification_channel=channel_value,
+                    notification_type=notification_type,
                 )
             finally:
                 session.close()

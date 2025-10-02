@@ -83,7 +83,7 @@ class AlertContextCache:
         reports_context = await self._reports_context(symbol)
         context.update(market_context)
         context.update(reports_context)
-        return context
+        return self._normalise_context(context)
 
     async def _market_context(self, symbol: str) -> dict[str, Any]:
         snapshot = self._market_cache.get(symbol)
@@ -104,6 +104,38 @@ class AlertContextCache:
         fresh = await self._reports_client.fetch_context(symbol)
         self._reports_cache.store(symbol, fresh)
         return fresh
+
+    def _normalise_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        normalised = dict(context)
+
+        performance = normalised.get("performance") or normalised.get("metrics") or {}
+        if isinstance(performance, dict):
+            if "pnl" in performance:
+                normalised.setdefault("pnl", performance.get("pnl"))
+            if "current_pnl" in performance:
+                normalised.setdefault("pnl", performance.get("current_pnl"))
+            if "drawdown" in performance:
+                normalised.setdefault("drawdown", performance.get("drawdown"))
+            if "current_drawdown" in performance:
+                normalised.setdefault("drawdown", performance.get("current_drawdown"))
+
+        if "current_pnl" in normalised and "pnl" not in normalised:
+            normalised["pnl"] = normalised["current_pnl"]
+        if "current_drawdown" in normalised and "drawdown" not in normalised:
+            normalised["drawdown"] = normalised["current_drawdown"]
+
+        indicators = normalised.get("indicators")
+        if isinstance(indicators, dict):
+            for name, value in indicators.items():
+                if isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        key = f"indicator_{name}_{sub_key}".lower()
+                        normalised.setdefault(key, sub_value)
+                else:
+                    key = f"indicator_{name}".lower()
+                    normalised.setdefault(key, value)
+
+        return normalised
 
 
 __all__ = ["AlertContextCache"]

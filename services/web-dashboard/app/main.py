@@ -386,6 +386,7 @@ def list_alert_history(
             "delivery_status": event.delivery_status,
             "notification_channel": event.notification_channel,
             "notification_target": event.notification_target,
+            "notification_type": event.notification_type,
         }
         for event in page_data.items
     ]

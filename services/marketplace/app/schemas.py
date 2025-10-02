@@ -44,6 +44,8 @@ class ListingOut(BaseModel):
     currency: str
     connect_account_id: str
     status: str
+    review_notes: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
     performance_score: Optional[float] = None
     risk_score: Optional[float] = None
     average_rating: Optional[float] = None
@@ -73,6 +75,7 @@ class CopyResponse(BaseModel):
     subscriber_id: str
     version_id: Optional[int]
     payment_reference: Optional[str]
+    connect_transfer_reference: Optional[str]
     status: str
     created_at: datetime
 

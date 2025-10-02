@@ -50,10 +50,18 @@ class AlertEngine:
         context = await self._build_context(event)
         triggers: list[AlertTrigger] = []
         for rule in rules:
+            if await self._repository.is_within_throttle(session, rule):
+                continue
             if await self._evaluate_rule(session, rule, context):
                 trigger = await self._repository.record_trigger(session, rule, context)
-                event = await self._event_recorder.record(trigger)
-                await self._publisher.publish(self._serialize_trigger(trigger, event_id=event.id))
+                event = await self._event_recorder.record(
+                    trigger,
+                    channels=rule.channels or [],
+                    notification_type="trigger",
+                )
+                await self._publisher.publish(
+                    self._serialize_trigger(trigger, event_id=event.id, channels=rule.channels or [])
+                )
                 triggers.append(trigger)
         return triggers
 
@@ -89,10 +97,18 @@ class AlertEngine:
         triggers: list[AlertTrigger] = []
         for rule in rules:
             context = await self._build_context_from_symbol(rule.symbol)
+            if await self._repository.is_within_throttle(session, rule):
+                continue
             if await self._evaluate_rule(session, rule, context):
                 trigger = await self._repository.record_trigger(session, rule, context)
-                event = await self._event_recorder.record(trigger)
-                await self._publisher.publish(self._serialize_trigger(trigger, event_id=event.id))
+                event = await self._event_recorder.record(
+                    trigger,
+                    channels=rule.channels or [],
+                    notification_type="trigger",
+                )
+                await self._publisher.publish(
+                    self._serialize_trigger(trigger, event_id=event.id, channels=rule.channels or [])
+                )
                 triggers.append(trigger)
         return triggers
 
@@ -111,7 +127,11 @@ class AlertEngine:
         return context
 
     def _serialize_trigger(
-        self, trigger: AlertTrigger, *, event_id: int | None = None
+        self,
+        trigger: AlertTrigger,
+        *,
+        event_id: int | None = None,
+        channels: list[dict] | None = None,
     ) -> dict[str, Any]:
         rule = trigger.rule
         return {
@@ -124,6 +144,7 @@ class AlertEngine:
             "severity": rule.severity if rule else "info",
             "symbol": rule.symbol if rule else "UNKNOWN",
             "strategy": (rule.name if rule else "unknown").strip() or "unknown",
+            "channels": channels or [],
         }
 
     @asynccontextmanager

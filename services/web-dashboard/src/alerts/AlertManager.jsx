@@ -9,6 +9,72 @@ function generateId() {
   return `alert-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function normaliseRuleDefinition(rule, fallbackSymbol = "") {
+  if (!rule || typeof rule !== "object") {
+    return {
+      symbol: fallbackSymbol,
+      timeframe: null,
+      conditions: {
+        pnl: { enabled: false, operator: "below", value: null },
+        drawdown: { enabled: false, operator: "above", value: null },
+        indicators: [],
+      },
+    };
+  }
+  const symbol = typeof rule.symbol === "string" ? rule.symbol : fallbackSymbol;
+  const conditions = rule.conditions || {};
+  return {
+    symbol: symbol || fallbackSymbol,
+    timeframe: rule.timeframe || null,
+    conditions: {
+      pnl: {
+        enabled: Boolean(conditions?.pnl?.enabled),
+        operator: conditions?.pnl?.operator || "below",
+        value:
+          conditions?.pnl?.value !== undefined && conditions?.pnl?.value !== null
+            ? Number(conditions.pnl.value)
+            : null,
+      },
+      drawdown: {
+        enabled: Boolean(conditions?.drawdown?.enabled),
+        operator: conditions?.drawdown?.operator || "above",
+        value:
+          conditions?.drawdown?.value !== undefined && conditions?.drawdown?.value !== null
+            ? Number(conditions.drawdown.value)
+            : null,
+      },
+      indicators: Array.isArray(conditions?.indicators)
+        ? conditions.indicators.map((indicator) => ({
+            id: indicator.id || `indicator-${Math.random().toString(36).slice(2)}`,
+            name: indicator.name || "RSI",
+            operator: indicator.operator || "above",
+            value:
+              indicator.value !== undefined && indicator.value !== null
+                ? Number(indicator.value)
+                : 0,
+            lookback:
+              indicator.lookback !== undefined && indicator.lookback !== null
+                ? Number(indicator.lookback)
+                : null,
+            enabled: indicator.enabled !== undefined ? Boolean(indicator.enabled) : true,
+          }))
+        : [],
+    },
+  };
+}
+
+function normaliseChannels(channels) {
+  if (!Array.isArray(channels)) {
+    return [];
+  }
+  return channels.map((channel, index) => ({
+    type: channel?.type || "email",
+    target: channel?.target || "",
+    enabled: channel?.enabled !== undefined ? Boolean(channel.enabled) : true,
+    _internalId: channel?.id || `channel-${index}`,
+  }));
+}
+
 function normaliseAlert(alert) {
   if (!alert || typeof alert !== "object") {
     return null;
@@ -22,6 +88,11 @@ function normaliseAlert(alert) {
     risk,
     acknowledged: Boolean(alert.acknowledged),
     created_at: createdAt,
+    rule: normaliseRuleDefinition(alert.rule, alert.symbol || ""),
+    channels: normaliseChannels(alert.channels),
+    throttle_seconds: Number.isFinite(alert.throttle_seconds)
+      ? Number(alert.throttle_seconds)
+      : 0,
   };
 }
 

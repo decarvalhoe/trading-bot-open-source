@@ -86,6 +86,8 @@ def test_publish_and_copy_flow(entitlements_state):
     assert response.status_code == 201, response.text
     listing_id = response.json()["id"]
     assert response.json()["versions"][0]["version"] == "1.0.0"
+    assert response.json()["status"] == "approved"
+    assert "All automated checks passed" in response.json()["review_notes"]
 
     entitlements_state["value"] = Entitlements(
         customer_id="investor-9",
@@ -102,6 +104,8 @@ def test_publish_and_copy_flow(entitlements_state):
     subscription = copy_response.json()
     assert subscription["listing_id"] == listing_id
     assert subscription["payment_reference"] == "pi_123"
+    assert subscription["status"] == "active"
+    assert subscription["connect_transfer_reference"] is None
 
     copies_response = client.get("/marketplace/copies", headers={"x-user-id": "investor-9"})
     assert copies_response.status_code == 200
@@ -157,6 +161,30 @@ def test_only_owner_can_publish_new_version(entitlements_state):
     )
     assert ok_resp.status_code == 200
     assert ok_resp.json()["versions"][0]["version"] == "2.0.0"
+
+
+def test_listing_rejected_when_automated_checks_fail(entitlements_state):
+    entitlements_state["value"] = Entitlements(
+        customer_id="creator-2",
+        features={"can.publish_strategy": True},
+        quotas={},
+    )
+    payload = {
+        "strategy_name": "Risky Play",
+        "description": "",
+        "price_cents": 0,
+        "currency": "USD",
+        "connect_account_id": "not_connect",
+    }
+    response = client.post("/marketplace/listings", json=payload, headers={"x-user-id": "creator-2"})
+    assert response.status_code == 201
+    data = response.json()
+    assert data["status"] == "rejected"
+    assert "Stripe Connect account id" in data["review_notes"]
+
+    listings = client.get("/marketplace/listings")
+    assert listings.status_code == 200
+    assert all(item["id"] != data["id"] for item in listings.json())
 
 
 def _grant_publish(monkeypatch_state, customer_id="creator-1"):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -18,10 +18,14 @@ from .database import create_session_factory, get_session
 from .engine import AlertEngine
 from .evaluator import RuleEvaluator
 from .event_recorder import AlertEventRecorder
+from .models import AlertRule
 from .repository import AlertRuleRepository
 from .schemas import (
     AlertEvaluationResponse,
+    AlertRuleCreate,
+    AlertRuleRead,
     AlertRuleSummary,
+    AlertRuleUpdate,
     AlertTriggerRead,
     MarketEvent,
 )
@@ -106,6 +110,82 @@ def create_app(
     def get_repository() -> AlertRuleRepository:
         return repository
 
+    @app.get("/alerts", response_model=list[AlertRuleRead])
+    async def list_alert_rules(
+        session: Session = Depends(get_session_dep),
+        repository: AlertRuleRepository = Depends(get_repository),
+    ) -> list[AlertRuleRead]:
+        rules = await repository.list_rules(session)
+        return [AlertRuleRead.from_orm_rule(rule) for rule in rules]
+
+    @app.post("/alerts", response_model=AlertRuleRead, status_code=status.HTTP_201_CREATED)
+    async def create_alert_rule(
+        payload: AlertRuleCreate,
+        session: Session = Depends(get_session_dep),
+        repository: AlertRuleRepository = Depends(get_repository),
+    ) -> AlertRuleRead:
+        try:
+            expression = payload.expression()
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+
+        rule = AlertRule(
+            name=payload.title.strip(),
+            detail=payload.detail.strip(),
+            symbol=payload.rule.symbol.strip(),
+            expression=expression,
+            severity=payload.risk,
+            acknowledged=payload.acknowledged,
+            channels=payload.dump_channels(),
+            conditions=payload.dump_rule(),
+            throttle_seconds=payload.throttle_seconds,
+        )
+        created = await repository.add_rule(session, rule)
+        return AlertRuleRead.from_orm_rule(created)
+
+    @app.put("/alerts/{alert_id}", response_model=AlertRuleRead)
+    async def update_alert_rule(
+        alert_id: int,
+        payload: AlertRuleUpdate,
+        session: Session = Depends(get_session_dep),
+        repository: AlertRuleRepository = Depends(get_repository),
+    ) -> AlertRuleRead:
+        rule = await repository.get_rule(session, alert_id)
+        if rule is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alerte introuvable.")
+        try:
+            values = payload.to_update_mapping()
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+        if not values:
+            return AlertRuleRead.from_orm_rule(rule)
+        if "name" in values and isinstance(values["name"], str):
+            values["name"] = values["name"].strip()
+        if "detail" in values and isinstance(values["detail"], str):
+            values["detail"] = values["detail"].strip()
+        if "symbol" in values and isinstance(values["symbol"], str):
+            values["symbol"] = values["symbol"].strip()
+        updated = await repository.update_rule(session, rule, values)
+        return AlertRuleRead.from_orm_rule(updated)
+
+    @app.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_alert_rule(
+        alert_id: int,
+        session: Session = Depends(get_session_dep),
+        repository: AlertRuleRepository = Depends(get_repository),
+    ) -> Response:
+        rule = await repository.get_rule(session, alert_id)
+        if rule is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alerte introuvable.")
+        await repository.delete_rule(session, rule)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @app.post("/events", response_model=AlertEvaluationResponse)
     async def receive_event(
         event: MarketEvent,
@@ -118,7 +198,7 @@ def create_app(
             triggers=[AlertTriggerRead.model_validate(t) for t in triggers],
         )
 
-    @app.get("/alerts", response_model=list[AlertRuleSummary])
+    @app.get("/alerts/triggers", response_model=list[AlertRuleSummary])
     async def list_recent_alerts(
         limit: int = 20,
         session: Session = Depends(get_session_dep),

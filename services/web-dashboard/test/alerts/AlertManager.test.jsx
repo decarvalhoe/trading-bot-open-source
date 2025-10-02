@@ -30,6 +30,20 @@ describe("AlertManager", () => {
       risk: "warning",
       acknowledged: false,
       created_at: "2024-04-01T10:00:00Z",
+      rule: {
+        symbol: "BTCUSDT",
+        timeframe: "1h",
+        conditions: {
+          pnl: { enabled: true, operator: "below", value: -1500 },
+          drawdown: { enabled: false, operator: "above", value: null },
+          indicators: [],
+        },
+      },
+      channels: [
+        { type: "email", target: "risk@alpha.io", enabled: true },
+        { type: "webhook", target: "https://hooks.alerts.test", enabled: false },
+      ],
+      throttle_seconds: 1800,
     },
   ];
 
@@ -67,6 +81,20 @@ describe("AlertManager", () => {
       risk: "critical",
       acknowledged: false,
       created_at: "2024-04-02T09:15:00Z",
+      rule: {
+        symbol: "ETHUSDT",
+        timeframe: "4h",
+        conditions: {
+          pnl: { enabled: true, operator: "below", value: -500 },
+          drawdown: { enabled: true, operator: "above", value: 5 },
+          indicators: [],
+        },
+      },
+      channels: [
+        { type: "email", target: "ops@example.com", enabled: true },
+        { type: "push", target: "desk-01", enabled: false },
+      ],
+      throttle_seconds: 900,
     };
 
     global.fetch = vi.fn().mockReturnValueOnce(createFetchResponse(createdAlert, 201));
@@ -85,6 +113,23 @@ describe("AlertManager", () => {
       "Income portfolio dropped 6% over the last trading session."
     );
     await user.selectOptions(screen.getByLabelText(/Niveau de risque/i), "critical");
+    await user.clear(screen.getByLabelText(/Symbole surveillé/i));
+    await user.type(screen.getByLabelText(/Symbole surveillé/i), "ETHUSDT");
+    const pnlCheckbox = screen.getByLabelText(/Activer P&L/i);
+    await user.click(pnlCheckbox);
+    const pnlValue = screen.getByPlaceholderText(/Seuil P&L/i);
+    await user.clear(pnlValue);
+    await user.type(pnlValue, "-500");
+    const drawdownCheckbox = screen.getByLabelText(/Activer drawdown/i);
+    await user.click(drawdownCheckbox);
+    const drawdownValue = screen.getByPlaceholderText(/Seuil drawdown/i);
+    await user.clear(drawdownValue);
+    await user.type(drawdownValue, "5");
+    const webhookField = screen.getByPlaceholderText(/https:\/\/example.com\/webhook/i);
+    await user.type(webhookField, "https://hooks.alerts.test/eth");
+    const throttleInput = screen.getByLabelText(/Fréquence minimale/i);
+    await user.clear(throttleInput);
+    await user.type(throttleInput, "15");
 
     await user.click(screen.getByRole("button", { name: /créer/i }));
 
@@ -93,7 +138,17 @@ describe("AlertManager", () => {
       expect(lastCall[0]).toBe("/alerts");
       expect(lastCall[1].method).toBe("POST");
       expect(lastCall[1].headers.Authorization).toBe("Bearer demo-token");
-      expect(JSON.parse(lastCall[1].body).title).toBe("Daily drawdown limit exceeded");
+      const payload = JSON.parse(lastCall[1].body);
+      expect(payload.title).toBe("Daily drawdown limit exceeded");
+      expect(payload.rule.symbol).toBe("ETHUSDT");
+      expect(payload.rule.conditions.pnl.enabled).toBe(true);
+      expect(payload.channels).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "email" }),
+          expect.objectContaining({ type: "webhook", target: "https://hooks.alerts.test/eth" }),
+        ]),
+      );
+      expect(payload.throttle_seconds).toBe(900);
     });
 
     expect(await screen.findByText(/Daily drawdown limit exceeded/i)).toBeInTheDocument();
@@ -119,6 +174,8 @@ describe("AlertManager", () => {
     await user.type(screen.getByLabelText(/Titre/i), "Nouvelle alerte");
     await user.clear(screen.getByLabelText(/Description/i));
     await user.type(screen.getByLabelText(/Description/i), "Impossible de joindre le moteur.");
+    await user.clear(screen.getByLabelText(/Symbole surveillé/i));
+    await user.type(screen.getByLabelText(/Symbole surveillé/i), "BTCUSDT");
     await user.click(screen.getByRole("button", { name: /créer/i }));
 
     const errorMessage = await screen.findByRole("alert");
@@ -139,6 +196,12 @@ describe("AlertManager", () => {
       risk: "info",
       acknowledged: true,
       created_at: "2024-04-03T11:30:00Z",
+      rule: {
+        symbol: "AAPL",
+        timeframe: null,
+        conditions: { pnl: { enabled: false }, drawdown: { enabled: false }, indicators: [] },
+      },
+      channels: [],
     };
 
     await act(async () => {
