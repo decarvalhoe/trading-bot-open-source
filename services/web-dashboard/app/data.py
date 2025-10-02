@@ -1022,49 +1022,77 @@ def _build_strategy_statuses() -> tuple[List[StrategyStatus], List[LiveLogEntry]
 
     strategies: List[StrategyStatus] = []
     identifier_to_id: Dict[str, str] = {}
+    id_to_name: Dict[str, str] = {}
+    raw_records: List[dict[str, object]] = []
 
     if isinstance(raw_items, list):
         for record in raw_items:
             if not isinstance(record, dict):
                 continue
-            identifiers = _extract_strategy_identifiers(record)
-            strategy_id = record.get("id")
-            if not isinstance(strategy_id, str) or not strategy_id:
-                metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-                if isinstance(metadata, dict):
-                    candidate = metadata.get("strategy_id") or metadata.get("id")
-                    if isinstance(candidate, str):
-                        strategy_id = candidate
-            strategy_id = strategy_id or ""
+            raw_records.append(record)
+            strategy_id_value = record.get("id")
+            if isinstance(strategy_id_value, str) and strategy_id_value:
+                name_value = record.get("name")
+                id_to_name[strategy_id_value] = (
+                    str(name_value) if name_value is not None else strategy_id_value
+                )
 
-            for identifier in identifiers:
-                identifier_to_id.setdefault(identifier.lower(), str(strategy_id))
+    for record in raw_records:
+        identifiers = _extract_strategy_identifiers(record)
+        strategy_id = record.get("id")
+        if not isinstance(strategy_id, str) or not strategy_id:
+            metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+            if isinstance(metadata, dict):
+                candidate = metadata.get("strategy_id") or metadata.get("id")
+                if isinstance(candidate, str):
+                    strategy_id = candidate
+        strategy_id = strategy_id or ""
 
-            status_value = record.get("status")
-            try:
-                runtime_status = StrategyRuntimeStatus(status_value)
-            except (ValueError, TypeError):
-                runtime_status = StrategyRuntimeStatus.PENDING
+        for identifier in identifiers:
+            identifier_to_id.setdefault(identifier.lower(), str(strategy_id))
 
-            execution_entry = _match_execution_for_strategy(identifiers, executions)
-            last_execution = _build_execution_snapshot(execution_entry) if execution_entry else None
+        status_value = record.get("status")
+        try:
+            runtime_status = StrategyRuntimeStatus(status_value)
+        except (ValueError, TypeError):
+            runtime_status = StrategyRuntimeStatus.PENDING
 
-            strategy = StrategyStatus(
-                id=str(strategy_id),
-                name=str(record.get("name")),
-                status=runtime_status,
-                enabled=bool(record.get("enabled")),
-                strategy_type=(
-                    str(record.get("strategy_type")) if record.get("strategy_type") is not None else None
-                ),
-                tags=[tag for tag in record.get("tags", []) if isinstance(tag, str)],
-                last_error=(
-                    str(record.get("last_error")) if record.get("last_error") is not None else None
-                ),
-                last_execution=last_execution,
-                metadata=(record.get("metadata") if isinstance(record.get("metadata"), dict) else {}),
-            )
-            strategies.append(strategy)
+        execution_entry = _match_execution_for_strategy(identifiers, executions)
+        last_execution = _build_execution_snapshot(execution_entry) if execution_entry else None
+
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        parent_id = record.get("derived_from")
+        if not isinstance(parent_id, str) or not parent_id:
+            parent_id = metadata.get("derived_from") if isinstance(metadata, dict) else None
+            if not isinstance(parent_id, str):
+                parent_id = None
+
+        parent_name = record.get("derived_from_name")
+        if not isinstance(parent_name, str) and parent_id:
+            parent_name = id_to_name.get(parent_id)
+            if not parent_name and isinstance(metadata, dict):
+                candidate_name = metadata.get("derived_from_name") or metadata.get("parent_name")
+                if isinstance(candidate_name, str):
+                    parent_name = candidate_name
+
+        strategy = StrategyStatus(
+            id=str(strategy_id),
+            name=str(record.get("name")),
+            status=runtime_status,
+            enabled=bool(record.get("enabled")),
+            strategy_type=(
+                str(record.get("strategy_type")) if record.get("strategy_type") is not None else None
+            ),
+            tags=[tag for tag in record.get("tags", []) if isinstance(tag, str)],
+            last_error=(
+                str(record.get("last_error")) if record.get("last_error") is not None else None
+            ),
+            last_execution=last_execution,
+            metadata=metadata if isinstance(metadata, dict) else {},
+            derived_from=parent_id,
+            derived_from_name=parent_name if isinstance(parent_name, str) else None,
+        )
+        strategies.append(strategy)
 
     logs: List[LiveLogEntry] = []
     if executions:

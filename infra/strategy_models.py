@@ -38,6 +38,9 @@ class Strategy(StrategyBase):
     metadata_: dict | None = Column("metadata", JSON, nullable=True)
     source_format: str | None = Column(String(16), nullable=True)
     source: str | None = Column(Text, nullable=True)
+    derived_from: str | None = Column(
+        String(36), ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     status: str = Column(String(16), nullable=False, default="PENDING", index=True)
     last_error: str | None = Column(Text, nullable=True)
     last_backtest: dict | None = Column(JSON, nullable=True)
@@ -91,6 +94,7 @@ class StrategyVersion(StrategyBase):
     tags: list[str] | None = Column(JSON, nullable=False, default=list)
     source_format: str | None = Column(String(16), nullable=True)
     source: str | None = Column(Text, nullable=True)
+    derived_from: str | None = Column(String(36), nullable=True, index=True)
     created_at: datetime = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -713,11 +713,24 @@ export default function StrategyDesigner({
   defaultName = "Nouvelle stratégie",
   defaultFormat = "yaml",
   presets = STRATEGY_PRESETS,
+  initialStrategy = null,
 }) {
   const idRef = useRef(1);
-  const [name, setName] = useState(defaultName);
-  const [format, setFormat] = useState(defaultFormat === "python" ? "python" : "yaml");
-  const [status, setStatus] = useState({ type: "idle", message: null });
+  const initialName = (initialStrategy?.name || "").trim() || defaultName;
+  const initialFormatValue =
+    initialStrategy?.source_format === "python"
+      ? "python"
+      : initialStrategy?.format === "python"
+      ? "python"
+      : defaultFormat === "python"
+      ? "python"
+      : "yaml";
+  const initialStatus = initialStrategy?.status_message
+    ? { type: initialStrategy.status_type || "success", message: initialStrategy.status_message }
+    : { type: "idle", message: null };
+  const [name, setName] = useState(initialName);
+  const [format, setFormat] = useState(initialFormatValue);
+  const [status, setStatus] = useState(initialStatus);
   const [lastResponse, setLastResponse] = useState(null);
   const [state, dispatch] = useReducer(designerReducer, {
     history: initialHistory,
@@ -741,8 +754,8 @@ export default function StrategyDesigner({
     [presets]
   );
   const fileInputRef = useRef(null);
-
-  const createNodeId = () => `node-${idRef.current++}`;
+  const createNodeId = useCallback(() => `node-${idRef.current++}`, []);
+  const initialHydrationRef = useRef(false);
 
   const applyChange = useCallback(
     (mutator) => {
@@ -823,7 +836,7 @@ export default function StrategyDesigner({
       });
       applyHydrationResult(result, `Modèle « ${preset.label} » chargé.`, preset.label);
     },
-    [applyHydrationResult, presetList]
+    [applyHydrationResult, presetList, createNodeId]
   );
 
   const handleImportClick = () => {
@@ -865,6 +878,58 @@ export default function StrategyDesigner({
       }
     }
   };
+
+  useEffect(() => {
+    if (!initialStrategy || initialHydrationRef.current) {
+      return;
+    }
+    initialHydrationRef.current = true;
+
+    const strategyCode =
+      typeof initialStrategy.source === "string" ? initialStrategy.source : null;
+    const strategyFormatRaw =
+      typeof initialStrategy.source_format === "string"
+        ? initialStrategy.source_format
+        : typeof initialStrategy.format === "string"
+        ? initialStrategy.format
+        : null;
+    const fallbackName = (initialStrategy.name || "").toString();
+    const statusMessage =
+      typeof initialStrategy.status_message === "string"
+        ? initialStrategy.status_message
+        : null;
+    const statusType =
+      typeof initialStrategy.status_type === "string"
+        ? initialStrategy.status_type
+        : "success";
+
+    if (strategyCode && strategyFormatRaw) {
+      const result = deserializeStrategy({
+        code: strategyCode,
+        format: strategyFormatRaw,
+        createId: createNodeId,
+      });
+      const successMessage =
+        statusMessage ||
+        (fallbackName
+          ? `Stratégie « ${fallbackName} » chargée.`
+          : "Stratégie clonée chargée.");
+      const applied = applyHydrationResult(result, successMessage, fallbackName);
+      if (!applied && statusMessage) {
+        setStatus({ type: statusType, message: statusMessage });
+      }
+    } else {
+      if (fallbackName) {
+        setName(fallbackName);
+      }
+      if (statusMessage) {
+        setStatus({ type: statusType, message: statusMessage });
+      }
+      if (strategyFormatRaw) {
+        setFormat(strategyFormatRaw === "python" ? "python" : "yaml");
+      }
+    }
+  }, [initialStrategy, applyHydrationResult, createNodeId]);
 
   const handleSelect = useCallback(
     (nextSelection) => {

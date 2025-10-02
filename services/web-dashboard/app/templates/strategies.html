@@ -51,6 +51,9 @@
             data-default-name="Nouvelle stratégie"
             data-default-format="yaml"
             data-presets='{{ presets | tojson }}'
+            {% if initial_strategy %}
+            data-initial-strategy='{{ initial_strategy | tojson }}'
+            {% endif %}
           >
             <noscript>
               <p class="text text--muted">

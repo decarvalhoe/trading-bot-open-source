@@ -40,6 +40,50 @@ def test_create_and_list_strategies():
     assert "orb" in body["available"]
 
 
+def test_clone_strategy_copies_configuration_and_lineage():
+    strategy_repository.clear()
+    client = TestClient(app)
+    payload: Dict[str, object] = {
+        "name": "Original Strategy",
+        "strategy_type": "declarative",
+        "parameters": {"threshold": 1.5},
+        "enabled": False,
+        "tags": ["swing"],
+        "metadata": {"note": "seed"},
+        "source_format": "yaml",
+        "source": "name: Original Strategy\nparameters:\n  threshold: 1.5\n",
+    }
+    create_resp = client.post("/strategies", json=payload)
+    assert create_resp.status_code == 201
+    original = create_resp.json()
+
+    clone_resp = client.post(f"/strategies/{original['id']}/clone")
+    assert clone_resp.status_code == 201
+    clone = clone_resp.json()
+
+    assert clone["id"] != original["id"]
+    assert clone["derived_from"] == original["id"]
+    assert clone["name"] == original["name"]
+    assert clone["parameters"] == original["parameters"]
+    assert clone["source"] == original["source"]
+    assert clone["source_format"] == original["source_format"]
+    assert clone["metadata"]["strategy_id"] == clone["id"]
+    assert clone["metadata"].get("derived_from") == original["id"]
+    assert clone["derived_from_name"] == original["name"]
+
+    list_resp = client.get("/strategies")
+    assert list_resp.status_code == 200
+    items = list_resp.json()["items"]
+    clone_entry = next(item for item in items if item["id"] == clone["id"])
+    assert clone_entry["derived_from"] == original["id"]
+    assert clone_entry["derived_from_name"] == original["name"]
+
+    get_clone = client.get(f"/strategies/{clone['id']}")
+    assert get_clone.status_code == 200
+    payload_clone = get_clone.json()
+    assert payload_clone["derived_from_name"] == original["name"]
+
+
 def test_update_strategy_and_state_flow():
     client = TestClient(app)
     create_resp = client.post(
