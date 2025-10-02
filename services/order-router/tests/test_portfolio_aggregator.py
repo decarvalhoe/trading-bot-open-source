@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from infra.trading_models import Execution as ExecutionModel, Order as OrderModel
+from libs.portfolio import encode_portfolio_key, encode_position_key
 
 
 class DummyClient:
@@ -94,9 +95,13 @@ def test_portfolio_aggregator_computes_holdings(aggregator_cls):
     assert portfolio["owner"] == "alpha_trader"
     assert portfolio["name"] == "Alpha Trader"
     assert pytest.approx(portfolio["total_value"], rel=1e-6) == 480.0
+    assert portfolio["id"] == encode_portfolio_key("alpha_trader")
 
     holdings = {holding["symbol"]: holding for holding in portfolio["holdings"]}
     assert set(holdings) == {"AAPL", "MSFT"}
+    assert holdings["AAPL"]["id"] == encode_position_key("alpha_trader", "AAPL")
+    assert holdings["AAPL"]["portfolio_id"] == portfolio["id"]
+    assert holdings["AAPL"]["portfolio"] == "alpha_trader"
     assert pytest.approx(holdings["AAPL"]["quantity"], rel=1e-6) == 3.0
     assert pytest.approx(holdings["AAPL"]["average_price"], rel=1e-6) == pytest.approx(
         720 / 7
@@ -125,7 +130,9 @@ def test_reload_state_publishes_snapshot(db_session, publisher_cls):
     snapshot = client.payloads[-1]
     assert snapshot["resource"] == "portfolios"
     assert snapshot["mode"] == "live"
+    assert snapshot.get("type") == "positions"
     assert snapshot["items"]
     portfolio = snapshot["items"][0]
     assert portfolio["owner"] == "acct-reload"
+    assert portfolio["id"] == encode_portfolio_key("acct-reload")
     assert pytest.approx(portfolio["total_value"], rel=1e-6) == pytest.approx(1.5 * 30_500)

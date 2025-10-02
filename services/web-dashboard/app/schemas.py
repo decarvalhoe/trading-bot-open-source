@@ -20,10 +20,15 @@ class RiskLevel(str, Enum):
 class Holding(BaseModel):
     """Represent an asset position within a portfolio."""
 
+    id: str | None = Field(default=None, description="Opaque identifier of the position")
     symbol: str = Field(..., description="Ticker or symbol of the asset")
     quantity: float = Field(..., description="Number of units held")
     average_price: float = Field(..., description="Average fill price of the position")
     current_price: float = Field(..., description="Last traded price for the asset")
+    portfolio: str | None = Field(default=None, description="Owner of the position")
+    portfolio_id: str | None = Field(
+        default=None, description="Opaque identifier of the parent portfolio"
+    )
 
     @property
     def market_value(self) -> float:
@@ -35,6 +40,7 @@ class Holding(BaseModel):
 class Portfolio(BaseModel):
     """Snapshot of a portfolio."""
 
+    id: str | None = Field(default=None, description="Opaque identifier of the portfolio")
     name: str
     owner: str
     holdings: List[Holding]

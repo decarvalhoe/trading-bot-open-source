@@ -32,12 +32,19 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from libs.alert_events import AlertEventBase, AlertEventRepository
 
-from .data import load_dashboard_context, load_portfolio_history
+from .data import (
+    ORDER_ROUTER_BASE_URL,
+    ORDER_ROUTER_TIMEOUT_SECONDS,
+    load_dashboard_context,
+    load_portfolio_history,
+)
+from .order_router_client import OrderRouterClient, OrderRouterError
 from .alerts_client import AlertsEngineClient, AlertsEngineError
 from .schemas import Alert, AlertCreateRequest, AlertUpdateRequest
 from .documentation import load_strategy_documentation
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from pydantic import BaseModel, Field, ConfigDict
+from schemas.order_router import PositionCloseRequest
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -271,6 +278,41 @@ def list_portfolios() -> dict[str, object]:
 
     context = load_dashboard_context()
     return {"items": context.portfolios}
+
+
+@app.post("/positions/{position_id}/close")
+def close_position(position_id: str, payload: PositionCloseRequest | None = None) -> dict[str, object]:
+    """Forward close/adjust requests to the order router service."""
+
+    request_payload = payload or PositionCloseRequest()
+    base_url = ORDER_ROUTER_BASE_URL.rstrip("/")
+    try:
+        with OrderRouterClient(
+            base_url=base_url, timeout=ORDER_ROUTER_TIMEOUT_SECONDS
+        ) as client:
+            response = client.close_position(
+                position_id, target_quantity=request_payload.target_quantity
+            )
+    except httpx.HTTPError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Le routeur d'ordres est indisponible pour le moment.",
+        ) from error
+    except OrderRouterError as error:
+        detail: dict[str, object]
+        if error.response is not None:
+            try:
+                detail = error.response.json()
+            except ValueError:
+                detail = {
+                    "message": error.response.text
+                    or "Réponse invalide du routeur d'ordres.",
+                }
+        else:
+            detail = {"message": "Réponse invalide du routeur d'ordres."}
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from error
+
+    return response.model_dump(mode="json")
 
 
 @app.get("/portfolios/history")

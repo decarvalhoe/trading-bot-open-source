@@ -329,6 +329,21 @@ body {
   font-weight: 600;
 }
 
+.portfolio-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.portfolio-actions__button {
+  flex: 0 0 auto;
+}
+
+.portfolio-actions__button[data-loading="true"] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .alert-list__item {
   padding: var(--space-md);
   border-radius: var(--radius-sm);

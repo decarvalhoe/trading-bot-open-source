@@ -27,6 +27,11 @@ from libs.db.db import SessionLocal
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
+from libs.portfolio import (
+    decode_position_key,
+    encode_portfolio_key,
+    encode_position_key,
+)
 from infra.trading_models import Execution as ExecutionModel
 from infra.trading_models import Order as OrderModel
 from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
@@ -36,6 +41,8 @@ from schemas.market import (
     ExecutionStatus,
     ExecutionVenue,
     OrderSide,
+    OrderType,
+    TimeInForce,
 )
 from schemas.order_router import (
     ExecutionIntent,
@@ -46,6 +53,11 @@ from schemas.order_router import (
     OrdersLogMetadata,
     PaginatedExecutions,
     PaginatedOrders,
+    PositionCloseRequest,
+    PositionCloseResponse,
+    PositionHolding,
+    PortfolioSnapshot,
+    PositionsResponse,
     RiskOverrides,
 )
 from services.streaming.app.schemas import StreamIngestPayload
@@ -287,18 +299,21 @@ class PortfolioAggregator:
         for account_id, symbols in sorted(self._positions.items(), key=lambda item: item[0]):
             holdings: List[Dict[str, Any]] = []
             total_value = 0.0
+            portfolio_id = encode_portfolio_key(account_id)
             for symbol, stats in sorted(symbols.items(), key=lambda item: item[0]):
                 net_quantity = stats["net_quantity"]
                 if math.isclose(net_quantity, 0.0, abs_tol=self._EPSILON):
-                    if stats["abs_quantity"] <= self._EPSILON:
-                        continue
-                    net_quantity = 0.0
+                    continue
                 if math.isclose(stats["abs_quantity"], 0.0, abs_tol=self._EPSILON):
                     continue
                 average_price = stats["abs_notional"] / stats["abs_quantity"]
-                last_price = stats["last_price"] or average_price
+                last_price = stats["last_price"] or average_price or 0.0
                 market_value = net_quantity * last_price
                 holding = {
+                    "id": encode_position_key(account_id, symbol),
+                    "portfolio_id": portfolio_id,
+                    "portfolio": account_id,
+                    "account_id": account_id,
                     "symbol": symbol,
                     "quantity": float(net_quantity),
                     "average_price": float(average_price or 0.0),
@@ -310,6 +325,7 @@ class PortfolioAggregator:
             if holdings:
                 portfolios.append(
                     {
+                        "id": portfolio_id,
                         "name": self._format_account_label(account_id),
                         "owner": account_id,
                         "holdings": holdings,
@@ -317,6 +333,46 @@ class PortfolioAggregator:
                     }
                 )
         return portfolios
+
+
+def rebuild_positions_snapshot(
+    session: Session, aggregator: PortfolioAggregator | None = None
+) -> List[Dict[str, Any]]:
+    """Rebuild an aggregated snapshot of all positions from persisted orders."""
+
+    target = aggregator or PortfolioAggregator()
+    target.reset()
+    statement = (
+        select(OrderModel)
+        .options(selectinload(OrderModel.executions))
+        .order_by(OrderModel.created_at.asc())
+    )
+    result = session.execute(statement).unique()
+    orders = list(result.scalars().all())
+    for order in orders:
+        side = order.side
+        account_id = order.account_id
+        for execution in sorted(order.executions, key=lambda item: item.executed_at):
+            quantity = float(execution.quantity or 0.0)
+            price = float(execution.price or 0.0)
+            if quantity <= 0 or price <= 0:
+                continue
+            target.apply_fill(
+                account_id=account_id,
+                symbol=order.symbol,
+                side=side,
+                quantity=quantity,
+                price=price,
+            )
+    return target.snapshot()
+
+
+def build_positions_response(session: Session) -> PositionsResponse:
+    """Return a strongly typed response describing the current positions."""
+
+    snapshot = rebuild_positions_snapshot(session)
+    items = [PortfolioSnapshot.model_validate(item) for item in snapshot]
+    return PositionsResponse(items=items, as_of=datetime.now(timezone.utc))
 
 
 class StreamingOrderEventsPublisher(OrderEventsPublisher):
@@ -372,30 +428,7 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
     def reload_state(self, session: Session) -> None:
         if not self._client or not self._client.enabled:
             return
-        statement = (
-            select(OrderModel)
-            .options(selectinload(OrderModel.executions))
-            .order_by(OrderModel.created_at.asc())
-        )
-        result = session.execute(statement).unique()
-        orders = list(result.scalars().all())
-        self._aggregator.reset()
-        for order in orders:
-            side = order.side
-            account_id = order.account_id
-            for execution in sorted(order.executions, key=lambda item: item.executed_at):
-                quantity = float(execution.quantity or 0.0)
-                price = float(execution.price or 0.0)
-                if quantity <= 0 or price <= 0:
-                    continue
-                self._aggregator.apply_fill(
-                    account_id=account_id,
-                    symbol=order.symbol,
-                    side=side,
-                    quantity=quantity,
-                    price=price,
-                )
-        snapshot = self._aggregator.snapshot()
+        snapshot = rebuild_positions_snapshot(session, self._aggregator)
         self._publish_portfolios(snapshot)
 
     def _publish_portfolios(self, snapshot: Optional[List[Dict[str, Any]]] = None) -> None:
@@ -406,6 +439,7 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
             "resource": "portfolios",
             "items": items,
             "mode": "live",
+            "type": "positions",
         }
         self._client.publish(payload)
 
@@ -1169,6 +1203,154 @@ def get_executions(
             end=end,
         ),
     )
+
+
+@app.get("/positions", response_model=PositionsResponse)
+def list_positions(session: Session = Depends(get_session)) -> PositionsResponse:
+    """Return an aggregated view of current positions."""
+
+    return build_positions_response(session)
+
+
+@app.post("/positions/{position_id}/close", response_model=PositionCloseResponse)
+def close_position(
+    position_id: str,
+    payload: PositionCloseRequest | None = None,
+    session: Session = Depends(get_session),
+) -> PositionCloseResponse:
+    """Route a market order to close or resize the requested position."""
+
+    try:
+        decoded_account, decoded_symbol = decode_position_key(position_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Identifiant de position invalide.",
+        ) from exc
+
+    snapshot = rebuild_positions_snapshot(session)
+    holding: Dict[str, Any] | None = None
+    owner: str | None = None
+    for portfolio in snapshot:
+        for candidate in portfolio.get("holdings", []):
+            if candidate.get("id") == position_id:
+                holding = candidate
+                owner = portfolio.get("owner")
+                break
+        if holding:
+            break
+    if holding is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position introuvable.")
+
+    symbol = str(holding.get("symbol") or decoded_symbol).strip()
+    if not symbol:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Symbole manquant pour la position.")
+    account_id = str(holding.get("account_id") or owner or decoded_account).strip() or "default"
+    current_quantity = float(holding.get("quantity") or 0.0)
+    target_quantity = (
+        float(payload.target_quantity)
+        if payload and payload.target_quantity is not None
+        else 0.0
+    )
+    delta = target_quantity - current_quantity
+    if math.isclose(delta, 0.0, abs_tol=PortfolioAggregator._EPSILON):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La position est déjà alignée sur la cible demandée.",
+        )
+
+    side = OrderSide.BUY if delta > 0 else OrderSide.SELL
+    quantity = abs(delta)
+
+    order_statement = (
+        select(OrderModel)
+        .where(
+            OrderModel.account_id == account_id,
+            OrderModel.symbol == symbol,
+        )
+        .order_by(OrderModel.created_at.desc())
+        .limit(1)
+    )
+    order_model = session.execute(order_statement).scalars().first()
+    if order_model is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Impossible de déterminer le broker associé à la position.",
+        )
+
+    try:
+        venue = ExecutionVenue(order_model.venue)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La position est associée à une place de marché inconnue.",
+        ) from exc
+
+    limit = get_pair_limit(venue, symbol)
+    if limit is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cette paire n'est pas disponible dans l'environnement de simulation.",
+        )
+    if quantity > limit.max_order_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La taille demandée dépasse la limite autorisée pour cette paire.",
+        )
+
+    tags = [f"position:{position_id}"]
+    if math.isclose(target_quantity, 0.0, abs_tol=PortfolioAggregator._EPSILON):
+        tags.append("position:close")
+    else:
+        tags.append("position:adjust")
+
+    intent = ExecutionIntent(
+        broker=order_model.broker,
+        venue=venue,
+        symbol=symbol,
+        side=side,
+        quantity=quantity,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.IOC,
+        account_id=account_id,
+        tags=tags,
+        risk=RiskOverrides(account_id=account_id),
+    )
+
+    last_price = float(holding.get("current_price") or limit.reference_price)
+    context: Dict[str, Any] = {
+        "daily_loss": 0.0,
+        "last_price": last_price,
+        "account_id": account_id,
+        "realized_pnl": 0.0,
+        "unrealized_pnl": float(holding.get("market_value") or 0.0),
+        "stop_loss": None,
+    }
+
+    # Reset the transactional state before delegating order persistence. SQLAlchemy
+    # implicitly begins a transaction as soon as the session is used for reads,
+    # which would cause ``session.begin()`` inside ``router.route_order`` to
+    # raise. Rolling back clears the transactional context while keeping the
+    # session usable for subsequent queries.
+    session.rollback()
+
+    try:
+        report = router.route_order(intent, context, session=session)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except OrderPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erreur lors de l'enregistrement de l'ordre de clôture.",
+        ) from exc
+
+    session.expire_all()
+    positions = build_positions_response(session)
+    return PositionCloseResponse(order=report, positions=positions)
 
 
 @app.get("/risk/alerts", response_model=List[RiskAlertResponse])
