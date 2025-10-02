@@ -1,5 +1,5 @@
 -r requirements.txt
 pytest
 httpx
-pytest-playwright
-playwright
+pytest-playwright==0.5.1
+playwright==1.49.0

@@ -1,0 +1,13 @@
+# Consolidated development/test dependencies for Python services.
+-r ../services/auth-service/requirements-dev.txt
+-r ../services/billing-service/requirements-dev.txt
+-r ../services/codex_gateway/requirements-dev.txt
+-r ../services/codex_worker/requirements-dev.txt
+-r ../services/config-service/requirements-dev.txt
+-r ../services/entitlements-service/requirements-dev.txt
+-r ../services/notification-service/requirements-dev.txt
+-r ../services/screener/requirements-dev.txt
+-r ../services/streaming/requirements-dev.txt
+-r ../services/streaming_gateway/requirements-dev.txt
+-r ../services/user-service/requirements-dev.txt
+-r ../services/web-dashboard/requirements-dev.txt

@@ -33,8 +33,8 @@ lint:
 
 test:
 	python -m pip install -r requirements-dev.txt
-	python -m pip install -r services/auth-service/requirements-dev.txt
-	python -m pip install -r services/config-service/requirements-dev.txt
+	python -m pip install -r requirements/services.txt
+	python -m pip install -r requirements/services-dev.txt
 	python -m coverage erase
 	python -m coverage run -m pytest
 	python -m coverage xml
