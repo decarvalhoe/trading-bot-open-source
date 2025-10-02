@@ -21,6 +21,7 @@ from infra.marketplace_models import Base as MarketplaceBase
 from infra.social_models import Base as SocialBase
 from infra.screener_models import ScreenerBase
 from infra.trading_models import TradingBase
+from infra.strategy_models import StrategyBase
 
 config = context.config
 
@@ -99,6 +100,7 @@ def _collect_target_metadata() -> tuple[MetaData, ...]:
         SocialBase.metadata,
         ScreenerBase.metadata,
         TradingBase.metadata,
+        StrategyBase.metadata,
     ]
 
     service_modules = [

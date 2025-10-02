@@ -96,8 +96,9 @@ def test_backtest_results_are_published_and_visible(
     publisher = ALGO_MAIN.ReportsPublisher(client=publisher_client, base_url=str(reports_client.base_url))
     monkeypatch.setattr(ALGO_MAIN, "reports_publisher", publisher, raising=False)
 
-    # Reset strategy store for isolation
-    ALGO_MAIN.store._strategies.clear()  # type: ignore[attr-defined]
+    # Reset strategy repository for isolation
+    ALGO_MAIN.strategy_repository.clear()
+    ALGO_MAIN.orchestrator.restore_recent_executions([])
 
     with TestClient(ALGO_MAIN.app) as algo_client:
         create_payload = {

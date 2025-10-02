@@ -4,10 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import threading
 import uuid
-from dataclasses import asdict, dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -48,6 +45,7 @@ else:
     StrategyGenerationRequest = None  # type: ignore[assignment]
     StrategyFormat = None  # type: ignore[assignment]
 
+from libs.db.db import SessionLocal
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
@@ -59,6 +57,7 @@ from .declarative import DeclarativeStrategyError, load_declarative_definition
 from .order_router_client import OrderRouterClient
 from .orchestrator import Orchestrator
 from .reports_client import ReportsPublisher
+from .repository import StrategyRecord, StrategyRepository, StrategyStatus
 from .strategies import base  # noqa: F401 - ensures registry initialised
 from .strategies.base import StrategyConfig, registry
 from .strategies import declarative, gap_fill, orb  # noqa: F401 - register plugins
@@ -81,109 +80,7 @@ else:
         logger.warning("AI strategy assistant dependencies missing; feature disabled")
     ai_assistant = None
 
-
-class StrategyStatus(str, Enum):
-    PENDING = "PENDING"
-    ACTIVE = "ACTIVE"
-    ERROR = "ERROR"
-
-
-@dataclass
-class StrategyRecord:
-    id: str
-    name: str
-    strategy_type: str
-    parameters: Dict[str, Any] = field(default_factory=dict)
-    enabled: bool = False
-    tags: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    source_format: Optional[str] = None
-    source: Optional[str] = None
-    last_backtest: Optional[Dict[str, Any]] = None
-    status: StrategyStatus = StrategyStatus.PENDING
-    last_error: Optional[str] = None
-
-    def as_dict(self) -> Dict[str, Any]:
-        data = asdict(self)
-        data["status"] = self.status.value
-        return data
-
-
-class StrategyStore:
-    """Thread-safe in-memory strategy catalogue."""
-
-    def __init__(self) -> None:
-        self._strategies: Dict[str, StrategyRecord] = {}
-        self._lock = threading.Lock()
-        self._allowed_transitions: Dict[StrategyStatus, List[StrategyStatus]] = {
-            StrategyStatus.PENDING: [StrategyStatus.ACTIVE, StrategyStatus.ERROR],
-            StrategyStatus.ACTIVE: [StrategyStatus.ERROR],
-            StrategyStatus.ERROR: [StrategyStatus.ACTIVE],
-        }
-
-    def list(self) -> List[StrategyRecord]:
-        with self._lock:
-            return list(self._strategies.values())
-
-    def get(self, strategy_id: str) -> StrategyRecord:
-        with self._lock:
-            try:
-                return self._strategies[strategy_id]
-            except KeyError as exc:
-                raise KeyError("strategy not found") from exc
-
-    def create(self, record: StrategyRecord) -> StrategyRecord:
-        with self._lock:
-            self._strategies[record.id] = record
-            return record
-
-    def update(self, strategy_id: str, **updates: Any) -> StrategyRecord:
-        with self._lock:
-            if strategy_id not in self._strategies:
-                raise KeyError("strategy not found")
-            record = self._strategies[strategy_id]
-            pending_updates = dict(updates)
-
-            status_update = pending_updates.pop("status", None)
-            error_update = pending_updates.pop("last_error", None)
-
-            if status_update is not None:
-                if not isinstance(status_update, StrategyStatus):
-                    status_update = StrategyStatus(status_update)
-                current_status = record.status
-                if status_update != current_status:
-                    allowed = self._allowed_transitions.get(current_status, [])
-                    if status_update not in allowed:
-                        raise ValueError(
-                            f"Invalid status transition from {current_status.value} to {status_update.value}"
-                        )
-                record.status = status_update
-                if status_update == StrategyStatus.ERROR:
-                    if error_update is not None:
-                        record.last_error = error_update
-                elif status_update == StrategyStatus.ACTIVE:
-                    record.last_error = None
-
-            if error_update is not None and status_update is None:
-                record.last_error = error_update
-
-            for key, value in pending_updates.items():
-                if value is not None:
-                    setattr(record, key, value)
-            return record
-
-    def delete(self, strategy_id: str) -> None:
-        with self._lock:
-            if strategy_id not in self._strategies:
-                raise KeyError("strategy not found")
-            del self._strategies[strategy_id]
-
-    def active_count(self) -> int:
-        with self._lock:
-            return sum(1 for s in self._strategies.values() if s.enabled)
-
-
-store = StrategyStore()
+strategy_repository = StrategyRepository(SessionLocal)
 
 
 def _handle_strategy_execution_error(strategy: base.StrategyBase, error: Exception) -> None:
@@ -201,10 +98,12 @@ def _handle_strategy_execution_error(strategy: base.StrategyBase, error: Excepti
         )
         return
     try:
-        store.update(strategy_id, status=StrategyStatus.ERROR, last_error=str(error))
+        strategy_repository.update(
+            strategy_id, status=StrategyStatus.ERROR, last_error=str(error)
+        )
     except KeyError:
         logger.warning(
-            "Strategy id %s not found in store when handling routing failure",
+            "Strategy id %s not found in repository when handling routing failure",
             strategy_id,
         )
     except ValueError as exc:
@@ -219,7 +118,16 @@ order_router_client = OrderRouterClient()
 orchestrator = Orchestrator(
     order_router_client=order_router_client,
     on_strategy_error=_handle_strategy_execution_error,
+    strategy_repository=strategy_repository,
 )
+try:
+    orchestrator.restore_recent_executions(
+        strategy_repository.get_recent_executions(
+            limit=orchestrator.execution_history_limit
+        )
+    )
+except Exception:
+    logger.exception("Unable to restore execution history from repository")
 backtester = Backtester()
 reports_publisher = ReportsPublisher()
 
@@ -331,7 +239,7 @@ def list_strategies(request: Request) -> Dict[str, Any]:
     entitlements = getattr(request.state, "entitlements", None)
     limit = entitlements.quota("max_active_strategies") if entitlements else None
     return {
-        "items": [record.as_dict() for record in store.list()],
+        "items": [record.as_dict() for record in strategy_repository.list()],
         "available": registry.available_strategies(),
         "active_limit": limit,
         "orchestrator_state": orchestrator.get_state().as_dict(),
@@ -343,7 +251,7 @@ def _enforce_entitlements(request: Request, enabled: bool) -> None:
         return
     entitlements = getattr(request.state, "entitlements", None)
     limit = entitlements.quota("max_active_strategies") if entitlements else None
-    if limit is not None and store.active_count() >= limit:
+    if limit is not None and strategy_repository.active_count() >= limit:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Active strategy limit reached")
 
 
@@ -372,14 +280,14 @@ def create_strategy(payload: StrategyPayload, request: Request) -> Dict[str, Any
         source_format=payload.source_format,
         source=payload.source,
     )
-    store.create(record)
+    strategy_repository.create(record)
     return record.as_dict()
 
 
 @app.get("/strategies/{strategy_id}")
 def get_strategy(strategy_id: str) -> Dict[str, Any]:
     try:
-        record = store.get(strategy_id)
+        record = strategy_repository.get(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
     return record.as_dict()
@@ -422,7 +330,7 @@ def import_strategy(payload: StrategyImportPayload, request: Request) -> Dict[st
         source_format=payload.format,
         source=payload.content,
     )
-    store.create(record)
+    strategy_repository.create(record)
     return record.as_dict()
 
 
@@ -470,7 +378,7 @@ def generate_strategy_from_prompt(payload: StrategyGenerationPayload) -> Dict[st
 @app.put("/strategies/{strategy_id}")
 def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: Request) -> Dict[str, Any]:
     try:
-        existing = store.get(strategy_id)
+        existing = strategy_repository.get(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
@@ -491,7 +399,7 @@ def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: R
         registry.create(existing.strategy_type, config)
 
     try:
-        record = store.update(strategy_id, **updates)
+        record = strategy_repository.update(strategy_id, **updates)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return record.as_dict()
@@ -500,12 +408,14 @@ def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: R
 @app.post("/strategies/{strategy_id}/status")
 def transition_strategy_status(strategy_id: str, payload: StrategyStatusUpdatePayload) -> Dict[str, Any]:
     try:
-        store.get(strategy_id)
+        strategy_repository.get(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
     try:
-        record = store.update(strategy_id, status=payload.status, last_error=payload.error)
+        record = strategy_repository.update(
+            strategy_id, status=payload.status, last_error=payload.error
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return record.as_dict()
@@ -514,7 +424,7 @@ def transition_strategy_status(strategy_id: str, payload: StrategyStatusUpdatePa
 @app.delete("/strategies/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_strategy(strategy_id: str) -> None:
     try:
-        store.delete(strategy_id)
+        strategy_repository.delete(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
@@ -522,7 +432,7 @@ def delete_strategy(strategy_id: str) -> None:
 @app.get("/strategies/{strategy_id}/export")
 def export_strategy(strategy_id: str, fmt: Literal["yaml", "python"] = Query("yaml")) -> Dict[str, Any]:
     try:
-        record = store.get(strategy_id)
+        record = strategy_repository.get(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
@@ -545,7 +455,7 @@ def export_strategy(strategy_id: str, fmt: Literal["yaml", "python"] = Query("ya
 @app.post("/strategies/{strategy_id}/backtest")
 def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, Any]:
     try:
-        record = store.get(strategy_id)
+        record = strategy_repository.get(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
@@ -575,7 +485,7 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     summary_dict = summary.as_dict()
-    store.update(strategy_id, last_backtest=summary_dict)
+    strategy_repository.update(strategy_id, last_backtest=summary_dict)
     publish_payload: Dict[str, Any] = {
         "strategy_id": strategy_id,
         "strategy_name": record.name,
@@ -642,4 +552,10 @@ def build_execution_plan(payload: ExecutionIntent) -> ExecutionPlan:
     return build_plan(order)
 
 
-__all__ = ["app"]
+__all__ = [
+    "app",
+    "orchestrator",
+    "strategy_repository",
+    "StrategyRecord",
+    "StrategyStatus",
+]

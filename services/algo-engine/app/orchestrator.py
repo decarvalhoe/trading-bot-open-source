@@ -41,12 +41,23 @@ class Orchestrator:
         *,
         order_router_client: OrderRouterClient | None = None,
         on_strategy_error: Callable[[StrategyBase, Exception], None] | None = None,
+        strategy_repository: Any | None = None,
     ) -> None:
         self._state = OrchestratorState()
         self._lock = threading.RLock()
         self._order_router_client = order_router_client
         self._max_execution_records = 50
         self._on_strategy_error = on_strategy_error
+        self._strategy_repository = strategy_repository
+
+    @property
+    def execution_history_limit(self) -> int:
+        return self._max_execution_records
+
+    def restore_recent_executions(self, executions: List[Dict[str, Any]]) -> None:
+        with self._lock:
+            limited = executions[: self._max_execution_records]
+            self._state.recent_executions = [dict(report) for report in limited]
 
     def get_state(self) -> OrchestratorState:
         with self._lock:
@@ -172,7 +183,7 @@ class Orchestrator:
                         )
                 raise
 
-            self._record_execution(report)
+            self._record_execution(strategy, report)
             reports.append(report)
 
         return reports
@@ -207,12 +218,21 @@ class Orchestrator:
 
         return ExecutionIntent.model_validate(payload)
 
-    def _record_execution(self, report: ExecutionReport) -> None:
+    def _record_execution(self, strategy: StrategyBase, report: ExecutionReport) -> None:
         payload = report.model_dump(mode="json")
         with self._lock:
             self._state.recent_executions.append(payload)
             if len(self._state.recent_executions) > self._max_execution_records:
                 del self._state.recent_executions[:-self._max_execution_records]
+        repository = self._strategy_repository
+        metadata = strategy.config.metadata or {}
+        strategy_id = metadata.get("strategy_id") if isinstance(metadata, dict) else None
+        if repository is not None and strategy_id:
+            try:
+                repository.record_execution(strategy_id=strategy_id, payload=payload)
+            except Exception:  # pragma: no cover - persistence errors logged
+                logger.exception("Failed to persist execution for strategy %s", strategy_id)
 
 
 __all__ = ["Orchestrator", "OrchestratorState"]
+

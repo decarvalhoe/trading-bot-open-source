@@ -8,9 +8,17 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from algo_engine.app.main import StrategyRecord, StrategyStatus, orchestrator, store
+from algo_engine.app.main import (
+    StrategyRecord,
+    StrategyStatus,
+    orchestrator,
+    strategy_repository,
+)
 from algo_engine.app.order_router_client import OrderRouterClientError
+from algo_engine.app.orchestrator import Orchestrator
+from algo_engine.app.repository import StrategyRepository
 from algo_engine.app.strategies.base import StrategyBase, StrategyConfig
+from libs.db.db import SessionLocal
 from schemas.market import ExecutionStatus, ExecutionVenue, OrderSide, OrderType
 
 
@@ -32,12 +40,12 @@ class StaticSignalStrategy(StrategyBase):
 
 
 def test_strategy_execution_flow_updates_state_and_handles_errors(
-    mock_order_router: Any,
+    main_module: Any, mock_order_router: Any
 ) -> None:
     """Ensure orchestrator routes signals, updates state and handles failures."""
 
     strategy_id = str(uuid4())
-    record = store.create(
+    record = strategy_repository.create(
         StrategyRecord(
             id=strategy_id,
             name="Static",
@@ -86,8 +94,24 @@ def test_strategy_execution_flow_updates_state_and_handles_errors(
     assert state.trades_submitted == 1
     assert state.recent_executions
     assert state.recent_executions[0]["order_id"] == "order-success"
+    history = strategy_repository.get_recent_executions()
+    assert history and history[0]["order_id"] == "order-success"
 
-    updated = store.update(strategy_id, status=StrategyStatus.ACTIVE)
+    fresh_repository = StrategyRepository(SessionLocal)
+    reloaded = fresh_repository.get(strategy_id)
+    assert reloaded.name == "Static"
+    restored = Orchestrator(
+        order_router_client=main_module.order_router_client,
+        strategy_repository=fresh_repository,
+    )
+    restored.restore_recent_executions(
+        fresh_repository.get_recent_executions(
+            limit=restored.execution_history_limit
+        )
+    )
+    assert restored.get_state().recent_executions
+
+    updated = strategy_repository.update(strategy_id, status=StrategyStatus.ACTIVE)
     assert updated.status is StrategyStatus.ACTIVE
     assert updated.last_error is None
 
@@ -95,7 +119,7 @@ def test_strategy_execution_flow_updates_state_and_handles_errors(
     orchestrator._state.recent_executions.clear()  # type: ignore[attr-defined]
     mock_order_router.reset()
     failure_id = str(uuid4())
-    failing_record = store.create(
+    failing_record = strategy_repository.create(
         StrategyRecord(
             id=failure_id,
             name="Static Failure",
@@ -122,13 +146,13 @@ def test_strategy_execution_flow_updates_state_and_handles_errors(
     assert failure_state.trades_submitted == 0
     assert failure_state.recent_executions == []
 
-    stored_failure = store.get(failure_id)
+    stored_failure = strategy_repository.get(failure_id)
     assert stored_failure.status is StrategyStatus.ERROR
     assert stored_failure.last_error
 
     # Ensure PENDING strategy without emitted signals remains untouched
     idle_id = str(uuid4())
-    idle_record = store.create(
+    idle_record = strategy_repository.create(
         StrategyRecord(
             id=idle_id,
             name="Idle",
@@ -146,5 +170,5 @@ def test_strategy_execution_flow_updates_state_and_handles_errors(
         orchestrator.execute_strategy(strategy=idle_strategy, market_state={"emit": False})
     )
     assert reports_idle == []
-    assert store.get(idle_id).status is StrategyStatus.PENDING
+    assert strategy_repository.get(idle_id).status is StrategyStatus.PENDING
     assert orchestrator.get_state().trades_submitted == 0

@@ -15,6 +15,11 @@ if ASSISTANT_SRC.exists():
 
 os.environ.setdefault("ENTITLEMENTS_BYPASS", "1")
 
+TEST_DB_PATH = Path(__file__).resolve().parent / "test_algo_engine.sqlite"
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{TEST_DB_PATH}")
+if TEST_DB_PATH.exists():
+    TEST_DB_PATH.unlink()
+
 prometheus_stub = types.ModuleType("prometheus_client")
 
 
@@ -79,13 +84,13 @@ def main_module() -> types.ModuleType:
 
 @pytest.fixture(autouse=True)
 def reset_state(main_module: types.ModuleType) -> None:
-    store = main_module.store
+    repository = main_module.strategy_repository
     orchestrator = main_module.orchestrator
-    store._strategies.clear()  # type: ignore[attr-defined]
+    repository.clear()
+    orchestrator.restore_recent_executions([])
     orchestrator.update_daily_limit(trades_submitted=0)
     orchestrator.set_mode("paper")
     orchestrator._state.last_simulation = None  # type: ignore[attr-defined]
-    orchestrator._state.recent_executions.clear()  # type: ignore[attr-defined]
     orchestrator.set_order_router_client(DEFAULT_ORDER_ROUTER_CLIENT)
 
 

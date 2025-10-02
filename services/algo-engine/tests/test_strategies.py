@@ -11,7 +11,7 @@ from algo_engine.app.main import (
     _enforce_entitlements,
     app,
     orchestrator,
-    store,
+    strategy_repository,
 )
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +78,7 @@ def test_enforce_entitlements_respects_limit():
         quotas={"max_active_strategies": 1},
     )
 
-    store.create(
+    strategy_repository.create(
         StrategyRecord(
             id="existing",
             name="Existing",
