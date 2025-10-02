@@ -1,3 +1,10 @@
+const INDICATOR_TYPES = new Set([
+  "indicator",
+  "indicator_macd",
+  "indicator_bollinger",
+  "indicator_atr",
+]);
+
 function toConditionSchema(node) {
   if (!node) {
     return null;
@@ -12,21 +19,64 @@ function toConditionSchema(node) {
     }
     return { [mode]: children };
   }
+  if (node.type === "group") {
+    const children = (node.children || [])
+      .map(toConditionSchema)
+      .filter((child) => child !== null);
+    if (!children.length) {
+      return null;
+    }
+    return { all: children };
+  }
+  if (node.type === "negation") {
+    const child = toConditionSchema((node.children || [])[0]);
+    if (!child) {
+      return null;
+    }
+    return { not: child };
+  }
   if (node.type === "condition") {
     const base = {
       field: node.config.field || "close",
       operator: node.config.operator || "gt",
       value: normalizeValue(node.config.value),
     };
-    const indicator = (node.children || []).find((child) => child.type === "indicator");
+    const indicator = (node.children || []).find((child) => INDICATOR_TYPES.has(child.type));
     if (indicator) {
-      base.field = buildIndicatorAlias(indicator.config);
+      base.field = buildIndicatorAlias(indicator.config, indicator.type);
     }
     return base;
   }
-  if (node.type === "indicator") {
+  if (node.type === "market_cross") {
+    const indicators = (node.children || []).filter((child) => INDICATOR_TYPES.has(child.type));
+    if (indicators.length < 2) {
+      return null;
+    }
+    const left = indicators[0];
+    const right = indicators[1];
     return {
-      field: buildIndicatorAlias(node.config),
+      cross: {
+        left: buildIndicatorAlias(left.config, left.type),
+        right: buildIndicatorAlias(right.config, right.type),
+        direction: node.config.direction === "below" ? "below" : "above",
+        lookback: Number(node.config.lookback) || 1,
+      },
+    };
+  }
+  if (node.type === "market_volume") {
+    const schema = {
+      field: "volume",
+      operator: node.config.operator || "gt",
+      value: normalizeValue(node.config.value),
+    };
+    if (node.config.timeframe) {
+      schema.timeframe = node.config.timeframe;
+    }
+    return schema;
+  }
+  if (INDICATOR_TYPES.has(node.type)) {
+    return {
+      field: buildIndicatorAlias(node.config, node.type),
       operator: "exists",
       value: true,
     };
@@ -45,11 +95,24 @@ function normalizeValue(value) {
   return value;
 }
 
-function buildIndicatorAlias(config) {
-  const source = (config && config.source) || "close";
-  const kind = (config && config.kind) || "sma";
-  const period = (config && config.period) || "20";
-  return `${kind.toUpperCase()}(${source}, ${period})`;
+function buildIndicatorAlias(config = {}, type = "indicator") {
+  const source = config.source || "close";
+  if (type === "indicator_macd") {
+    return `MACD(${source}, ${config.fastPeriod || "12"}, ${config.slowPeriod || "26"}, ${
+      config.signalPeriod || "9"
+    })`;
+  }
+  if (type === "indicator_bollinger") {
+    return `BOLL(${source}, ${config.period || "20"}, ${config.deviation || "2"})`;
+  }
+  if (type === "indicator_atr") {
+    return `ATR(${config.source || "hlc3"}, ${config.period || "14"}, ${
+      config.smoothing || "14"
+    })`;
+  }
+  const kind = (config.kind || "sma").toUpperCase();
+  const period = config.period || "20";
+  return `${kind}(${source}, ${period})`;
 }
 
 function toSignalSchema(nodes) {
@@ -66,6 +129,35 @@ function toSignalSchema(nodes) {
       });
     } else if (node.type === "delay") {
       steps.push({ type: "delay", seconds: Number(node.config.seconds) || 0 });
+    } else if (node.type === "take_profit") {
+      const step = {
+        type: "take_profit",
+        mode: node.config.mode || "percent",
+        value: Number(node.config.value) || 0,
+        size: node.config.size || "full",
+      };
+      if (node.config.size === "custom") {
+        step.customSize = Number(node.config.customSize) || 0;
+      }
+      steps.push(step);
+    } else if (node.type === "stop_loss") {
+      steps.push({
+        type: "stop_loss",
+        mode: node.config.mode || "percent",
+        value: Number(node.config.value) || 0,
+        trailing: Boolean(node.config.trailing),
+      });
+    } else if (node.type === "close_position") {
+      steps.push({
+        type: "close_position",
+        side: node.config.side || "all",
+      });
+    } else if (node.type === "alert") {
+      steps.push({
+        type: "alert",
+        channel: node.config.channel || "email",
+        message: node.config.message || "",
+      });
     }
   }
   const primary = steps.find((step) => step.type === "order");
