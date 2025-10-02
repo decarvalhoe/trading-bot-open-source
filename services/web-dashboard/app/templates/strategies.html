@@ -106,6 +106,32 @@
         </div>
       </section>
 
+      <section class="card card--backtest" aria-labelledby="backtest-card-title">
+        <div class="card__header">
+          <h2 id="backtest-card-title" class="heading heading--lg">Backtests</h2>
+          <p class="text text--muted">
+            Sélectionnez un actif et une période pour exécuter un backtest et visualiser l'équity.
+          </p>
+        </div>
+        <div class="card__body">
+          <div
+            id="strategy-backtest-root"
+            data-strategies-endpoint="{{ backtest_config.strategies_endpoint }}"
+            data-run-endpoint-template="{{ backtest_config.run_endpoint_template }}"
+            data-ui-endpoint-template="{{ backtest_config.ui_endpoint_template }}"
+            data-history-endpoint-template="{{ backtest_config.history_endpoint_template }}"
+            data-history-page-size="5"
+            data-default-symbol="BTCUSDT"
+          >
+            <noscript>
+              <p class="text text--muted">
+                Activez JavaScript pour lancer des backtests interactifs.
+              </p>
+            </noscript>
+          </div>
+        </div>
+      </section>
+
       <section class="card card--assistant" aria-labelledby="assistant-card-title">
         <div class="card__header">
           <h2 id="assistant-card-title" class="heading heading--lg">Assistant IA</h2>

@@ -30,6 +30,8 @@ class BacktestSummary:
     trades: int
     total_return: float
     max_drawdown: float
+    initial_balance: float
+    profit_loss: float
     equity_curve: List[float] = field(default_factory=list)
     metrics_path: str = ""
     log_path: str = ""
@@ -40,6 +42,8 @@ class BacktestSummary:
             "trades": self.trades,
             "total_return": self.total_return,
             "max_drawdown": self.max_drawdown,
+            "initial_balance": self.initial_balance,
+            "profit_loss": self.profit_loss,
             "equity_curve": self.equity_curve,
             "metrics_path": self.metrics_path,
             "log_path": self.log_path,
@@ -97,7 +101,11 @@ class Backtester:
             logs.append(f"[final] SELL size={position_size} price={final_price} pnl={pnl}")
             equity_curve.append(balance)
 
-        total_return = (balance - initial_balance) / initial_balance if initial_balance else 0.0
+        final_equity = equity_curve[-1] if equity_curve else balance
+        total_return = (
+            (final_equity - initial_balance) / initial_balance if initial_balance else 0.0
+        )
+        profit_loss = final_equity - initial_balance
         drawdown = _max_drawdown(equity_curve)
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -110,6 +118,8 @@ class Backtester:
             "trades": trades,
             "total_return": total_return,
             "max_drawdown": drawdown,
+            "initial_balance": initial_balance,
+            "profit_loss": profit_loss,
             "equity_curve": equity_curve,
         }
         metrics_path.write_text(json.dumps(metrics, indent=2))
@@ -120,6 +130,8 @@ class Backtester:
             trades=trades,
             total_return=total_return,
             max_drawdown=drawdown,
+            initial_balance=initial_balance,
+            profit_loss=profit_loss,
             equity_curve=equity_curve,
             metrics_path=str(metrics_path),
             log_path=str(log_path),

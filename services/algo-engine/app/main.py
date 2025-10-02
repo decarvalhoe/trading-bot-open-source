@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -214,6 +215,7 @@ class StrategyDraftPreview(BaseModel):
 class BacktestPayload(BaseModel):
     market_data: List[Dict[str, Any]]
     initial_balance: float = Field(default=10_000.0, gt=0)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutionIntent(BaseModel):
@@ -485,7 +487,15 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     summary_dict = summary.as_dict()
+    timestamp = datetime.now(timezone.utc)
+    summary_dict["metadata"] = payload.metadata or {}
+    summary_dict["ran_at"] = timestamp.isoformat()
     strategy_repository.update(strategy_id, last_backtest=summary_dict)
+    strategy_repository.record_backtest(
+        strategy_id,
+        summary_dict,
+        ran_at=timestamp,
+    )
     publish_payload: Dict[str, Any] = {
         "strategy_id": strategy_id,
         "strategy_name": record.name,
@@ -510,6 +520,62 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
     reports_publisher.publish_backtest(publish_payload)
     orchestrator.record_simulation(summary.as_dict())
     return summary.as_dict()
+
+
+@app.get("/strategies/{strategy_id}/backtest/ui")
+def get_backtest_ui_metrics(strategy_id: str) -> Dict[str, Any]:
+    """Expose the latest backtest metrics optimised for UI consumption."""
+
+    try:
+        record = strategy_repository.get(strategy_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found") from exc
+
+    if not record.last_backtest:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No backtest available")
+
+    summary = dict(record.last_backtest)
+    equity_curve = summary.get("equity_curve")
+    if not isinstance(equity_curve, list):
+        equity_curve = []
+    return {
+        "strategy_id": record.id,
+        "strategy_name": record.name,
+        "equity_curve": equity_curve,
+        "pnl": summary.get("profit_loss", 0.0),
+        "initial_balance": summary.get("initial_balance", 0.0),
+        "drawdown": summary.get("max_drawdown", 0.0),
+        "total_return": summary.get("total_return", 0.0),
+        "metadata": summary.get("metadata", {}),
+        "ran_at": summary.get("ran_at"),
+    }
+
+
+@app.get("/strategies/{strategy_id}/backtests")
+def list_backtests(
+    strategy_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+) -> Dict[str, Any]:
+    """Return paginated historical backtest summaries."""
+
+    try:
+        strategy_repository.get(strategy_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found") from exc
+
+    offset = (page - 1) * page_size
+    items, total = strategy_repository.get_backtests(
+        strategy_id,
+        limit=page_size,
+        offset=offset,
+    )
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @app.get("/state")

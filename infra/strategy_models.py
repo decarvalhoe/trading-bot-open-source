@@ -63,6 +63,12 @@ class Strategy(StrategyBase):
         cascade="all, delete-orphan",
         order_by="StrategyExecution.submitted_at.desc()",
     )
+    backtests = relationship(
+        "StrategyBacktest",
+        back_populates="strategy",
+        cascade="all, delete-orphan",
+        order_by="StrategyBacktest.ran_at.desc()",
+    )
 
 
 class StrategyVersion(StrategyBase):
@@ -137,9 +143,46 @@ class StrategyExecution(StrategyBase):
     )
 
 
+class StrategyBacktest(StrategyBase):
+    """Historical record of backtests executed for a strategy."""
+
+    __tablename__ = "strategy_backtests"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    strategy_id: str = Column(
+        String(36),
+        ForeignKey("strategies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    ran_at: datetime = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+    initial_balance: float = Column(Float, nullable=False)
+    profit_loss: float = Column(Float, nullable=False)
+    total_return: float = Column(Float, nullable=False)
+    max_drawdown: float = Column(Float, nullable=False)
+    equity_curve: list[float] | None = Column(JSON, nullable=False)
+    summary: dict | None = Column(JSON, nullable=False)
+
+    strategy = relationship("Strategy", back_populates="backtests")
+
+    __table_args__ = (
+        Index(
+            "ix_strategy_backtests_strategy_ran_at",
+            "strategy_id",
+            "ran_at",
+        ),
+    )
+
+
 __all__ = [
     "StrategyBase",
     "Strategy",
     "StrategyVersion",
     "StrategyExecution",
+    "StrategyBacktest",
 ]

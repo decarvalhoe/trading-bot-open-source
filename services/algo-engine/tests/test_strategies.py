@@ -153,6 +153,70 @@ STRATEGY = {
     assert any(backtest_dir.iterdir())
 
 
+def test_backtest_ui_metrics_and_history():
+    client = TestClient(app)
+    content = """
+STRATEGY = {
+    "name": "Declarative Breakout",
+    "rules": [
+        {
+            "when": {"field": "close", "operator": "gt", "value": 95},
+            "signal": {"action": "buy", "size": 1}
+        },
+        {
+            "when": {"field": "close", "operator": "lt", "value": 92},
+            "signal": {"action": "sell", "size": 1}
+        }
+    ],
+    "parameters": {"timeframe": "1h"}
+}
+"""
+    response = client.post(
+        "/strategies/import",
+        json={"format": "python", "content": content, "tags": ["declarative"]},
+    )
+    assert response.status_code == 201
+    strategy_id = response.json()["id"]
+
+    market_data = [
+        {"close": 90},
+        {"close": 110},
+        {"close": 92},
+        {"close": 120},
+    ]
+
+    for run in range(3):
+        backtest_response = client.post(
+            f"/strategies/{strategy_id}/backtest",
+            json={
+                "market_data": market_data,
+                "initial_balance": 1_000.0,
+                "metadata": {"symbol": "BTCUSDT", "timeframe": "1h", "run": run},
+            },
+        )
+        assert backtest_response.status_code == 200
+
+    ui_metrics = client.get(f"/strategies/{strategy_id}/backtest/ui")
+    assert ui_metrics.status_code == 200
+    ui_payload = ui_metrics.json()
+    assert ui_payload["strategy_id"] == strategy_id
+    assert ui_payload["pnl"] != 0
+    assert ui_payload["drawdown"] >= 0
+    assert isinstance(ui_payload["equity_curve"], list)
+    assert ui_payload["metadata"]["symbol"] == "BTCUSDT"
+
+    history = client.get(
+        f"/strategies/{strategy_id}/backtests",
+        params={"page": 1, "page_size": 2},
+    )
+    assert history.status_code == 200
+    history_payload = history.json()
+    assert history_payload["total"] == 3
+    assert len(history_payload["items"]) == 2
+    assert history_payload["items"][0]["metadata"]["symbol"] == "BTCUSDT"
+    assert history_payload["items"][0]["ran_at"]
+
+
 def test_strategy_status_transitions():
     client = TestClient(app)
     create_resp = client.post("/strategies", json={"name": "Status Test", "strategy_type": "orb"})

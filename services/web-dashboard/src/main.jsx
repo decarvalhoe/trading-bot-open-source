@@ -6,6 +6,7 @@ import AlertHistory from "./alerts/AlertHistory.jsx";
 import ReportsList from "./reports/ReportsList.jsx";
 import { AIStrategyAssistant } from "./strategies/assistant/index.js";
 import { StrategyDesigner, STRATEGY_PRESETS } from "./strategies/designer/index.js";
+import { StrategyBacktestConsole } from "./strategies/backtest/index.js";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -185,6 +186,28 @@ if (assistantRoot) {
       <AIStrategyAssistant
         generateEndpoint={generateEndpoint}
         importEndpoint={importEndpoint}
+      />
+    </StrictMode>
+  );
+}
+
+const backtestRoot = document.getElementById("strategy-backtest-root");
+if (backtestRoot) {
+  const dataset = backtestRoot.dataset || {};
+  const historyPageSize = Number.parseInt(dataset.historyPageSize || "5", 10);
+  const root = createRoot(backtestRoot);
+  root.render(
+    <StrictMode>
+      <StrategyBacktestConsole
+        strategiesEndpoint={dataset.strategiesEndpoint || "/api/strategies"}
+        runEndpointTemplate={dataset.runEndpointTemplate || "/api/strategies/__id__/backtest"}
+        uiEndpointTemplate={dataset.uiEndpointTemplate || "/api/strategies/__id__/backtest/ui"}
+        historyEndpointTemplate={
+          dataset.historyEndpointTemplate || "/api/strategies/__id__/backtests"
+        }
+        defaultStrategyId={dataset.defaultStrategyId || ""}
+        defaultSymbol={dataset.defaultSymbol || "BTCUSDT"}
+        historyPageSize={Number.isNaN(historyPageSize) ? 5 : historyPageSize}
       />
     </StrictMode>
   );

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Any, Dict, Iterator, List, Literal, Optional
 from urllib.parse import urljoin
 
 from fastapi import (
@@ -185,6 +186,77 @@ class StrategyAssistantImportRequest(BaseModel):
     parameters: dict[str, object] = Field(default_factory=dict)
 
 
+SUPPORTED_TIMEFRAMES: Dict[str, int] = {
+    "15m": 15,
+    "1h": 60,
+    "4h": 240,
+    "1d": 1440,
+}
+
+
+class StrategyBacktestRunRequest(BaseModel):
+    """Form values submitted by the UI to execute a backtest."""
+
+    symbol: str = Field(..., min_length=2, description="Symbole de l'actif à simuler")
+    timeframe: Literal["15m", "1h", "4h", "1d"] = "1h"
+    lookback_days: int = Field(30, ge=1, le=180)
+    initial_balance: float = Field(10_000.0, gt=0)
+
+
+def _timeframe_to_minutes(timeframe: str) -> int:
+    minutes = SUPPORTED_TIMEFRAMES.get(timeframe)
+    if minutes is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Période non supportée")
+    return minutes
+
+
+def _generate_synthetic_market_data(
+    symbol: str,
+    timeframe: str,
+    lookback_days: int,
+    *,
+    max_candles: int = 500,
+) -> List[Dict[str, Any]]:
+    """Create deterministic OHLC data for backtests when real data is unavailable."""
+
+    minutes = _timeframe_to_minutes(timeframe)
+    total_minutes = lookback_days * 24 * 60
+    candle_count = max(1, min(max_candles, total_minutes // minutes or 1))
+    base_price = 50 + (abs(hash(symbol)) % 5_000) / 10.0
+    start_time = datetime.now() - timedelta(days=lookback_days)
+    equity: List[Dict[str, Any]] = []
+    amplitude = max(1.0, base_price * 0.015)
+
+    for index in range(candle_count):
+        progress = index / max(1, candle_count - 1)
+        angle = progress * math.pi * 4
+        wave = math.sin(angle) * amplitude
+        drift = progress * amplitude * 0.5
+        close = base_price + wave + drift
+        open_price = base_price + math.sin(max(0, index - 1)) * amplitude * 0.5 + drift
+        high = max(close, open_price) + amplitude * 0.1
+        low = min(close, open_price) - amplitude * 0.1
+        timestamp = start_time + timedelta(minutes=index * minutes)
+        equity.append(
+            {
+                "timestamp": timestamp.isoformat(),
+                "open": round(open_price, 4),
+                "high": round(high, 4),
+                "low": round(low, 4),
+                "close": round(close, 4),
+                "volume": round(abs(math.cos(angle)) * 10_000, 3),
+            }
+        )
+    return equity
+
+
+def _safe_json(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return {"message": response.text or "Réponse invalide du moteur de stratégies."}
+
+
 @app.get("/health")
 def healthcheck() -> dict[str, str]:
     """Simple health endpoint."""
@@ -331,6 +403,140 @@ def delete_alert(
     except AlertsEngineError as error:
         _handle_alert_engine_error(error)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/strategies", name="api_list_strategies")
+async def list_available_strategies() -> dict[str, object]:
+    """Expose the list of strategies managed by the algo-engine."""
+
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, "strategies")
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.get(target_url, headers={"Accept": "application/json"})
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Algo-engine indisponible pour récupérer les stratégies."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        detail = _safe_json(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    payload = _safe_json(response)
+    items: List[Dict[str, Any]] = []
+    if isinstance(payload, dict):
+        for raw in payload.get("items", []) or []:
+            if isinstance(raw, dict) and raw.get("id"):
+                items.append(
+                    {
+                        "id": raw.get("id"),
+                        "name": raw.get("name"),
+                        "strategy_type": raw.get("strategy_type"),
+                    }
+                )
+    return {"items": items}
+
+
+@app.post("/api/strategies/{strategy_id}/backtest", name="run_strategy_backtest")
+async def run_strategy_backtest(
+    strategy_id: str,
+    payload: StrategyBacktestRunRequest,
+) -> dict[str, Any]:
+    """Trigger a backtest run by proxying to the algo-engine."""
+
+    market_data = _generate_synthetic_market_data(
+        payload.symbol,
+        payload.timeframe,
+        payload.lookback_days,
+    )
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, f"strategies/{strategy_id}/backtest")
+    request_payload = {
+        "market_data": market_data,
+        "initial_balance": payload.initial_balance,
+        "metadata": {
+            "symbol": payload.symbol,
+            "timeframe": payload.timeframe,
+            "lookback_days": payload.lookback_days,
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.post(
+                target_url,
+                json=request_payload,
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Algo-engine indisponible pour lancer le backtest."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        detail = _safe_json(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    try:
+        return response.json()
+    except ValueError as error:  # pragma: no cover - invalid payload
+        message = "Réponse invalide du moteur de stratégies."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+
+@app.get(
+    "/api/strategies/{strategy_id}/backtest/ui",
+    name="get_strategy_backtest_ui",
+)
+async def get_strategy_backtest_ui(strategy_id: str) -> dict[str, Any]:
+    """Fetch the latest backtest metrics for UI consumption."""
+
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, f"strategies/{strategy_id}/backtest/ui")
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.get(target_url, headers={"Accept": "application/json"})
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Algo-engine indisponible pour récupérer les métriques."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        detail = _safe_json(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    payload = _safe_json(response)
+    if not isinstance(payload, dict):
+        return {"equity_curve": [], "pnl": 0, "drawdown": 0}
+    return payload
+
+
+@app.get(
+    "/api/strategies/{strategy_id}/backtests",
+    name="list_strategy_backtests",
+)
+async def list_strategy_backtests(
+    strategy_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(5, ge=1, le=50),
+) -> dict[str, Any]:
+    """Retrieve historical backtests from the algo-engine."""
+
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, f"strategies/{strategy_id}/backtests")
+    params = {"page": page, "page_size": page_size}
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.get(
+                target_url,
+                params=params,
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Algo-engine indisponible pour récupérer l'historique."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        detail = _safe_json(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    payload = _safe_json(response)
+    if not isinstance(payload, dict):
+        return {"items": [], "total": 0, "page": page, "page_size": page_size}
+    return payload
 
 
 @app.post("/strategies/save")
@@ -529,6 +735,18 @@ def render_strategies(request: Request) -> HTMLResponse:
     ai_generate_endpoint = request.url_for("generate_strategy")
     ai_import_endpoint = request.url_for("import_assistant_strategy")
     upload_endpoint = request.url_for("upload_strategy_file")
+    backtest_config = {
+        "strategies_endpoint": request.url_for("api_list_strategies"),
+        "run_endpoint_template": request.url_for(
+            "run_strategy_backtest", strategy_id="__id__"
+        ),
+        "ui_endpoint_template": request.url_for(
+            "get_strategy_backtest_ui", strategy_id="__id__"
+        ),
+        "history_endpoint_template": request.url_for(
+            "list_strategy_backtests", strategy_id="__id__"
+        ),
+    }
     return templates.TemplateResponse(
         "strategies.html",
         {
@@ -539,6 +757,7 @@ def render_strategies(request: Request) -> HTMLResponse:
             "upload_endpoint": upload_endpoint,
             "preset_summaries": STRATEGY_PRESET_SUMMARIES,
             "presets": STRATEGY_PRESETS,
+            "backtest_config": backtest_config,
             "active_page": "strategies",
         },
     )
