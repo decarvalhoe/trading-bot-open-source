@@ -66,6 +66,23 @@ Python strategies may alternatively expose a `build_strategy()` function returni
 
 Imported strategies are stored with their original source (for re-export) and the evaluated definition under `parameters.definition`.
 
+## AI strategy assistant
+
+The `ai-strategy-assistant` microservice leverages LangChain and OpenAI to transform
+natural language prompts into declarative or Python strategies. The algo engine exposes
+`POST /strategies/generate` which forwards the request to the assistant and returns a
+draft containing:
+
+- a summary of the proposed approach,
+- a YAML or Python implementation (or both),
+- recommended indicators and caveats,
+- metadata such as the suggested strategy name.
+
+The web dashboard embeds an AI assistant card on the strategies page. Users can choose
+from predefined prompts, toggle indicator suggestions, review the generated code and
+edit it before importing via `POST /strategies/import/assistant`, which proxies the
+payload to the algo engine.
+
 ## Simulation & artefacts
 
 Backtests run through the `/strategies/{id}/backtest` endpoint leverage the new simulation mode. Results are saved inside `data/backtests/`:

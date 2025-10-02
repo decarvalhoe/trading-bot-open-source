@@ -2,14 +2,27 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+
+ASSISTANT_SRC = Path(__file__).resolve().parents[2] / "ai-strategy-assistant" / "src"
+if ASSISTANT_SRC.exists():
+    sys.path.insert(0, str(ASSISTANT_SRC))
+
+from ai_strategy_assistant import (  # noqa: E402
+    AIStrategyAssistant,
+    StrategyGenerationError,
+    StrategyGenerationRequest,
+)
+from ai_strategy_assistant.schemas import StrategyFormat  # noqa: E402
 
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
@@ -170,6 +183,7 @@ orchestrator = Orchestrator(
 )
 backtester = Backtester()
 reports_publisher = ReportsPublisher()
+ai_assistant = AIStrategyAssistant()
 
 configure_logging("algo-engine")
 
@@ -230,6 +244,25 @@ class StrategyImportPayload(BaseModel):
     tags: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StrategyGenerationPayload(BaseModel):
+    prompt: str = Field(..., description="Intent en langage naturel")
+    preferred_format: Literal["yaml", "python", "both"] = "yaml"
+    risk_profile: Optional[str] = Field(default=None)
+    timeframe: Optional[str] = Field(default=None)
+    capital: Optional[str] = Field(default=None)
+    indicators: List[str] = Field(default_factory=list)
+    notes: Optional[str] = Field(default=None)
+
+
+class StrategyDraftPreview(BaseModel):
+    summary: str
+    yaml: Optional[str] = None
+    python: Optional[str] = None
+    indicators: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BacktestPayload(BaseModel):
@@ -353,6 +386,37 @@ def import_strategy(payload: StrategyImportPayload, request: Request) -> Dict[st
     )
     store.create(record)
     return record.as_dict()
+
+
+@app.post("/strategies/generate")
+def generate_strategy_from_prompt(payload: StrategyGenerationPayload) -> Dict[str, Any]:
+    try:
+        assistant_request = StrategyGenerationRequest(
+            prompt=payload.prompt,
+            preferred_format=StrategyFormat(payload.preferred_format),
+            risk_profile=payload.risk_profile,
+            timeframe=payload.timeframe,
+            capital=payload.capital,
+            indicators=payload.indicators,
+            notes=payload.notes,
+        )
+        result = ai_assistant.generate(assistant_request)
+    except StrategyGenerationError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    draft = result.draft
+    preview = StrategyDraftPreview(
+        summary=draft.summary,
+        yaml=draft.yaml_strategy,
+        python=draft.python_strategy,
+        indicators=draft.indicators,
+        warnings=draft.warnings,
+        metadata=draft.metadata,
+    )
+    return {
+        "draft": preview.model_dump(),
+        "request": payload.model_dump(),
+    }
 
 
 @app.put("/strategies/{strategy_id}")

@@ -29,6 +29,8 @@ class MyStrategy(StrategyBase):
 | GET | `/health` | Statut du service |
 | GET | `/strategies` | Liste des stratégies et des plugins disponibles |
 | POST | `/strategies` | Création d'une stratégie (validation via le registre) |
+| POST | `/strategies/generate` | Génération assistée par IA d'un brouillon YAML/Python |
+| POST | `/strategies/import` | Import d'une stratégie déclarative YAML ou Python |
 | GET | `/strategies/{id}` | Consultation d'une stratégie |
 | PUT | `/strategies/{id}` | Mise à jour (activation, paramètres, tags) |
 | DELETE | `/strategies/{id}` | Suppression |
