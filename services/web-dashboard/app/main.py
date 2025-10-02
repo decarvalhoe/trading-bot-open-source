@@ -52,6 +52,12 @@ from .schemas import (
     TradingViewConfigUpdate,
 )
 from .documentation import load_strategy_documentation
+from .helpcenter import HelpArticle, get_article_by_slug, load_help_center
+from .help_progress import (
+    LearningProgress,
+    get_learning_progress,
+    record_learning_activity,
+)
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from pydantic import BaseModel, Field, ConfigDict
 from schemas.order_router import PositionCloseRequest
@@ -79,6 +85,7 @@ AI_ASSISTANT_BASE_URL = os.getenv(
 )
 AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10.0"))
 DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
+codex/create-onboarding-module-in-react
 USER_SERVICE_BASE_URL = os.getenv(
     "WEB_DASHBOARD_USER_SERVICE_URL",
     os.getenv("USER_SERVICE_URL", "http://user-service:8000/"),
@@ -90,6 +97,9 @@ USER_SERVICE_JWT_SECRET = os.getenv(
 )
 USER_SERVICE_JWT_ALG = "HS256"
 DEFAULT_DASHBOARD_USER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_USER_ID", "1")
+ 
+HELP_DEFAULT_USER_ID = os.getenv("WEB_DASHBOARD_HELP_DEFAULT_USER_ID", "demo-user")
+main
 
 security = HTTPBearer(auto_error=False)
 
@@ -274,6 +284,46 @@ class StrategyAssistantImportRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)
     parameters: dict[str, object] = Field(default_factory=dict)
+
+
+class HelpArticlePayload(BaseModel):
+    """Article payload returned by the help center API."""
+
+    slug: str
+    title: str
+    summary: str
+    resource_type: str
+    category: str
+    body_html: str
+    resource_link: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class LearningResourceVisitPayload(BaseModel):
+    """Single resource visit serialised for the API."""
+
+    slug: str
+    title: str
+    resource_type: str
+    viewed_at: datetime
+
+
+class LearningProgressPayload(BaseModel):
+    """Learning progress metrics for the help center."""
+
+    user_id: str
+    completion_rate: int
+    completed_resources: int
+    total_resources: int
+    recent_resources: list[LearningResourceVisitPayload] = Field(default_factory=list)
+
+
+class HelpArticlesResponse(BaseModel):
+    """Envelope returned by `/help/articles`."""
+
+    articles: list[HelpArticlePayload]
+    sections: Dict[str, list[HelpArticlePayload]]
+    progress: LearningProgressPayload
 
 
 SUPPORTED_TIMEFRAMES: Dict[str, int] = {
@@ -1037,6 +1087,86 @@ def render_strategy_documentation(request: Request) -> HTMLResponse:
             "documentation": documentation,
             "active_page": "strategy-docs",
         },
+    )
+
+
+def _build_help_article_payload(article: HelpArticle) -> HelpArticlePayload:
+    return HelpArticlePayload(
+        slug=article.slug,
+        title=article.title,
+        summary=article.summary,
+        resource_type=article.resource_type,
+        category=article.category,
+        body_html=article.body_html,
+        resource_link=article.resource_link,
+        tags=list(article.tags),
+    )
+
+
+def _build_learning_progress_payload(progress: LearningProgress) -> LearningProgressPayload:
+    return LearningProgressPayload(
+        user_id=progress.user_id,
+        completion_rate=progress.completion_rate,
+        completed_resources=progress.completed_resources,
+        total_resources=progress.total_resources,
+        recent_resources=[
+            LearningResourceVisitPayload(
+                slug=visit.slug,
+                title=visit.title,
+                resource_type=visit.resource_type,
+                viewed_at=visit.viewed_at,
+            )
+            for visit in progress.recent_resources
+        ],
+    )
+
+
+@app.get("/help", response_class=HTMLResponse)
+def render_help_center(request: Request) -> HTMLResponse:
+    """Expose the help & training knowledge base."""
+
+    help_content = load_help_center()
+    progress = get_learning_progress(HELP_DEFAULT_USER_ID, len(help_content.articles))
+    return templates.TemplateResponse(
+        "help_center.html",
+        {
+            "request": request,
+            "help_content": help_content,
+            "progress": progress,
+            "articles_endpoint": request.url_for("list_help_articles"),
+            "active_page": "help",
+        },
+    )
+
+
+@app.get(
+    "/help/articles",
+    response_model=HelpArticlesResponse,
+    name="list_help_articles",
+)
+def list_help_articles(viewed: str | None = Query(default=None, description="Slug de la ressource consultée")) -> HelpArticlesResponse:
+    """Return rendered help center articles and progress metadata."""
+
+    help_content = load_help_center()
+    if viewed:
+        article = get_article_by_slug(viewed)
+        if article is not None:
+            record_learning_activity(
+                HELP_DEFAULT_USER_ID,
+                slug=article.slug,
+                title=article.title,
+                resource_type=article.resource_type,
+            )
+
+    progress = get_learning_progress(HELP_DEFAULT_USER_ID, len(help_content.articles))
+    sections_payload = {
+        section: [_build_help_article_payload(item) for item in items]
+        for section, items in help_content.sections.items()
+    }
+    return HelpArticlesResponse(
+        articles=[_build_help_article_payload(article) for article in help_content.articles],
+        sections=sections_payload,
+        progress=_build_learning_progress_payload(progress),
     )
 
 

@@ -19,7 +19,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
-testpaths = ["services"]
+testpaths = ["services", "tests"]
 addopts = "-q"
 pythonpath = ["services/config-service"]
 markers = [

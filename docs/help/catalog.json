@@ -1,0 +1,42 @@
+[
+  {
+    "slug": "faq-api-access",
+    "title": "Comment connecter mes clés API broker ?",
+    "summary": "Procédure pas à pas pour générer, vérifier et enregistrer vos clés API.",
+    "resource_type": "faq",
+    "category": "Configuration",
+    "body_path": "faq/api-access.md",
+    "resource_link": null,
+    "tags": ["api", "sécurité", "onboarding"]
+  },
+  {
+    "slug": "guide-onboarding",
+    "title": "Parcours d'onboarding du tableau de bord",
+    "summary": "Découvrez les modules essentiels et les bonnes pratiques pour démarrer.",
+    "resource_type": "guide",
+    "category": "Guides",
+    "body_path": "guides/getting-started.md",
+    "resource_link": "https://github.com/decarvalhoe/trading-bot-open-source/blob/main/docs/ui/README.md",
+    "tags": ["tableau de bord", "formation"]
+  },
+  {
+    "slug": "webinar-automation",
+    "title": "Webinar — Automatiser ses stratégies",
+    "summary": "Session enregistrée présentant la configuration complète d'une stratégie algorithmique.",
+    "resource_type": "webinar",
+    "category": "Webinars",
+    "body_path": "webinars/automation-webinar.md",
+    "resource_link": "https://example.com/webinars/automation",
+    "tags": ["automation", "stratégies"]
+  },
+  {
+    "slug": "notebook-risk-checklist",
+    "title": "Notebook — Checklist de contrôle des risques",
+    "summary": "Analyse interactive des limites de risque et calculs d'exposition quotidienne.",
+    "resource_type": "notebook",
+    "category": "Notebooks",
+    "body_path": "notebooks/risk-checklist.md",
+    "resource_link": "https://nbviewer.org/github/decarvalhoe/trading-bot-open-source/blob/main/docs/tutorials/risk-checklist.ipynb",
+    "tags": ["risque", "monitoring"]
+  }
+]

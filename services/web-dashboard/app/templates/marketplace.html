@@ -45,6 +45,13 @@
           Documentation stratégies
         </a>
         <a
+          href="{{ request.url_for('render_help_center') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'help' else '' }}"
+          aria-current="{{ 'page' if active_page == 'help' else 'false' }}"
+        >
+          Aide &amp; formation
+        </a>
+        <a
           href="{{ request.url_for('render_account') }}"
           class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
           aria-current="{{ 'page' if active_page == 'account' else 'false' }}"

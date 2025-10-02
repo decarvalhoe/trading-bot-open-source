@@ -105,4 +105,34 @@ class Execution(TradingBase):
     )
 
 
-__all__ = ["TradingBase", "Order", "Execution"]
+class SimulatedExecution(TradingBase):
+    """Represents a simulated execution captured in dry-run mode."""
+
+    __tablename__ = "simulated_executions"
+
+    id: int = Column(SQLITE_BIGINT, primary_key=True, autoincrement=True)
+    simulation_id: str = Column(String(128), unique=True, nullable=False)
+    correlation_id: Optional[str] = Column(String(128), index=True)
+    account_id: str = Column(String(64), nullable=False, index=True)
+    broker: str = Column(String(32), nullable=False, index=True)
+    venue: str = Column(String(64), nullable=False, index=True)
+    symbol: str = Column(String(32), nullable=False, index=True)
+    side: str = Column(String(8), nullable=False)
+    quantity: Decimal = Column(Numeric(20, 8), nullable=False)
+    filled_quantity: Decimal = Column(Numeric(20, 8), nullable=False)
+    price: Decimal = Column(Numeric(20, 8), nullable=False)
+    status: str = Column(String(16), nullable=False, default="filled")
+    submitted_at: datetime = Column(DateTime(timezone=True), nullable=False)
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    notes: Optional[str] = Column(Text)
+    tags: list[str] = Column(JSON, nullable=False, default=list)
+
+    __table_args__ = (
+        Index("ix_simulated_executions_account_submitted", "account_id", "submitted_at"),
+        Index("ix_simulated_executions_symbol_submitted", "symbol", "submitted_at"),
+    )
+
+
+__all__ = ["TradingBase", "Order", "Execution", "SimulatedExecution"]

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aide &amp; formation</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="layout__header">
+      <nav class="app-nav" aria-label="Navigation principale">
+        <a
+          href="{{ request.url_for('render_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'dashboard' else '' }}"
+          aria-current="{{ 'page' if active_page == 'dashboard' else 'false' }}"
+        >
+          Tableau de bord
+        </a>
+        <a
+          href="{{ request.url_for('render_marketplace') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'marketplace' else '' }}"
+          aria-current="{{ 'page' if active_page == 'marketplace' else 'false' }}"
+        >
+          Marketplace
+        </a>
+        <a
+          href="{{ request.url_for('render_follower_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'followers' else '' }}"
+          aria-current="{{ 'page' if active_page == 'followers' else 'false' }}"
+        >
+          Suivi copies
+        </a>
+        <a
+          href="{{ request.url_for('render_strategies') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"
+        >
+          Stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_strategy_documentation') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategy-docs' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategy-docs' else 'false' }}"
+        >
+          Documentation stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_help_center') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'help' else '' }}"
+          aria-current="{{ 'page' if active_page == 'help' else 'false' }}"
+        >
+          Aide &amp; formation
+        </a>
+        <a
+          href="{{ request.url_for('render_account') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
+          aria-current="{{ 'page' if active_page == 'account' else 'false' }}"
+        >
+          Compte &amp; API
+        </a>
+      </nav>
+      <h1 class="heading heading--xl">Aide &amp; formation</h1>
+      <p class="text text--muted">
+        Explorez la base de connaissances, suivez votre progression et accédez rapidement aux webinars et notebooks.
+      </p>
+    </header>
+    <main
+      class="layout__main help-layout"
+      data-help-center
+      data-articles-endpoint="{{ articles_endpoint }}"
+    >
+      <section class="card help-card" aria-labelledby="help-progress-title">
+        <div class="card__header">
+          <h2 id="help-progress-title" class="heading heading--lg">Suivi de progression</h2>
+          <p class="text text--muted">
+            Visualisez vos avancées dans la base de connaissances et reprenez là où vous vous êtes arrêté.
+          </p>
+        </div>
+        <div class="card__body help-progress">
+          <div
+            class="help-progress__bar"
+            role="progressbar"
+            aria-label="Progression de la formation"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="{{ progress.completion_rate }}"
+            data-progressbar
+          >
+            <span
+              class="help-progress__bar-fill"
+              style="width: {{ progress.completion_rate }}%"
+              data-progress-fill
+            ></span>
+          </div>
+          <p class="text" aria-live="polite">
+            Progression globale :
+            <span class="help-progress__value" data-progress-value>
+              {{ progress.completion_rate }}%
+            </span>
+            — {{ progress.completed_resources }} / {{ progress.total_resources }} ressources parcourues.
+          </p>
+          <section class="help-recent" aria-labelledby="help-recent-title">
+            <div class="help-recent__header">
+              <h3 id="help-recent-title" class="heading heading--md">Dernières ressources consultées</h3>
+              <p class="text text--muted">Mises à jour après chaque consultation.</p>
+            </div>
+            <ul class="help-recent__list" data-recent-resources>
+              {% if progress.recent_resources %}
+              {% for visit in progress.recent_resources %}
+              <li class="help-recent__item">
+                <p class="help-recent__title">{{ visit.title }}</p>
+                <p class="help-recent__meta">
+                  {{ visit.resource_type|capitalize }} · Consulté le
+                  {{ visit.viewed_at.strftime('%d/%m/%Y %H:%M') }}
+                </p>
+              </li>
+              {% endfor %}
+              {% else %}
+              <li class="help-recent__item help-recent__item--empty">
+                Aucune ressource consultée pour le moment.
+              </li>
+              {% endif %}
+            </ul>
+          </section>
+        </div>
+      </section>
+
+      <section class="card help-card" aria-labelledby="help-faq-title">
+        <div class="card__header">
+          <h2 id="help-faq-title" class="heading heading--lg">FAQ opérationnelle</h2>
+          <p class="text text--muted">
+            Questions récurrentes sur la configuration et l'utilisation quotidienne du tableau de bord.
+          </p>
+        </div>
+        <div class="card__body help-faq" role="list">
+          {% for article in help_content.faq %}
+          <details class="help-faq__item" role="listitem" data-article-slug="{{ article.slug }}">
+            <summary class="help-faq__question">{{ article.title }}</summary>
+            <div class="help-article" id="help-article-{{ article.slug }}">
+              {{ article.body_html | safe }}
+              {% if article.tags %}
+              <ul class="help-article__tags" aria-label="Mots-clés">
+                {% for tag in article.tags %}
+                <li class="help-article__tag">{{ tag }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+          </details>
+          {% else %}
+          <p class="text text--muted">Aucune question enregistrée pour le moment.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="card help-card" aria-labelledby="help-guides-title">
+        <div class="card__header">
+          <h2 id="help-guides-title" class="heading heading--lg">Guides &amp; ateliers</h2>
+          <p class="text text--muted">
+            Parcours structurés pour monter en compétence rapidement.
+          </p>
+        </div>
+        <div class="card__body help-guides">
+          <ul class="help-guides__list" role="list">
+            {% for article in help_content.guides %}
+            <li class="help-guides__item" role="listitem">
+              <div class="help-guides__content">
+                <h3 class="heading heading--md">{{ article.title }}</h3>
+                <p class="text text--muted">{{ article.summary }}</p>
+              </div>
+              <div class="help-guides__actions">
+                <button
+                  type="button"
+                  class="button button--ghost"
+                  data-article-link="{{ article.slug }}"
+                  aria-label="Marquer {{ article.title }} comme consulté"
+                >
+                  Marquer comme consulté
+                </button>
+                {% if article.resource_link %}
+                <a
+                  href="{{ article.resource_link }}"
+                  class="button"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-article-link="{{ article.slug }}"
+                >
+                  Ouvrir le guide
+                </a>
+                {% endif %}
+              </div>
+            </li>
+            {% else %}
+            <li class="help-guides__item help-guides__item--empty">
+              <p class="text text--muted">Aucun guide n'est disponible pour le moment.</p>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
+
+      <section class="card help-card" aria-labelledby="help-resources-title">
+        <div class="card__header">
+          <h2 id="help-resources-title" class="heading heading--lg">Webinars &amp; notebooks</h2>
+          <p class="text text--muted">
+            Sessions enregistrées et notebooks interactifs pour approfondir vos connaissances.
+          </p>
+        </div>
+        <div class="card__body help-resources">
+          <ul class="help-resources__list" role="list">
+            {% for article in help_content.webinars %}
+            <li class="help-resources__item" role="listitem">
+              <div>
+                <h3 class="heading heading--md">{{ article.title }}</h3>
+                <p class="text text--muted">{{ article.summary }}</p>
+                {{ article.body_html | safe }}
+              </div>
+              {% if article.resource_link %}
+              <a
+                href="{{ article.resource_link }}"
+                class="button"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-article-link="{{ article.slug }}"
+              >
+                Regarder le webinar
+              </a>
+              {% endif %}
+            </li>
+            {% endfor %}
+            {% for article in help_content.notebooks %}
+            <li class="help-resources__item" role="listitem">
+              <div>
+                <h3 class="heading heading--md">{{ article.title }}</h3>
+                <p class="text text--muted">{{ article.summary }}</p>
+                {{ article.body_html | safe }}
+              </div>
+              {% if article.resource_link %}
+              <a
+                href="{{ article.resource_link }}"
+                class="button"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-article-link="{{ article.slug }}"
+              >
+                Ouvrir dans nbviewer
+              </a>
+              {% endif %}
+            </li>
+            {% endfor %}
+            {% if not help_content.webinars and not help_content.notebooks %}
+            <li class="help-resources__item help-resources__item--empty">
+              <p class="text text--muted">Aucune ressource multimédia disponible.</p>
+            </li>
+            {% endif %}
+          </ul>
+        </div>
+      </section>
+    </main>
+    <script src="/static/help-center.js" defer></script>
+  </body>
+</html>
