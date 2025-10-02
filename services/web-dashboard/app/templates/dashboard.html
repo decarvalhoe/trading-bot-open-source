@@ -8,6 +8,29 @@
   </head>
   <body>
     <header class="layout__header">
+      <nav class="app-nav" aria-label="Navigation principale">
+        <a
+          href="{{ request.url_for('render_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'dashboard' else '' }}"
+          aria-current="{{ 'page' if active_page == 'dashboard' else 'false' }}"
+        >
+          Tableau de bord
+        </a>
+        <a
+          href="{{ request.url_for('render_strategies') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"
+        >
+          Stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_account') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
+          aria-current="{{ 'page' if active_page == 'account' else 'false' }}"
+        >
+          Compte &amp; API
+        </a>
+      </nav>
       <h1 class="heading heading--xl">Vue d'ensemble des portefeuilles</h1>
       <p class="text text--muted">
         Surveillez les portefeuilles, transactions récentes et alertes critiques en un coup d'œil.

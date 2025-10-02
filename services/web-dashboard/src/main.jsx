@@ -4,6 +4,7 @@ import PortfolioChart from "./components/PortfolioChart.jsx";
 import AlertManager from "./alerts/AlertManager.jsx";
 import AlertHistory from "./alerts/AlertHistory.jsx";
 import ReportsList from "./reports/ReportsList.jsx";
+import { StrategyDesigner } from "./strategies/designer/index.js";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -134,6 +135,28 @@ if (historyContainer) {
   root.render(
     <StrictMode>
       <AlertHistory endpoint={endpoint} />
+    </StrictMode>
+  );
+}
+
+const strategyDesignerRoot = document.getElementById("strategy-designer-root");
+if (strategyDesignerRoot) {
+  const dataset = strategyDesignerRoot.dataset || {};
+  const saveEndpoint = dataset.saveEndpoint || "/strategies/save";
+  const defaultName = dataset.defaultName || "Nouvelle stratégie";
+  const defaultFormat = dataset.defaultFormat || "yaml";
+  let initialFormat = defaultFormat;
+  if (initialFormat !== "python") {
+    initialFormat = "yaml";
+  }
+  const root = createRoot(strategyDesignerRoot);
+  root.render(
+    <StrictMode>
+      <StrategyDesigner
+        saveEndpoint={saveEndpoint}
+        defaultName={defaultName}
+        defaultFormat={initialFormat}
+      />
     </StrictMode>
   );
 }
