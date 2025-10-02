@@ -1,10 +1,13 @@
 """Dependency helpers for the marketplace service."""
 from __future__ import annotations
 
+from functools import lru_cache
+
 from fastapi import Depends, HTTPException, Request
 
 from libs.entitlements.client import Entitlements
 
+from .payments import StripeConnectGateway
 
 def get_entitlements(request: Request) -> Entitlements:
     entitlements = getattr(request.state, "entitlements", None)
@@ -32,9 +35,19 @@ def get_actor_id(request: Request) -> str:
     return actor_id
 
 
+@lru_cache
+def _payments_gateway() -> StripeConnectGateway:
+    return StripeConnectGateway()
+
+
+def get_payments_gateway() -> StripeConnectGateway:
+    return _payments_gateway()
+
+
 __all__ = [
     "get_entitlements",
     "require_publish_capability",
     "require_copy_capability",
     "get_actor_id",
+    "get_payments_gateway",
 ]

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,8 @@ class PlanIn(BaseModel):
     name: str
     stripe_price_id: str
     description: Optional[str] = None
+    billing_interval: Literal["monthly", "annual"] = Field(default="monthly")
+    trial_period_days: Optional[int] = Field(default=None, ge=0)
 
 
 class PlanFeatureIn(BaseModel):
