@@ -182,3 +182,59 @@ def test_dashboard_context_falls_back_when_order_router_unreachable(monkeypatch:
     names = {portfolio.name for portfolio in context.portfolios}
     assert "Growth" in names
     assert any(tx.symbol == "BTC-USD" for tx in context.transactions)
+
+
+def test_load_follower_dashboard_from_marketplace(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = [
+        {
+            "listing_id": 42,
+            "strategy_name": "Momentum Edge",
+            "leader_id": "creator-9",
+            "leverage": 1.5,
+            "allocated_capital": 2000,
+            "risk_limits": {"max_notional": 5000},
+            "divergence_bps": 75.4,
+            "total_fees_paid": 12.3,
+            "replication_status": "filled",
+            "last_synced_at": "2024-01-01T10:15:00+00:00",
+        }
+    ]
+
+    class DummyResponse:
+        def __init__(self, data: list[dict[str, object]]) -> None:
+            self._data = data
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, object]]:
+            return self._data
+
+    def fake_get(url: str, *, headers: dict[str, str], timeout: float) -> DummyResponse:
+        assert headers["x-user-id"] == "investor-1"
+        return DummyResponse(payload)
+
+    monkeypatch.setattr(data.httpx, "get", fake_get)
+
+    context = data.load_follower_dashboard("investor-1")
+    assert context.source == "live"
+    assert context.copies
+    copy = context.copies[0]
+    assert copy.strategy_name == "Momentum Edge"
+    assert copy.leverage == pytest.approx(1.5)
+    assert copy.estimated_fees == pytest.approx(12.3)
+    assert copy.replication_status == "filled"
+    assert copy.last_synced_at is not None
+
+
+def test_load_follower_dashboard_handles_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = httpx.Request("GET", "http://marketplace/copies")
+
+    def failing_get(*args, **kwargs):
+        raise httpx.ConnectTimeout("timeout", request=request)
+
+    monkeypatch.setattr(data.httpx, "get", failing_get)
+
+    context = data.load_follower_dashboard("investor-2")
+    assert context.source == "fallback"
+    assert context.copies == []

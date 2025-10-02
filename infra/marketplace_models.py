@@ -1,7 +1,7 @@
 """SQLAlchemy models powering the marketplace service."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from sqlalchemy import (
@@ -18,6 +18,28 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.types import TypeDecorator
+
+
+class UTCDateTime(TypeDecorator):
+    """DateTime column preserving UTC tzinfo even on backends like SQLite."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect):  # type: ignore[override]
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value: datetime | None, dialect):  # type: ignore[override]
+        if value is None:
+            return value
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 Base = declarative_base()
 
@@ -112,6 +134,13 @@ class MarketplaceSubscription(Base):
     payment_reference: Optional[str] = Column(String(128))
     connect_transfer_reference: Optional[str] = Column(String(128))
     status: str = Column(String(16), nullable=False, default="pending")
+    leverage: float = Column(Float, nullable=False, server_default="1.0")
+    allocated_capital: Optional[float] = Column(Float)
+    risk_limits: Dict[str, object] = Column(JSON, nullable=False, default=dict)
+    replication_status: str = Column(String(16), nullable=False, default="idle")
+    last_synced_at: Optional[datetime] = Column(UTCDateTime())
+    divergence_bps: Optional[float] = Column(Float)
+    total_fees_paid: float = Column(Float, nullable=False, server_default="0")
     created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     listing = relationship("Listing", back_populates="subscriptions")

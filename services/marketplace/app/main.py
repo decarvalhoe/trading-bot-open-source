@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, FastAPI, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from infra import AuditBase, MarketplaceBase, MarketplaceSubscription
 from libs.audit import record_audit
@@ -39,6 +39,7 @@ from .service import (
     get_listing,
     list_listings,
     list_reviews,
+    serialize_subscription,
 )
 
 configure_logging("marketplace")
@@ -140,7 +141,8 @@ def copy_strategy(
         payload=payload,
         payments_gateway=payments_gateway,
     )
-    return CopyResponse.model_validate(subscription)
+    db.refresh(subscription, attribute_names=["listing"])
+    return CopyResponse.model_validate(serialize_subscription(subscription))
 
 
 @router.get("/copies", response_model=list[CopyResponse])
@@ -149,7 +151,11 @@ def my_copies(
     actor_id: str = Depends(get_actor_id),
     _: object = Depends(get_entitlements),
 ):
-    stmt = select(MarketplaceSubscription).where(MarketplaceSubscription.subscriber_id == actor_id)
+    stmt = (
+        select(MarketplaceSubscription)
+        .where(MarketplaceSubscription.subscriber_id == actor_id)
+        .options(selectinload(MarketplaceSubscription.listing))
+    )
     subscriptions = db.scalars(stmt).all()
     for sub in subscriptions:
         record_audit(
@@ -161,7 +167,7 @@ def my_copies(
             details={"subscription_id": sub.id},
         )
     db.commit()
-    return [CopyResponse.model_validate(sub) for sub in subscriptions]
+    return [CopyResponse.model_validate(serialize_subscription(sub)) for sub in subscriptions]
 
 
 app.include_router(router)

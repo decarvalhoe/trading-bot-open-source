@@ -24,6 +24,13 @@
           Marketplace
         </a>
         <a
+          href="{{ request.url_for('render_follower_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'followers' else '' }}"
+          aria-current="{{ 'page' if active_page == 'followers' else 'false' }}"
+        >
+          Suivi copies
+        </a>
+        <a
           href="{{ request.url_for('render_strategies') }}"
           class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
           aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"

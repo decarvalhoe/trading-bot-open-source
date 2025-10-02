@@ -17,6 +17,11 @@ PACKAGE_NAME = "web_dashboard"
 def load_dashboard_app():
     """Return the FastAPI application exposed by the dashboard service."""
 
+    if "python_multipart" not in sys.modules:
+        python_multipart_module = types.ModuleType("python_multipart")
+        python_multipart_module.__version__ = "0.0.20"
+        sys.modules.setdefault("python_multipart", python_multipart_module)
+
     package = types.ModuleType(PACKAGE_NAME)
     package.__path__ = [str(MODULE_PATH.parents[1])]
     sys.modules.setdefault(PACKAGE_NAME, package)
