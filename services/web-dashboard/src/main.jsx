@@ -7,6 +7,7 @@ import ReportsList from "./reports/ReportsList.jsx";
 import { AIStrategyAssistant } from "./strategies/assistant/index.js";
 import { StrategyDesigner, STRATEGY_PRESETS } from "./strategies/designer/index.js";
 import { StrategyBacktestConsole } from "./strategies/backtest/index.js";
+import MarketplaceApp from "./marketplace/MarketplaceApp.jsx";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -182,6 +183,22 @@ if (strategyDesignerRoot) {
         defaultFormat={initialFormat}
         presets={presetCatalog}
         initialStrategy={initialStrategy}
+      />
+    </StrictMode>
+  );
+}
+
+const marketplaceRoot = document.getElementById("marketplace-root");
+if (marketplaceRoot) {
+  const dataset = marketplaceRoot.dataset || {};
+  const root = createRoot(marketplaceRoot);
+  root.render(
+    <StrictMode>
+      <MarketplaceApp
+        listingsEndpoint={dataset.endpoint || "/marketplace/listings"}
+        reviewsEndpointTemplate={
+          dataset.reviewsEndpointTemplate || "/marketplace/listings/__id__/reviews"
+        }
       />
     </StrictMode>
   );

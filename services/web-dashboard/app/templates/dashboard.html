@@ -17,6 +17,13 @@
           Tableau de bord
         </a>
         <a
+          href="{{ request.url_for('render_marketplace') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'marketplace' else '' }}"
+          aria-current="{{ 'page' if active_page == 'marketplace' else 'false' }}"
+        >
+          Marketplace
+        </a>
+        <a
           href="{{ request.url_for('render_strategies') }}"
           class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
           aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"

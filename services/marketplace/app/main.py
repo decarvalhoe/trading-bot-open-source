@@ -1,7 +1,7 @@
 """FastAPI application exposing the marketplace service."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,8 +18,26 @@ from .dependencies import (
     require_copy_capability,
     require_publish_capability,
 )
-from .schemas import CopyRequest, CopyResponse, ListingCreate, ListingOut, ListingVersionRequest
-from .service import add_version, create_listing, create_subscription, get_listing, list_listings
+from .schemas import (
+    CopyRequest,
+    CopyResponse,
+    ListingCreate,
+    ListingOut,
+    ListingReviewCreate,
+    ListingReviewOut,
+    ListingVersionRequest,
+)
+from .service import (
+    ListingFilters,
+    ListingSortOption,
+    add_version,
+    create_listing,
+    create_or_update_review,
+    create_subscription,
+    get_listing,
+    list_listings,
+    list_reviews,
+)
 
 configure_logging("marketplace")
 
@@ -47,8 +65,22 @@ def publish_listing(
 
 
 @router.get("/listings", response_model=list[ListingOut])
-def browse_listings(db: Session = Depends(get_db)):
-    listings = list_listings(db)
+def browse_listings(
+    db: Session = Depends(get_db),
+    min_performance: float | None = Query(default=None, ge=0),
+    max_risk: float | None = Query(default=None, ge=0),
+    max_price: int | None = Query(default=None, ge=0),
+    search: str | None = Query(default=None, min_length=1),
+    sort: ListingSortOption = Query(default=ListingSortOption.NEWEST),
+):
+    filters = ListingFilters(
+        min_performance=min_performance,
+        max_risk=max_risk,
+        max_price=max_price,
+        search=search,
+        sort=sort,
+    )
+    listings = list_listings(db, filters=filters)
     return [ListingOut.model_validate(obj) for obj in listings]
 
 
@@ -64,6 +96,32 @@ def publish_version(
     add_version(db, listing=listing, payload=payload, actor_id=actor_id)
     db.refresh(listing)
     return ListingOut.model_validate(listing)
+
+
+@router.get("/listings/{listing_id}", response_model=ListingOut)
+def retrieve_listing(listing_id: int, db: Session = Depends(get_db)):
+    listing = get_listing(db, listing_id)
+    return ListingOut.model_validate(listing)
+
+
+@router.get("/listings/{listing_id}/reviews", response_model=list[ListingReviewOut])
+def browse_reviews(listing_id: int, db: Session = Depends(get_db)):
+    get_listing(db, listing_id)
+    reviews = list_reviews(db, listing_id)
+    return [ListingReviewOut.model_validate(obj) for obj in reviews]
+
+
+@router.post("/listings/{listing_id}/reviews", response_model=ListingReviewOut, status_code=201)
+def submit_review(
+    listing_id: int,
+    payload: ListingReviewCreate,
+    db: Session = Depends(get_db),
+    actor_id: str = Depends(get_actor_id),
+    _: object = Depends(get_entitlements),
+):
+    listing = get_listing(db, listing_id)
+    review = create_or_update_review(db, listing=listing, reviewer_id=actor_id, payload=payload)
+    return ListingReviewOut.model_validate(review)
 
 
 @router.post("/copies", response_model=CopyResponse, status_code=201)

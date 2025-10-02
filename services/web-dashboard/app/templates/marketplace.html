@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Marketplace</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="layout__header">
+      <nav class="app-nav" aria-label="Navigation principale">
+        <a
+          href="{{ request.url_for('render_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'dashboard' else '' }}"
+          aria-current="{{ 'page' if active_page == 'dashboard' else 'false' }}"
+        >
+          Tableau de bord
+        </a>
+        <a
+          href="{{ request.url_for('render_marketplace') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'marketplace' else '' }}"
+          aria-current="{{ 'page' if active_page == 'marketplace' else 'false' }}"
+        >
+          Marketplace
+        </a>
+        <a
+          href="{{ request.url_for('render_strategies') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"
+        >
+          Stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_strategy_documentation') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategy-docs' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategy-docs' else 'false' }}"
+        >
+          Documentation stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_account') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
+          aria-current="{{ 'page' if active_page == 'account' else 'false' }}"
+        >
+          Compte &amp; API
+        </a>
+      </nav>
+      <h1 class="heading heading--xl">Marketplace de stratégies</h1>
+      <p class="text text--muted">
+        Explorez les stratégies partagées par la communauté, filtrez selon vos critères et laissez un avis.
+      </p>
+    </header>
+    <main class="layout__main layout__main--wide">
+      <section class="card" aria-labelledby="marketplace-card-title">
+        <div class="card__header">
+          <h2 id="marketplace-card-title" class="heading heading--lg">Catalogue des stratégies</h2>
+          <p class="text text--muted">
+            Visualisez les métriques clés (performance, risque, prix) et consultez les avis avant de copier une stratégie.
+          </p>
+        </div>
+        <div class="card__body">
+          <div
+            id="marketplace-root"
+            data-endpoint="/marketplace/listings"
+            data-reviews-endpoint-template="/marketplace/listings/__id__/reviews"
+            role="region"
+            aria-label="Catalogue de la marketplace"
+          >
+            <noscript>
+              <p class="text text--muted">Activez JavaScript pour explorer la marketplace et publier des avis.</p>
+            </noscript>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/static/main.js"></script>
+  </body>
+</html>

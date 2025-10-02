@@ -1623,3 +1623,204 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.marketplace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.marketplace__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.marketplace__filters {
+  background: var(--surface-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.marketplace-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.marketplace-filters__row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.marketplace-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.marketplace-filters__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.marketplace-filters__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.marketplace__results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.marketplace-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.marketplace-card {
+  background: var(--surface-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.marketplace-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.marketplace-card__price {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.marketplace-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+  margin: 0;
+}
+
+.marketplace-card__metric {
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+}
+
+.marketplace-card__metric dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.marketplace-card__metric dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.marketplace-card__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.marketplace-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-md);
+}
+
+.reviews {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reviews__item {
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.reviews__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.reviews__rating {
+  font-weight: 700;
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.review-form__fields {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.review-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+}
+
+.review-form__field--grow {
+  flex: 1 1 0;
+}
+
+.review-form__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.review-form__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+@media (max-width: 960px) {
+  .marketplace-filters__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .marketplace-card__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .review-form__fields {
+    flex-direction: column;
+  }
+}

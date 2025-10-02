@@ -842,6 +842,19 @@ def annotate_dashboard_order(
     return RedirectResponse(str(redirect_url), status_code=status.HTTP_303_SEE_OTHER)
 
 
+@app.get("/marketplace", response_class=HTMLResponse, name="render_marketplace")
+def render_marketplace(request: Request) -> HTMLResponse:
+    """Render the marketplace view that embeds the React catalogue."""
+
+    return templates.TemplateResponse(
+        "marketplace.html",
+        {
+            "request": request,
+            "active_page": "marketplace",
+        },
+    )
+
+
 def _render_strategies_page(
     request: Request, *, initial_strategy: dict[str, Any] | None = None
 ) -> HTMLResponse:
