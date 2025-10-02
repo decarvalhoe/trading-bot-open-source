@@ -6,6 +6,8 @@ import re
 import pytest
 from playwright.async_api import Page, expect
 
+from libs.portfolio import encode_portfolio_key, encode_position_key
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -144,3 +146,100 @@ async def test_portfolio_chart_zoom_and_exports(page: Page, dashboard_base_url: 
         await page.get_by_role("button", name=re.compile("Exporter PNG", re.I)).click()
     png_download = await png_download_info.value
     assert png_download.suggested_filename.endswith(".png")
+
+
+async def test_dashboard_updates_positions_after_closing(page: Page, dashboard_base_url: str, mock_streaming):
+    growth_id = encode_portfolio_key("alice")
+    income_id = encode_portfolio_key("bob")
+    msft_id = encode_position_key("alice", "MSFT")
+    tlt_id = encode_position_key("bob", "TLT")
+    xom_id = encode_position_key("bob", "XOM")
+
+    async def _handle_close(route, request):
+        body = await request.json()
+        assert body.get("target_quantity") == 0
+        payload = {
+            "order": {
+                "order_id": "close-1",
+                "status": "filled",
+                "broker": "binance",
+                "venue": "binance.spot",
+                "symbol": "AAPL",
+                "side": "sell",
+                "quantity": 12,
+                "filled_quantity": 12,
+                "avg_price": 178.4,
+                "submitted_at": "2024-05-01T12:00:00Z",
+            },
+            "positions": {
+                "items": [
+                    {
+                        "id": growth_id,
+                        "name": "Growth",
+                        "owner": "alice",
+                        "total_value": 5 * 310.6,
+                        "holdings": [
+                            {
+                                "id": msft_id,
+                                "portfolio_id": growth_id,
+                                "portfolio": "alice",
+                                "account_id": "alice",
+                                "symbol": "MSFT",
+                                "quantity": 5,
+                                "average_price": 298.1,
+                                "current_price": 310.6,
+                                "market_value": 5 * 310.6,
+                            }
+                        ],
+                    },
+                    {
+                        "id": income_id,
+                        "name": "Income",
+                        "owner": "bob",
+                        "total_value": 20 * 98.2 + 15 * 105.7,
+                        "holdings": [
+                            {
+                                "id": tlt_id,
+                                "portfolio_id": income_id,
+                                "portfolio": "bob",
+                                "account_id": "bob",
+                                "symbol": "TLT",
+                                "quantity": 20,
+                                "average_price": 100.5,
+                                "current_price": 98.2,
+                                "market_value": 20 * 98.2,
+                            },
+                            {
+                                "id": xom_id,
+                                "portfolio_id": income_id,
+                                "portfolio": "bob",
+                                "account_id": "bob",
+                                "symbol": "XOM",
+                                "quantity": 15,
+                                "average_price": 88.5,
+                                "current_price": 105.7,
+                                "market_value": 15 * 105.7,
+                            },
+                        ],
+                    },
+                ],
+                "as_of": "2024-05-01T12:00:00Z",
+            },
+        }
+        await route.fulfill(
+            status=200,
+            headers={"content-type": "application/json"},
+            body=json.dumps(payload),
+        )
+
+    await page.route("**/positions/**/close", _handle_close)
+
+    await page.goto(f"{dashboard_base_url}/dashboard", wait_until="networkidle")
+
+    close_button = page.get_by_role("button", name="Fermer").first
+    async with page.expect_response("**/positions/**/close"):
+        await close_button.click()
+
+    await expect(
+        page.locator("td[data-label='Symbole']").filter(has_text="AAPL")
+    ).to_have_count(0)

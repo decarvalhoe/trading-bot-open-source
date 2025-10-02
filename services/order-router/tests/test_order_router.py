@@ -11,6 +11,7 @@ import pytest
 import respx
 
 from infra.trading_models import Execution as ExecutionModel, Order as OrderModel
+from libs.portfolio import decode_position_key
 
 
 DEFAULT_ORDER: Dict[str, Any] = {
@@ -46,6 +47,14 @@ def _wait_for_calls(route, count: int, timeout: float = 1.0) -> None:
             return
         time.sleep(0.05)
     assert route.call_count >= count, f"Expected {count} streaming calls, got {route.call_count}"
+
+
+def _find_holding(items: list[dict[str, Any]], symbol: str) -> dict[str, Any] | None:
+    for portfolio in items:
+        for holding in portfolio.get("holdings", []):
+            if holding.get("symbol") == symbol:
+                return holding
+    return None
 
 
 @pytest.mark.usefixtures("clean_database")
@@ -173,6 +182,60 @@ def test_execution_filters_by_account_symbol_and_time(client, db_session):
     start_payload = start_filtered.json()
     for item in start_payload["items"]:
         assert _parse_timestamp(item["executed_at"]) >= start_time
+
+
+@pytest.mark.usefixtures("clean_database")
+def test_positions_endpoint_exposes_current_holdings(client):
+    _submit_order(client, account_id="acct-pos", quantity=0.25, price=30_500)
+
+    response = client.get("/positions")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"], "Expected at least one portfolio"
+    portfolio = payload["items"][0]
+    holding = _find_holding(payload["items"], DEFAULT_ORDER["symbol"])
+    assert holding is not None, payload
+    assert holding["portfolio"] == "acct-pos"
+    assert decode_position_key(holding["id"]) == ("acct-pos", DEFAULT_ORDER["symbol"])
+
+
+@pytest.mark.usefixtures("clean_database")
+def test_close_position_submits_market_order(client):
+    _submit_order(client, account_id="acct-close", quantity=0.3, price=30_200)
+
+    snapshot = client.get("/positions").json()["items"]
+    holding = _find_holding(snapshot, DEFAULT_ORDER["symbol"])
+    assert holding is not None
+
+    close_response = client.post(f"/positions/{holding['id']}/close")
+    assert close_response.status_code == 200, close_response.text
+    payload = close_response.json()
+    order = payload["order"]
+    assert order["side"].lower() == "sell"
+    assert pytest.approx(order["quantity"], rel=1e-6) == pytest.approx(0.3)
+    updated = payload["positions"]["items"]
+    assert _find_holding(updated, DEFAULT_ORDER["symbol"]) is None
+
+
+@pytest.mark.usefixtures("clean_database")
+def test_close_position_accepts_target_quantity(client):
+    _submit_order(client, account_id="acct-adjust", quantity=0.5, price=30_000)
+
+    positions = client.get("/positions").json()["items"]
+    holding = _find_holding(positions, DEFAULT_ORDER["symbol"])
+    assert holding is not None
+
+    adjust_response = client.post(
+        f"/positions/{holding['id']}/close", json={"target_quantity": 0.2}
+    )
+    assert adjust_response.status_code == 200, adjust_response.text
+    payload = adjust_response.json()
+    order = payload["order"]
+    assert order["side"].lower() == "sell"
+    assert pytest.approx(order["quantity"], rel=1e-6) == pytest.approx(0.3)
+    updated_holding = _find_holding(payload["positions"]["items"], DEFAULT_ORDER["symbol"])
+    assert updated_holding is not None
+    assert pytest.approx(updated_holding["quantity"], rel=1e-6) == pytest.approx(0.2)
 
 
 @respx.mock

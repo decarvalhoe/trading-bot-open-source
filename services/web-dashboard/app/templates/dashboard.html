@@ -495,6 +495,7 @@
                     <th scope="col">Px. moyen</th>
                     <th scope="col">Px. actuel</th>
                     <th scope="col">Valeur</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -505,6 +506,32 @@
                     <td data-label="Prix moyen">{{ '%.2f' | format(holding.average_price) }} $</td>
                     <td data-label="Prix actuel">{{ '%.2f' | format(holding.current_price) }} $</td>
                     <td data-label="Valeur">{{ '%.2f' | format(holding.market_value) }} $</td>
+                    <td data-label="Actions">
+                      <div class="portfolio-actions">
+                        <button
+                          type="button"
+                          class="button button--ghost portfolio-actions__button"
+                          data-action="close"
+                          data-position-id="{{ (holding.id or (holding.portfolio or portfolio.owner) ~ ':' ~ holding.symbol)|e }}"
+                          data-portfolio="{{ (holding.portfolio or portfolio.owner)|e }}"
+                          data-quantity="{{ holding.quantity }}"
+                          data-symbol="{{ holding.symbol|e }}"
+                        >
+                          Fermer
+                        </button>
+                        <button
+                          type="button"
+                          class="button button--ghost portfolio-actions__button"
+                          data-action="adjust"
+                          data-position-id="{{ (holding.id or (holding.portfolio or portfolio.owner) ~ ':' ~ holding.symbol)|e }}"
+                          data-portfolio="{{ (holding.portfolio or portfolio.owner)|e }}"
+                          data-quantity="{{ holding.quantity }}"
+                          data-symbol="{{ holding.symbol|e }}"
+                        >
+                          Ajuster
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                   {% endfor %}
                 </tbody>

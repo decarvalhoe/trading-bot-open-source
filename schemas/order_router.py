@@ -7,6 +7,8 @@ from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 
+from datetime import datetime
+
 from schemas.market import (
     ExecutionReport as MarketExecutionReport,
     OrderRequest,
@@ -33,6 +35,53 @@ class ExecutionReport(MarketExecutionReport):
     """Execution acknowledgment returned by the order router."""
 
     pass
+
+
+class PositionHolding(BaseModel):
+    """Describe an aggregated position for a given portfolio."""
+
+    id: str
+    portfolio_id: str
+    portfolio: str
+    account_id: str
+    symbol: str
+    quantity: float
+    average_price: float
+    current_price: float
+    market_value: float
+
+
+class PortfolioSnapshot(BaseModel):
+    """Collection of holdings representing the exposure of an account."""
+
+    id: str
+    name: str
+    owner: str
+    total_value: float
+    holdings: List[PositionHolding] = Field(default_factory=list)
+
+
+class PositionsResponse(BaseModel):
+    """Payload returned when listing current positions."""
+
+    items: List[PortfolioSnapshot]
+    as_of: datetime | None = None
+
+
+class PositionCloseRequest(BaseModel):
+    """Optional target quantity when closing or resizing a position."""
+
+    target_quantity: float | None = Field(
+        default=None,
+        description="Target net quantity after the adjustment. Defaults to 0 (full close).",
+    )
+
+
+class PositionCloseResponse(BaseModel):
+    """Execution report returned after requesting a close/adjustment."""
+
+    order: ExecutionReport
+    positions: PositionsResponse
 
 
 class ExecutionRecord(BaseModel):
@@ -140,4 +189,9 @@ __all__ = [
     "ExecutionsMetadata",
     "PaginatedExecutions",
     "PaginatedOrders",
+    "PositionHolding",
+    "PortfolioSnapshot",
+    "PositionsResponse",
+    "PositionCloseRequest",
+    "PositionCloseResponse",
 ]

@@ -5,7 +5,15 @@ from datetime import datetime, timedelta
 import httpx
 import pytest
 
-from schemas.order_router import ExecutionRecord, OrderRecord, OrdersLogMetadata, PaginatedOrders
+from schemas.order_router import (
+    ExecutionRecord,
+    OrderRecord,
+    OrdersLogMetadata,
+    PaginatedOrders,
+    PositionHolding,
+    PortfolioSnapshot,
+    PositionsResponse,
+)
 
 from .utils import load_dashboard_app
 
@@ -78,10 +86,35 @@ def _build_sample_order(now: datetime | None = None) -> PaginatedOrders:
 
 def test_dashboard_context_uses_order_router_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
     paginated = _build_sample_order()
+    positions = PositionsResponse(
+        items=[
+            PortfolioSnapshot(
+                id="portfolio-alpha",
+                name="Alpha",
+                owner="alpha",
+                total_value=362.5,
+                holdings=[
+                    PositionHolding(
+                        id="position-alpha-aapl",
+                        portfolio_id="portfolio-alpha",
+                        portfolio="alpha",
+                        account_id="alpha",
+                        symbol="AAPL",
+                        quantity=2.0,
+                        average_price=181.25,
+                        current_price=181.25,
+                        market_value=362.5,
+                    )
+                ],
+            )
+        ],
+        as_of=datetime.utcnow(),
+    )
 
     class DummyOrderRouterClient:
         def __init__(self, *args, **kwargs):
             self.limit: int | None = None
+            self.positions_called = False
 
         def __enter__(self) -> "DummyOrderRouterClient":
             return self
@@ -96,6 +129,10 @@ def test_dashboard_context_uses_order_router_snapshot(monkeypatch: pytest.Monkey
             self.limit = limit
             return paginated
 
+        def fetch_positions(self) -> PositionsResponse:
+            self.positions_called = True
+            return positions
+
     dummy_client = DummyOrderRouterClient()
     monkeypatch.setattr(data, "OrderRouterClient", lambda *args, **kwargs: dummy_client)
 
@@ -109,6 +146,8 @@ def test_dashboard_context_uses_order_router_snapshot(monkeypatch: pytest.Monkey
     assert context.portfolios, "Expected at least one portfolio from order router"
     assert context.portfolios[0].owner == "alpha"
     assert any(holding.symbol == "AAPL" for holding in context.portfolios[0].holdings)
+    assert context.portfolios[0].holdings[0].id is not None
+    assert dummy_client.positions_called
 
     symbols = {transaction.symbol for transaction in context.transactions}
     assert "BTC-USD" not in symbols
@@ -129,6 +168,9 @@ def test_dashboard_context_falls_back_when_order_router_unreachable(monkeypatch:
             return None
 
         def fetch_orders(self, *, limit: int = 100, offset: int = 0) -> PaginatedOrders:
+            raise httpx.ConnectError("unreachable", request=request)
+
+        def fetch_positions(self) -> PositionsResponse:
             raise httpx.ConnectError("unreachable", request=request)
 
     monkeypatch.setattr(data, "OrderRouterClient", lambda *args, **kwargs: FailingOrderRouterClient())

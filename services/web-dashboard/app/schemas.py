@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -20,10 +20,15 @@ class RiskLevel(str, Enum):
 class Holding(BaseModel):
     """Represent an asset position within a portfolio."""
 
+    id: str | None = Field(default=None, description="Opaque identifier of the position")
     symbol: str = Field(..., description="Ticker or symbol of the asset")
     quantity: float = Field(..., description="Number of units held")
     average_price: float = Field(..., description="Average fill price of the position")
     current_price: float = Field(..., description="Last traded price for the asset")
+    portfolio: str | None = Field(default=None, description="Owner of the position")
+    portfolio_id: str | None = Field(
+        default=None, description="Opaque identifier of the parent portfolio"
+    )
 
     @property
     def market_value(self) -> float:
@@ -35,6 +40,7 @@ class Holding(BaseModel):
 class Portfolio(BaseModel):
     """Snapshot of a portfolio."""
 
+    id: str | None = Field(default=None, description="Opaque identifier of the portfolio")
     name: str
     owner: str
     holdings: List[Holding]
@@ -324,6 +330,60 @@ class InPlayDashboardSetups(BaseModel):
         default=None,
         description="Explains why the fallback snapshot is displayed when the live stream is unavailable",
     )
+
+
+class TradingViewOverlayType(str, Enum):
+    """Supported overlay categories for the TradingView widget."""
+
+    indicator = "indicator"
+    annotation = "annotation"
+
+
+class TradingViewOverlay(BaseModel):
+    """Describe an overlay or annotation persisted for the TradingView chart."""
+
+    id: str = Field(..., min_length=1, description="Stable identifier for the overlay entry")
+    title: str = Field(..., min_length=1, description="Label displayed in the overlay list")
+    type: TradingViewOverlayType = Field(
+        default=TradingViewOverlayType.indicator,
+        description="Category of the overlay (indicator or annotation)",
+    )
+    settings: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arbitrary settings forwarded to the TradingView widget when applying the overlay",
+    )
+
+
+class TradingViewConfig(BaseModel):
+    """Persisted configuration required to initialise the TradingView widget."""
+
+    api_key: str = Field(default="", description="Optional TradingView API key used to authenticate requests")
+    library_url: str = Field(
+        default="https://unpkg.com/@tradingview/charting_library@latest/charting_library/charting_library.js",
+        description="URL pointing to the TradingView Charting Library bundle",
+    )
+    default_symbol: str = Field(
+        default="BINANCE:BTCUSDT",
+        description="Fallback symbol rendered when no strategy is selected",
+    )
+    symbol_map: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping allowing to associate strategies with chart symbols",
+    )
+    overlays: List[TradingViewOverlay] = Field(
+        default_factory=list,
+        description="List of overlays or annotations persisted for the widget",
+    )
+
+
+class TradingViewConfigUpdate(BaseModel):
+    """Payload accepted to update the TradingView configuration via the API."""
+
+    api_key: str | None = Field(default=None)
+    library_url: str | None = Field(default=None)
+    default_symbol: str | None = Field(default=None)
+    symbol_map: Dict[str, str] | None = Field(default=None)
+    overlays: List[TradingViewOverlay] | None = Field(default=None)
 
 
 class DashboardContext(BaseModel):

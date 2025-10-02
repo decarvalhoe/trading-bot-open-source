@@ -8,6 +8,7 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
+import TradingViewPanel from "../../components/TradingViewPanel.jsx";
 
 const PERIOD_OPTIONS = [
   { value: "15m", label: "15 minutes" },
@@ -82,6 +83,8 @@ function StrategyBacktestConsole({
   defaultStrategyId = "",
   defaultSymbol = "BTCUSDT",
   historyPageSize = 5,
+  tradingViewConfigEndpoint = "/config/tradingview",
+  tradingViewUpdateEndpoint = "/config/tradingview",
 }) {
   const [strategies, setStrategies] = useState([]);
   const [strategiesStatus, setStrategiesStatus] = useState("idle");
@@ -96,6 +99,11 @@ function StrategyBacktestConsole({
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
   const [error, setError] = useState(null);
+
+  const selectedStrategyDetails = useMemo(
+    () => strategies.find((item) => item.id === selectedStrategy) || null,
+    [strategies, selectedStrategy]
+  );
 
   const loadStrategies = useCallback(async () => {
     if (!strategiesEndpoint) {
@@ -286,6 +294,16 @@ function StrategyBacktestConsole({
     ]
   );
 
+  const handleSyncedSymbolChange = useCallback(
+    (nextSymbol) => {
+      if (!nextSymbol) {
+        return;
+      }
+      setSymbol(nextSymbol.toUpperCase());
+    },
+    []
+  );
+
   const handleLoadMore = useCallback(() => {
     if (!selectedStrategy) {
       return;
@@ -379,6 +397,21 @@ function StrategyBacktestConsole({
           </button>
         </div>
       </form>
+      <section
+        className="backtest-console__tradingview"
+        aria-labelledby="backtest-tradingview-title"
+      >
+        <h3 id="backtest-tradingview-title" className="heading heading--md">
+          Analyse graphique TradingView
+        </h3>
+        <TradingViewPanel
+          configEndpoint={tradingViewConfigEndpoint}
+          updateEndpoint={tradingViewUpdateEndpoint}
+          selectedStrategy={selectedStrategyDetails}
+          symbol={symbol}
+          onSymbolChange={handleSyncedSymbolChange}
+        />
+      </section>
 
       {message && (
         <div className="backtest-console__message" role="status">
