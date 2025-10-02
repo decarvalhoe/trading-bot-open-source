@@ -37,10 +37,18 @@ from .data import (
     ORDER_ROUTER_TIMEOUT_SECONDS,
     load_dashboard_context,
     load_portfolio_history,
+    load_tradingview_config,
+    save_tradingview_config,
 )
 from .order_router_client import OrderRouterClient, OrderRouterError
 from .alerts_client import AlertsEngineClient, AlertsEngineError
-from .schemas import Alert, AlertCreateRequest, AlertUpdateRequest
+from .schemas import (
+    Alert,
+    AlertCreateRequest,
+    AlertUpdateRequest,
+    TradingViewConfig,
+    TradingViewConfigUpdate,
+)
 from .documentation import load_strategy_documentation
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from pydantic import BaseModel, Field, ConfigDict
@@ -397,6 +405,47 @@ def list_alert_history(
         },
         "available_filters": available_filters,
     }
+
+
+@app.get("/config/tradingview", response_model=TradingViewConfig)
+def get_tradingview_config() -> TradingViewConfig:
+    """Return the TradingView configuration consumed by the frontend widget."""
+
+    config = load_tradingview_config()
+    return TradingViewConfig.model_validate(config)
+
+
+@app.put("/config/tradingview", response_model=TradingViewConfig)
+def update_tradingview_config(payload: TradingViewConfigUpdate) -> TradingViewConfig:
+    """Persist TradingView configuration updates provided by the UI."""
+
+    current = load_tradingview_config()
+
+    if payload.api_key is not None:
+        current["api_key"] = payload.api_key or ""
+
+    if payload.library_url is not None:
+        current["library_url"] = payload.library_url.strip() if payload.library_url else ""
+
+    if payload.default_symbol is not None:
+        current["default_symbol"] = payload.default_symbol.strip() if payload.default_symbol else ""
+
+    if payload.symbol_map is not None:
+        normalised_map: dict[str, str] = {}
+        for key, value in payload.symbol_map.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                continue
+            cleaned_key = key.strip()
+            cleaned_value = value.strip()
+            if cleaned_key and cleaned_value:
+                normalised_map[cleaned_key] = cleaned_value
+        current["symbol_map"] = normalised_map
+
+    if payload.overlays is not None:
+        current["overlays"] = [overlay.model_dump() for overlay in payload.overlays]
+
+    save_tradingview_config(current)
+    return TradingViewConfig.model_validate(load_tradingview_config())
 
 
 @app.post("/alerts", response_model=Alert, status_code=status.HTTP_201_CREATED)

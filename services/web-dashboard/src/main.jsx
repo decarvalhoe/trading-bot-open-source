@@ -220,6 +220,12 @@ if (backtestRoot) {
         defaultStrategyId={dataset.defaultStrategyId || ""}
         defaultSymbol={dataset.defaultSymbol || "BTCUSDT"}
         historyPageSize={Number.isNaN(historyPageSize) ? 5 : historyPageSize}
+        tradingViewConfigEndpoint={
+          dataset.tradingviewConfigEndpoint || "/config/tradingview"
+        }
+        tradingViewUpdateEndpoint={
+          dataset.tradingviewUpdateEndpoint || "/config/tradingview"
+        }
       />
     </StrictMode>
   );

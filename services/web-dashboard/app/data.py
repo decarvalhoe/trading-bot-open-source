@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import math
 import os
 from collections import defaultdict
@@ -1341,9 +1342,183 @@ def load_portfolio_history() -> List[PortfolioHistorySeries]:
     return _build_portfolio_history()
 
 
+def _get_tradingview_storage_path() -> Path:
+    """Return the path where the TradingView configuration is persisted."""
+
+    raw_path = os.getenv("WEB_DASHBOARD_TRADINGVIEW_STORAGE")
+    if raw_path:
+        try:
+            return Path(raw_path)
+        except (TypeError, ValueError):  # pragma: no cover - defensive guard
+            logger.warning("Invalid storage path provided for TradingView configuration: %s", raw_path)
+    base_dir = os.getenv("WEB_DASHBOARD_DATA_DIR")
+    if base_dir:
+        return Path(base_dir) / "tradingview_config.json"
+    return Path(__file__).resolve().parent / "tradingview_config.json"
+
+
+def _load_tradingview_storage() -> dict[str, object]:
+    """Read the persisted TradingView configuration from disk."""
+
+    path = _get_tradingview_storage_path()
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+            if isinstance(payload, dict):
+                return payload
+    except (OSError, json.JSONDecodeError) as error:
+        logger.warning("Unable to load TradingView configuration from %s: %s", path, error)
+    return {}
+
+
+def _dump_tradingview_storage(payload: dict[str, object]) -> None:
+    """Persist the TradingView configuration to disk."""
+
+    path = _get_tradingview_storage_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+    except OSError as error:  # pragma: no cover - unexpected filesystem failure
+        logger.error("Unable to persist TradingView configuration to %s: %s", path, error)
+
+
+def _parse_symbol_map(raw_value: str | None) -> dict[str, str]:
+    """Normalise a symbol mapping provided via environment variables."""
+
+    if not raw_value:
+        return {}
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError:
+        logger.warning("Invalid JSON provided for WEB_DASHBOARD_TRADINGVIEW_SYMBOL_MAP")
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    normalised: dict[str, str] = {}
+    for key, value in parsed.items():
+        if isinstance(key, str) and isinstance(value, str):
+            normalised[key] = value
+    return normalised
+
+
+def _normalise_symbol_map(raw_mapping: dict[str, object] | None) -> dict[str, str]:
+    """Ensure symbol mappings only include string keys and values."""
+
+    if not isinstance(raw_mapping, dict):
+        return {}
+    normalised: dict[str, str] = {}
+    for key, value in raw_mapping.items():
+        if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
+            normalised[key.strip()] = value.strip()
+    return normalised
+
+
+def load_tradingview_config() -> dict[str, object]:
+    """Expose the TradingView configuration combining persisted data and environment fallbacks."""
+
+    storage = _load_tradingview_storage()
+    env_symbol_map = _parse_symbol_map(os.getenv("WEB_DASHBOARD_TRADINGVIEW_SYMBOL_MAP"))
+
+    stored_symbol_map = _normalise_symbol_map(storage.get("symbol_map") if isinstance(storage, dict) else None)
+    overlays = storage.get("overlays") if isinstance(storage, dict) else []
+    if not isinstance(overlays, list):
+        overlays = []
+    filtered_overlays: list[dict[str, object]] = []
+    for overlay in overlays:
+        if isinstance(overlay, dict) and overlay.get("id") and overlay.get("title"):
+            filtered_overlays.append(overlay)
+
+    config = {
+        "api_key": "",
+        "library_url": "https://unpkg.com/@tradingview/charting_library@latest/charting_library/charting_library.js",
+        "default_symbol": "BINANCE:BTCUSDT",
+        "symbol_map": {},
+        "overlays": filtered_overlays,
+    }
+
+    if isinstance(storage, dict):
+        if isinstance(storage.get("api_key"), str):
+            config["api_key"] = storage.get("api_key") or ""
+        if isinstance(storage.get("library_url"), str) and storage.get("library_url").strip():
+            config["library_url"] = storage.get("library_url")
+        if isinstance(storage.get("default_symbol"), str) and storage.get("default_symbol").strip():
+            config["default_symbol"] = storage.get("default_symbol")
+    if stored_symbol_map:
+        config["symbol_map"] = stored_symbol_map
+    elif env_symbol_map:
+        config["symbol_map"] = env_symbol_map
+
+    api_key = os.getenv("WEB_DASHBOARD_TRADINGVIEW_API_KEY")
+    if api_key:
+        config["api_key"] = api_key
+
+    library_url = os.getenv("WEB_DASHBOARD_TRADINGVIEW_LIBRARY_URL")
+    if library_url:
+        config["library_url"] = library_url
+
+    default_symbol = os.getenv("WEB_DASHBOARD_TRADINGVIEW_DEFAULT_SYMBOL")
+    if default_symbol:
+        config["default_symbol"] = default_symbol
+
+    return config
+
+
+def save_tradingview_config(config: dict[str, object]) -> dict[str, object]:
+    """Persist a sanitized TradingView configuration and return the stored payload."""
+
+    storage: dict[str, object] = {}
+    if isinstance(config, dict):
+        api_key = config.get("api_key")
+        library_url = config.get("library_url")
+        default_symbol = config.get("default_symbol")
+        symbol_map = config.get("symbol_map")
+        overlays = config.get("overlays")
+
+        if isinstance(api_key, str):
+            storage["api_key"] = api_key.strip()
+        else:
+            storage["api_key"] = ""
+
+        if isinstance(library_url, str) and library_url.strip():
+            storage["library_url"] = library_url.strip()
+
+        if isinstance(default_symbol, str) and default_symbol.strip():
+            storage["default_symbol"] = default_symbol.strip()
+
+        storage["symbol_map"] = _normalise_symbol_map(symbol_map if isinstance(symbol_map, dict) else None)
+
+        serialised_overlays: list[dict[str, object]] = []
+        if isinstance(overlays, list):
+            for overlay in overlays:
+                if not isinstance(overlay, dict):
+                    continue
+                overlay_id = overlay.get("id")
+                title = overlay.get("title")
+                if not isinstance(overlay_id, str) or not overlay_id.strip():
+                    continue
+                if not isinstance(title, str) or not title.strip():
+                    continue
+                entry = {
+                    "id": overlay_id.strip(),
+                    "title": title.strip(),
+                    "type": overlay.get("type", "indicator"),
+                    "settings": overlay.get("settings") if isinstance(overlay.get("settings"), dict) else {},
+                }
+                serialised_overlays.append(entry)
+        storage["overlays"] = serialised_overlays
+
+    _dump_tradingview_storage(storage)
+    return storage
+
+
 __all__ = [
     "load_dashboard_context",
     "load_portfolio_history",
     "load_reports_list",
+    "load_tradingview_config",
+    "save_tradingview_config",
 ]
 
