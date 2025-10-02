@@ -1,9 +1,14 @@
 from fastapi.testclient import TestClient
 
-from web_dashboard.app import data
-from web_dashboard.app.schemas import DashboardContext, StrategyRuntimeStatus, StrategyStatus
+from fastapi.testclient import TestClient
 
 from .utils import load_dashboard_app
+
+load_dashboard_app()
+
+from web_dashboard.app import data  # noqa: E402  pylint: disable=wrong-import-position
+from web_dashboard.app.localization import build_translator  # noqa: E402  pylint: disable=wrong-import-position
+from web_dashboard.app.schemas import DashboardContext, StrategyRuntimeStatus, StrategyStatus
 
 
 def test_dashboard_template_includes_inplay_section(monkeypatch):
@@ -55,6 +60,57 @@ def test_dashboard_template_shows_clone_action(monkeypatch):
 
     assert response.status_code == 200
     html = response.text
-    assert "Clone de Stratégie source" in html
-    assert "strategy-actions__form" in html
-    assert ">Cloner<" in html
+    translator = build_translator("fr")
+    assert "data-clone-endpoint" in html
+    assert translator("Clone de {parent}", parent="Stratégie source")
+    assert translator("Clone de {parent}", parent="Stratégie source")
+
+
+def test_dashboard_template_uses_localization_bundle():
+    client = TestClient(load_dashboard_app())
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert response.headers["content-language"] == "fr"
+    html = response.text
+    assert "id=\"i18n-bootstrap\"" in html
+    assert "\"language\": \"fr\"" in html
+
+
+def test_dashboard_template_resolves_language_from_query():
+    client = TestClient(load_dashboard_app())
+    response = client.get("/dashboard", params={"lang": "en"})
+
+    assert response.status_code == 200
+    assert response.headers["content-language"] == "en"
+    html = response.text
+    assert "Help &amp; training" in html
+    assert "Dashboard" in html
+
+
+def test_dashboard_template_resolves_language_from_header():
+    client = TestClient(load_dashboard_app())
+    response = client.get("/dashboard", headers={"accept-language": "en-US,en;q=0.8"})
+
+    assert response.status_code == 200
+    assert response.headers["content-language"] == "en"
+    assert "Help &amp; training" in response.text
+
+
+def test_dashboard_template_sets_language_cookie():
+    client = TestClient(load_dashboard_app())
+    response = client.get("/dashboard", params={"lang": "en"})
+
+    assert response.status_code == 200
+    assert response.cookies.get("dashboard_lang") == "en"
+
+
+def test_dashboard_template_resolves_language_from_cookie():
+    client = TestClient(load_dashboard_app())
+    client.cookies.set("dashboard_lang", "en")
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert response.headers["content-language"] == "en"
+    assert "Help &amp; training" in response.text

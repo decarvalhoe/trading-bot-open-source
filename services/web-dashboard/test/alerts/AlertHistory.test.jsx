@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import i18next from "i18next";
+import { I18nextProvider, initReactI18next } from "react-i18next";
 import AlertHistory from "../../src/alerts/AlertHistory.jsx";
 
 function createFetchResponse(data, status = 200) {
@@ -8,6 +10,26 @@ function createFetchResponse(data, status = 200) {
     status,
     json: () => Promise.resolve(data),
   });
+}
+
+async function createTestI18n(language = "fr") {
+  const instance = i18next.createInstance();
+  await instance.use(initReactI18next).init({
+    lng: language,
+    fallbackLng: "fr",
+    resources: {
+      fr: { translation: {} },
+      en: { translation: {} },
+    },
+    interpolation: { escapeValue: false },
+  });
+  return instance;
+}
+
+function renderWithI18n(ui, language = "fr") {
+  return createTestI18n(language).then((i18n) =>
+    render(<I18nextProvider i18n={i18n}>{ui}</I18nextProvider>)
+  );
 }
 
 describe("AlertHistory", () => {
@@ -67,7 +89,7 @@ describe("AlertHistory", () => {
     global.fetch.mockResolvedValueOnce(createFetchResponse(secondPage));
 
     const user = userEvent.setup();
-    render(<AlertHistory endpoint="/alerts/history" />);
+    await renderWithI18n(<AlertHistory endpoint="/alerts/history" />);
 
     expect(await screen.findByText(/Breakout BTC/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /précédent/i })).toBeDisabled();
@@ -94,7 +116,7 @@ describe("AlertHistory", () => {
     global.fetch.mockResolvedValue(createFetchResponse(pagePayload));
 
     const user = userEvent.setup();
-    render(<AlertHistory endpoint="/alerts/history" />);
+    await renderWithI18n(<AlertHistory endpoint="/alerts/history" />);
 
     expect(await screen.findByLabelText(/Sévérité/i)).toBeInTheDocument();
 

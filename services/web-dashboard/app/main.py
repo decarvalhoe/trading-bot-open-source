@@ -59,6 +59,7 @@ from .help_progress import (
     record_learning_activity,
 )
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
+from .localization import LocalizationMiddleware, template_base_context
 from pydantic import BaseModel, Field, ConfigDict
 from schemas.order_router import PositionCloseRequest
 
@@ -71,6 +72,15 @@ app = FastAPI(title="Web Dashboard", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+app.add_middleware(LocalizationMiddleware)
+
+
+def _template_context(request: Request, extra: dict[str, object] | None = None) -> dict[str, object]:
+    context = {"request": request}
+    context.update(template_base_context(request))
+    if extra:
+        context.update(extra)
+    return context
 
 STREAMING_BASE_URL = os.getenv("WEB_DASHBOARD_STREAMING_BASE_URL", "http://localhost:8001/")
 STREAMING_ROOM_ID = os.getenv("WEB_DASHBOARD_STREAMING_ROOM_ID", "public-room")
@@ -85,7 +95,6 @@ AI_ASSISTANT_BASE_URL = os.getenv(
 )
 AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10.0"))
 DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
-codex/create-onboarding-module-in-react
 USER_SERVICE_BASE_URL = os.getenv(
     "WEB_DASHBOARD_USER_SERVICE_URL",
     os.getenv("USER_SERVICE_URL", "http://user-service:8000/"),
@@ -99,7 +108,6 @@ USER_SERVICE_JWT_ALG = "HS256"
 DEFAULT_DASHBOARD_USER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_USER_ID", "1")
  
 HELP_DEFAULT_USER_ID = os.getenv("WEB_DASHBOARD_HELP_DEFAULT_USER_ID", "demo-user")
-main
 
 security = HTTPBearer(auto_error=False)
 
@@ -960,23 +968,25 @@ def render_dashboard(request: Request) -> HTMLResponse:
     }
     return templates.TemplateResponse(
         "dashboard.html",
-        {
-            "request": request,
-            "context": context,
-            "streaming": {
-                "handshake_url": handshake_url,
-                "room_id": STREAMING_ROOM_ID,
-                "viewer_id": STREAMING_VIEWER_ID,
+        _template_context(
+            request,
+            {
+                "context": context,
+                "streaming": {
+                    "handshake_url": handshake_url,
+                    "room_id": STREAMING_ROOM_ID,
+                    "viewer_id": STREAMING_VIEWER_ID,
+                },
+                "alerts_api": {
+                    "endpoint": request.url_for("list_alerts"),
+                    "history_endpoint": request.url_for("list_alert_history"),
+                    "token": alerts_token,
+                },
+                "active_page": "dashboard",
+                "annotation_status": request.query_params.get("annotation"),
+                "onboarding_api": onboarding_api,
             },
-            "alerts_api": {
-                "endpoint": request.url_for("list_alerts"),
-                "history_endpoint": request.url_for("list_alert_history"),
-                "token": alerts_token,
-            },
-            "active_page": "dashboard",
-            "annotation_status": request.query_params.get("annotation"),
-            "onboarding_api": onboarding_api,
-        },
+        ),
     )
 
 
@@ -989,11 +999,13 @@ def render_follower_dashboard(request: Request) -> HTMLResponse:
     context = load_follower_dashboard(viewer_id)
     return templates.TemplateResponse(
         "follower.html",
-        {
-            "request": request,
-            "context": context,
-            "active_page": "followers",
-        },
+        _template_context(
+            request,
+            {
+                "context": context,
+                "active_page": "followers",
+            },
+        ),
     )
 
 
@@ -1025,10 +1037,12 @@ def render_marketplace(request: Request) -> HTMLResponse:
 
     return templates.TemplateResponse(
         "marketplace.html",
-        {
-            "request": request,
-            "active_page": "marketplace",
-        },
+        _template_context(
+            request,
+            {
+                "active_page": "marketplace",
+            },
+        ),
     )
 
 
@@ -1053,18 +1067,20 @@ def _render_strategies_page(
     }
     return templates.TemplateResponse(
         "strategies.html",
-        {
-            "request": request,
-            "save_endpoint": save_endpoint,
-            "ai_generate_endpoint": ai_generate_endpoint,
-            "ai_import_endpoint": ai_import_endpoint,
-            "upload_endpoint": upload_endpoint,
-            "preset_summaries": STRATEGY_PRESET_SUMMARIES,
-            "presets": STRATEGY_PRESETS,
-            "backtest_config": backtest_config,
-            "initial_strategy": initial_strategy,
-            "active_page": "strategies",
-        },
+        _template_context(
+            request,
+            {
+                "save_endpoint": save_endpoint,
+                "ai_generate_endpoint": ai_generate_endpoint,
+                "ai_import_endpoint": ai_import_endpoint,
+                "upload_endpoint": upload_endpoint,
+                "preset_summaries": STRATEGY_PRESET_SUMMARIES,
+                "presets": STRATEGY_PRESETS,
+                "backtest_config": backtest_config,
+                "initial_strategy": initial_strategy,
+                "active_page": "strategies",
+            },
+        ),
     )
 
 
@@ -1082,11 +1098,13 @@ def render_strategy_documentation(request: Request) -> HTMLResponse:
     documentation = load_strategy_documentation()
     return templates.TemplateResponse(
         "strategy_documentation.html",
-        {
-            "request": request,
-            "documentation": documentation,
-            "active_page": "strategy-docs",
-        },
+        _template_context(
+            request,
+            {
+                "documentation": documentation,
+                "active_page": "strategy-docs",
+            },
+        ),
     )
 
 
@@ -1129,13 +1147,15 @@ def render_help_center(request: Request) -> HTMLResponse:
     progress = get_learning_progress(HELP_DEFAULT_USER_ID, len(help_content.articles))
     return templates.TemplateResponse(
         "help_center.html",
-        {
-            "request": request,
-            "help_content": help_content,
-            "progress": progress,
-            "articles_endpoint": request.url_for("list_help_articles"),
-            "active_page": "help",
-        },
+        _template_context(
+            request,
+            {
+                "help_content": help_content,
+                "progress": progress,
+                "articles_endpoint": request.url_for("list_help_articles"),
+                "active_page": "help",
+            },
+        ),
     )
 
 
@@ -1219,10 +1239,12 @@ def render_account(request: Request) -> HTMLResponse:
 
     return templates.TemplateResponse(
         "account.html",
-        {
-            "request": request,
-            "active_page": "account",
-        },
+        _template_context(
+            request,
+            {
+                "active_page": "account",
+            },
+        ),
     )
 
 

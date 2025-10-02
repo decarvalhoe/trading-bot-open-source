@@ -1,16 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ListingCard from "./ListingCard.jsx";
-
-const SORT_OPTIONS = [
-  { value: "created_desc", label: "Plus récents" },
-  { value: "price_asc", label: "Prix croissant" },
-  { value: "price_desc", label: "Prix décroissant" },
-  { value: "performance_desc", label: "Performance décroissante" },
-  { value: "performance_asc", label: "Performance croissante" },
-  { value: "risk_asc", label: "Risque croissant" },
-  { value: "risk_desc", label: "Risque décroissant" },
-  { value: "rating_desc", label: "Mieux notées" },
-];
 
 function buildQuery(filters) {
   const params = new URLSearchParams();
@@ -33,6 +23,7 @@ function buildQuery(filters) {
 }
 
 function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
+  const { t } = useTranslation();
   const [filters, setFilters] = useState({
     search: "",
     minPerformance: "",
@@ -41,6 +32,20 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
     sort: "created_desc",
   });
   const [state, setState] = useState({ status: "idle", items: [], error: null });
+
+  const sortOptions = useMemo(
+    () => [
+      { value: "created_desc", label: t("Plus récents") },
+      { value: "price_asc", label: t("Prix croissant") },
+      { value: "price_desc", label: t("Prix décroissant") },
+      { value: "performance_desc", label: t("Performance décroissante") },
+      { value: "performance_asc", label: t("Performance croissante") },
+      { value: "risk_asc", label: t("Risque croissant") },
+      { value: "risk_desc", label: t("Risque décroissant") },
+      { value: "rating_desc", label: t("Mieux notées") },
+    ],
+    [t]
+  );
 
   useEffect(() => {
     const abort = new AbortController();
@@ -93,13 +98,13 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
   return (
     <div className="marketplace">
       <header className="marketplace__header">
-        <h1 className="heading heading--xl">Marketplace de stratégies</h1>
+        <h1 className="heading heading--xl">{t("Marketplace de stratégies")}</h1>
         <p className="text text--muted">
-          Comparez les stratégies publiées selon la performance, le profil de risque et le budget.
+          {t("Comparez les stratégies publiées selon la performance, le profil de risque et le budget.")}
         </p>
       </header>
 
-      <section className="marketplace__filters" aria-label="Filtres de recherche">
+      <section className="marketplace__filters" aria-label={t("Filtres de recherche")}>
         <form
           className="marketplace-filters"
           onSubmit={(event) => {
@@ -108,18 +113,18 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
         >
           <div className="marketplace-filters__row">
             <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">Rechercher</span>
+              <span className="marketplace-filters__label">{t("Rechercher")}</span>
               <input
                 type="search"
                 name="search"
                 value={filters.search}
                 onChange={handleInputChange}
-                placeholder="Nom de stratégie"
+                placeholder={t("Nom de stratégie")}
                 className="input"
               />
             </label>
             <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">Performance min.</span>
+              <span className="marketplace-filters__label">{t("Performance min.")}</span>
               <input
                 type="number"
                 step="0.1"
@@ -131,7 +136,7 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
               />
             </label>
             <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">Risque max.</span>
+              <span className="marketplace-filters__label">{t("Risque max.")}</span>
               <input
                 type="number"
                 step="0.1"
@@ -143,7 +148,7 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
               />
             </label>
             <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">Prix max. (USD)</span>
+              <span className="marketplace-filters__label">{t("Prix max. (USD)")}</span>
               <input
                 type="number"
                 min="0"
@@ -154,9 +159,9 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
               />
             </label>
             <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">Tri</span>
+              <span className="marketplace-filters__label">{t("Tri")}</span>
               <select name="sort" value={filters.sort} onChange={handleInputChange} className="input">
-                {SORT_OPTIONS.map((option) => (
+                {sortOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -166,19 +171,19 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
           </div>
           <div className="marketplace-filters__actions">
             <button type="button" className="button button--ghost" onClick={resetFilters} disabled={!hasActiveFilters}>
-              Réinitialiser
+              {t("Réinitialiser")}
             </button>
           </div>
         </form>
       </section>
 
       <section className="marketplace__results" aria-live="polite">
-        {state.status === "loading" && <p className="text">Chargement des listings…</p>}
+        {state.status === "loading" && <p className="text">{t("Chargement des listings…")}</p>}
         {state.status === "error" && (
-          <p className="text text--critical">Impossible de récupérer les listings pour le moment.</p>
+          <p className="text text--critical">{t("Impossible de récupérer les listings pour le moment.")}</p>
         )}
         {state.status === "ready" && state.items.length === 0 && (
-          <p className="text text--muted">Aucune stratégie ne correspond à vos filtres.</p>
+          <p className="text text--muted">{t("Aucune stratégie ne correspond à vos filtres.")}</p>
         )}
         {state.status === "ready" && state.items.length > 0 && (
           <div className="marketplace-grid" role="list">

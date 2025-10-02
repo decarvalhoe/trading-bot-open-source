@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { act } from "react";
 import userEvent from "@testing-library/user-event";
+import i18next from "i18next";
+import { I18nextProvider, initReactI18next } from "react-i18next";
 import AlertManager from "../../src/alerts/AlertManager.jsx";
 
 function createFetchResponse(data, status = 200) {
@@ -12,10 +14,29 @@ function createFetchResponse(data, status = 200) {
   });
 }
 
+async function createTestI18n(language = "fr") {
+  const instance = i18next.createInstance();
+  await instance.use(initReactI18next).init({
+    lng: language,
+    fallbackLng: "fr",
+    resources: {
+      fr: { translation: {} },
+      en: { translation: {} },
+    },
+    interpolation: { escapeValue: false },
+  });
+  return instance;
+}
+
 async function renderAlerts(props) {
   const user = userEvent.setup();
+  const i18n = await createTestI18n();
   await act(async () => {
-    render(<AlertManager enableInitialFetch={false} {...props} />);
+    render(
+      <I18nextProvider i18n={i18n}>
+        <AlertManager enableInitialFetch={false} {...props} />
+      </I18nextProvider>
+    );
     await Promise.resolve();
   });
   return user;
@@ -69,7 +90,9 @@ describe("AlertManager", () => {
     await user.click(editButton);
 
     const titleInput = screen.getByLabelText(/Titre/i);
-    expect(titleInput).toHaveValue("Maintenance margin nearing threshold");
+    await waitFor(() => {
+      expect(titleInput).toHaveValue("Maintenance margin nearing threshold");
+    });
 
   });
 

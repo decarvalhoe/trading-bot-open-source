@@ -9,6 +9,8 @@ import { StrategyDesigner, STRATEGY_PRESETS } from "./strategies/designer/index.
 import { StrategyBacktestConsole } from "./strategies/backtest/index.js";
 import MarketplaceApp from "./marketplace/MarketplaceApp.jsx";
 import OnboardingApp from "./onboarding/OnboardingApp.jsx";
+import { I18nextProvider, useTranslation } from "react-i18next";
+import i18n from "./i18n/config.js";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -24,6 +26,7 @@ function loadBootstrapData() {
 }
 
 function PortfolioChartApp({ endpoint, currency }) {
+  const { t } = useTranslation();
   const [state, setState] = useState({ status: "loading", items: [], currency });
 
   useEffect(() => {
@@ -66,7 +69,7 @@ function PortfolioChartApp({ endpoint, currency }) {
   if (state.status === "loading") {
     return (
       <div className="chart-container__status" role="status">
-        Chargement des données historiques…
+        {t("Chargement des données historiques…")}
       </div>
     );
   }
@@ -74,7 +77,7 @@ function PortfolioChartApp({ endpoint, currency }) {
   if (state.status === "error") {
     return (
       <div className="chart-container__status" role="alert">
-        Impossible de charger l'historique pour le moment.
+        {t("Impossible de charger l'historique pour le moment.")}
       </div>
     );
   }
@@ -83,6 +86,14 @@ function PortfolioChartApp({ endpoint, currency }) {
 }
 
 const bootstrap = loadBootstrapData();
+
+function renderWithI18n(root, element) {
+  root.render(
+    <StrictMode>
+      <I18nextProvider i18n={i18n}>{element}</I18nextProvider>
+    </StrictMode>
+  );
+}
 
 const reportsContainer = document.getElementById("reports-center");
 if (reportsContainer) {
@@ -95,10 +106,9 @@ if (reportsContainer) {
   }
   const sizeValue = Number.parseInt(reportsContainer.dataset.pageSize || "5", 10);
   const root = createRoot(reportsContainer);
-  root.render(
-    <StrictMode>
-      <ReportsList reports={initialReports} pageSize={Number.isNaN(sizeValue) ? 5 : sizeValue} />
-    </StrictMode>
+  renderWithI18n(
+    root,
+    <ReportsList reports={initialReports} pageSize={Number.isNaN(sizeValue) ? 5 : sizeValue} />
   );
 }
 
@@ -107,11 +117,7 @@ if (chartContainer) {
   const endpoint = chartContainer.dataset.endpoint || "/portfolios/history";
   const currency = chartContainer.dataset.currency || "$";
   const root = createRoot(chartContainer);
-  root.render(
-    <StrictMode>
-      <PortfolioChartApp endpoint={endpoint} currency={currency} />
-    </StrictMode>
-  );
+  renderWithI18n(root, <PortfolioChartApp endpoint={endpoint} currency={currency} />);
 }
 
 const alertsContainer = document.getElementById("alerts-manager");
@@ -124,10 +130,9 @@ if (alertsContainer) {
       ? bootstrap.context.alerts
       : []) || [];
   const root = createRoot(alertsContainer);
-  root.render(
-    <StrictMode>
-      <AlertManager initialAlerts={initialAlerts} endpoint={endpoint} authToken={token} />
-    </StrictMode>
+  renderWithI18n(
+    root,
+    <AlertManager initialAlerts={initialAlerts} endpoint={endpoint} authToken={token} />
   );
 }
 
@@ -136,11 +141,7 @@ if (historyContainer) {
   const dataset = historyContainer.dataset || {};
   const endpoint = dataset.endpoint || "/alerts/history";
   const root = createRoot(historyContainer);
-  root.render(
-    <StrictMode>
-      <AlertHistory endpoint={endpoint} />
-    </StrictMode>
-  );
+  renderWithI18n(root, <AlertHistory endpoint={endpoint} />);
 }
 
 const strategyDesignerRoot = document.getElementById("strategy-designer-root");
@@ -176,16 +177,15 @@ if (strategyDesignerRoot) {
     }
   }
   const root = createRoot(strategyDesignerRoot);
-  root.render(
-    <StrictMode>
-      <StrategyDesigner
-        saveEndpoint={saveEndpoint}
-        defaultName={defaultName}
-        defaultFormat={initialFormat}
-        presets={presetCatalog}
-        initialStrategy={initialStrategy}
-      />
-    </StrictMode>
+  renderWithI18n(
+    root,
+    <StrategyDesigner
+      saveEndpoint={saveEndpoint}
+      defaultName={defaultName}
+      defaultFormat={initialFormat}
+      presets={presetCatalog}
+      initialStrategy={initialStrategy}
+    />
   );
 }
 
@@ -193,15 +193,14 @@ const marketplaceRoot = document.getElementById("marketplace-root");
 if (marketplaceRoot) {
   const dataset = marketplaceRoot.dataset || {};
   const root = createRoot(marketplaceRoot);
-  root.render(
-    <StrictMode>
-      <MarketplaceApp
-        listingsEndpoint={dataset.endpoint || "/marketplace/listings"}
-        reviewsEndpointTemplate={
-          dataset.reviewsEndpointTemplate || "/marketplace/listings/__id__/reviews"
-        }
-      />
-    </StrictMode>
+  renderWithI18n(
+    root,
+    <MarketplaceApp
+      listingsEndpoint={dataset.endpoint || "/marketplace/listings"}
+      reviewsEndpointTemplate={
+        dataset.reviewsEndpointTemplate || "/marketplace/listings/__id__/reviews"
+      }
+    />
   );
 }
 
@@ -211,13 +210,9 @@ if (assistantRoot) {
   const generateEndpoint = dataset.generateEndpoint || "/strategies/generate";
   const importEndpoint = dataset.importEndpoint || "/strategies/import";
   const root = createRoot(assistantRoot);
-  root.render(
-    <StrictMode>
-      <AIStrategyAssistant
-        generateEndpoint={generateEndpoint}
-        importEndpoint={importEndpoint}
-      />
-    </StrictMode>
+  renderWithI18n(
+    root,
+    <AIStrategyAssistant generateEndpoint={generateEndpoint} importEndpoint={importEndpoint} />
   );
 }
 
@@ -226,26 +221,25 @@ if (backtestRoot) {
   const dataset = backtestRoot.dataset || {};
   const historyPageSize = Number.parseInt(dataset.historyPageSize || "5", 10);
   const root = createRoot(backtestRoot);
-  root.render(
-    <StrictMode>
-      <StrategyBacktestConsole
-        strategiesEndpoint={dataset.strategiesEndpoint || "/api/strategies"}
-        runEndpointTemplate={dataset.runEndpointTemplate || "/api/strategies/__id__/backtest"}
-        uiEndpointTemplate={dataset.uiEndpointTemplate || "/api/strategies/__id__/backtest/ui"}
-        historyEndpointTemplate={
-          dataset.historyEndpointTemplate || "/api/strategies/__id__/backtests"
-        }
-        defaultStrategyId={dataset.defaultStrategyId || ""}
-        defaultSymbol={dataset.defaultSymbol || "BTCUSDT"}
-        historyPageSize={Number.isNaN(historyPageSize) ? 5 : historyPageSize}
-        tradingViewConfigEndpoint={
-          dataset.tradingviewConfigEndpoint || "/config/tradingview"
-        }
-        tradingViewUpdateEndpoint={
-          dataset.tradingviewUpdateEndpoint || "/config/tradingview"
-        }
-      />
-    </StrictMode>
+  renderWithI18n(
+    root,
+    <StrategyBacktestConsole
+      strategiesEndpoint={dataset.strategiesEndpoint || "/api/strategies"}
+      runEndpointTemplate={dataset.runEndpointTemplate || "/api/strategies/__id__/backtest"}
+      uiEndpointTemplate={dataset.uiEndpointTemplate || "/api/strategies/__id__/backtest/ui"}
+      historyEndpointTemplate={
+        dataset.historyEndpointTemplate || "/api/strategies/__id__/backtests"
+      }
+      defaultStrategyId={dataset.defaultStrategyId || ""}
+      defaultSymbol={dataset.defaultSymbol || "BTCUSDT"}
+      historyPageSize={Number.isNaN(historyPageSize) ? 5 : historyPageSize}
+      tradingViewConfigEndpoint={
+        dataset.tradingviewConfigEndpoint || "/config/tradingview"
+      }
+      tradingViewUpdateEndpoint={
+        dataset.tradingviewUpdateEndpoint || "/config/tradingview"
+      }
+    />
   );
 }
 
@@ -254,15 +248,36 @@ const onboardingContainer = document.getElementById("onboarding-root");
 if (onboardingContainer) {
   const dataset = onboardingContainer.dataset || {};
   const root = createRoot(onboardingContainer);
-  root.render(
-    <StrictMode>
-      <OnboardingApp
-        progressEndpoint={dataset.progressEndpoint || ""}
-        stepTemplate={dataset.stepTemplate || ""}
-        resetEndpoint={dataset.resetEndpoint || ""}
-        userId={dataset.userId || ""}
-      />
-    </StrictMode>
+  renderWithI18n(
+    root,
+    <OnboardingApp
+      progressEndpoint={dataset.progressEndpoint || ""}
+      stepTemplate={dataset.stepTemplate || ""}
+      resetEndpoint={dataset.resetEndpoint || ""}
+      userId={dataset.userId || ""}
+    />
   );
 }
+
+function setupLanguageSelector() {
+  const selector = document.querySelector("[data-language-selector]");
+  if (!selector) {
+    return;
+  }
+  selector.addEventListener("change", (event) => {
+    const { value } = event.target;
+    if (!value) {
+      return;
+    }
+    i18n.changeLanguage(value);
+    document.documentElement.setAttribute("lang", value);
+    const cookieValue = `dashboard_lang=${value};path=/;max-age=${60 * 60 * 24 * 365}`;
+    document.cookie = cookieValue;
+    const url = new URL(window.location.href);
+    url.searchParams.set("lang", value);
+    window.location.assign(url.toString());
+  });
+}
+
+setupLanguageSelector();
 
