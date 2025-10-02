@@ -20,3 +20,4 @@ coverage.xml
 # OS
 .DS_Store
 Thumbs.db
+alert_events.db
