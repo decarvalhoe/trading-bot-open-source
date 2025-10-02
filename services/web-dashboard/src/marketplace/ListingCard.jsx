@@ -1,23 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ReviewForm from "./ReviewForm.jsx";
 
-function formatPrice(priceCents, currency) {
+function formatPrice(priceCents, currency, locale) {
   const amount = Number(priceCents || 0) / 100;
   try {
-    return new Intl.NumberFormat("fr-FR", { style: "currency", currency }).format(amount);
+    return new Intl.NumberFormat(locale, { style: "currency", currency }).format(amount);
   } catch (error) {
     return `${amount.toFixed(2)} ${currency}`;
   }
 }
 
-function formatScore(value) {
+function formatScore(value, formatter) {
   if (value === null || value === undefined) {
-    return "ND";
+    return formatter("ND");
   }
   return Number.parseFloat(value).toFixed(1);
 }
 
 function ListingCard({ listing, reviewsEndpoint }) {
+  const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [listingSummary, setListingSummary] = useState(listing);
   const [reviews, setReviews] = useState([]);
@@ -68,10 +70,12 @@ function ListingCard({ listing, reviewsEndpoint }) {
 
   const averageLabel = useMemo(() => {
     if (!listingSummary || listingSummary.average_rating === null || listingSummary.average_rating === undefined) {
-      return "Non notée";
+      return t("Non notée");
     }
-    return `${Number.parseFloat(listingSummary.average_rating).toFixed(1)} / 5`;
-  }, [listingSummary]);
+    return t("{rating} / 5", {
+      rating: Number.parseFloat(listingSummary.average_rating).toFixed(1),
+    });
+  }, [listingSummary, t]);
 
   const handleSubmitReview = useCallback(
     async ({ rating, comment }) => {
@@ -95,22 +99,26 @@ function ListingCard({ listing, reviewsEndpoint }) {
       } catch (error) {
         console.error("Impossible d'enregistrer l'avis", error);
         setFormStatus("error");
-        setFormError("Impossible d'enregistrer l'avis");
+        setFormError(t("Impossible d'enregistrer l'avis"));
         return false;
       }
     },
-    [loadReviews, reviewsEndpoint]
+    [loadReviews, reviewsEndpoint, t]
   );
+
+  const locale = i18n.language || "fr";
 
   return (
     <article className="marketplace-card" role="listitem">
       <header className="marketplace-card__header">
         <div>
           <h2 className="heading heading--md marketplace-card__title">{listingSummary.strategy_name}</h2>
-          <p className="text text--muted marketplace-card__owner">Créateur #{listingSummary.owner_id}</p>
+          <p className="text text--muted marketplace-card__owner">
+            {t("Créateur #{ownerId}", { ownerId: listingSummary.owner_id })}
+          </p>
         </div>
-        <div className="marketplace-card__price" aria-label="Prix">
-          {formatPrice(listingSummary.price_cents, listingSummary.currency)}
+        <div className="marketplace-card__price" aria-label={t("Prix")}>
+          {formatPrice(listingSummary.price_cents, listingSummary.currency, locale)}
         </div>
       </header>
 
@@ -118,47 +126,47 @@ function ListingCard({ listing, reviewsEndpoint }) {
 
       <dl className="marketplace-card__metrics">
         <div className="marketplace-card__metric">
-          <dt>Performance</dt>
-          <dd>{formatScore(listingSummary.performance_score)}</dd>
+          <dt>{t("Performance")}</dt>
+          <dd>{formatScore(listingSummary.performance_score, t)}</dd>
         </div>
         <div className="marketplace-card__metric">
-          <dt>Risque</dt>
-          <dd>{formatScore(listingSummary.risk_score)}</dd>
+          <dt>{t("Risque")}</dt>
+          <dd>{formatScore(listingSummary.risk_score, t)}</dd>
         </div>
         <div className="marketplace-card__metric">
-          <dt>Notes</dt>
+          <dt>{t("Notes")}</dt>
           <dd>{averageLabel}</dd>
         </div>
         <div className="marketplace-card__metric">
-          <dt>Avis</dt>
+          <dt>{t("Avis")}</dt>
           <dd>{listingSummary.reviews_count || 0}</dd>
         </div>
       </dl>
 
       <div className="marketplace-card__actions">
         <button type="button" className="button button--ghost" onClick={() => setExpanded((prev) => !prev)}>
-          {expanded ? "Masquer les détails" : "Voir les détails"}
+          {expanded ? t("Masquer les détails") : t("Voir les détails")}
         </button>
       </div>
 
       {expanded && (
         <div className="marketplace-card__details">
-          <section className="marketplace-card__reviews" aria-label="Avis des utilisateurs">
-            {reviewsStatus === "loading" && <p className="text">Chargement des avis…</p>}
+          <section className="marketplace-card__reviews" aria-label={t("Avis des utilisateurs")}>
+            {reviewsStatus === "loading" && <p className="text">{t("Chargement des avis…")}</p>}
             {reviewsStatus === "error" && (
-              <p className="text text--critical">Impossible de récupérer les avis pour le moment.</p>
+              <p className="text text--critical">{t("Impossible de récupérer les avis pour le moment.")}</p>
             )}
             {reviewsStatus === "ready" && reviews.length === 0 && (
-              <p className="text text--muted">Aucun avis pour le moment.</p>
+              <p className="text text--muted">{t("Aucun avis pour le moment.")}</p>
             )}
             {reviewsStatus === "ready" && reviews.length > 0 && (
               <ul className="reviews" role="list">
                 {reviews.map((review) => (
                   <li key={review.id} className="reviews__item" role="listitem">
                     <div className="reviews__header">
-                      <span className="reviews__rating">{review.rating} / 5</span>
+                      <span className="reviews__rating">{t("{rating} / 5", { rating: review.rating })}</span>
                       <time dateTime={review.created_at} className="text text--muted">
-                        {new Date(review.created_at).toLocaleDateString("fr-FR")}
+                        {new Intl.DateTimeFormat(locale).format(new Date(review.created_at))}
                       </time>
                     </div>
                     {review.comment && <p className="text reviews__comment">{review.comment}</p>}

@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
-function formatDate(value) {
+function formatDate(value, locale = "fr") {
   if (!value) {
     return "";
   }
   try {
     const date = new Date(value);
-    return new Intl.DateTimeFormat("fr-FR", {
+    return new Intl.DateTimeFormat(locale, {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -19,6 +20,7 @@ function formatDate(value) {
 }
 
 function AlertHistory({ endpoint = "/alerts/history" }) {
+  const { t, i18n } = useTranslation();
   const [status, setStatus] = useState("idle");
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 10 });
@@ -108,14 +110,16 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
   return (
     <section className="history-panel" aria-live="polite">
       <header className="history-panel__header">
-        <h2 className="heading heading--lg">Historique des alertes</h2>
-        <p className="text text--muted">Consultez les déclenchements passés et leurs métadonnées.</p>
+        <h2 className="heading heading--lg">{t("Historique des alertes")}</h2>
+        <p className="text text--muted">
+          {t("Consultez les déclenchements passés et leurs métadonnées.")}
+        </p>
       </header>
       <div className="history-panel__filters">
         <label className="form-field">
-          <span className="form-field__label">Sévérité</span>
+          <span className="form-field__label">{t("Sévérité")}</span>
           <select value={filters.severity} onChange={handleSeverityChange}>
-            <option value="">Toutes</option>
+            <option value="">{t("Toutes")}</option>
             {availableFilters.severities.map((severity) => (
               <option key={severity} value={severity}>
                 {severity}
@@ -124,9 +128,9 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
           </select>
         </label>
         <label className="form-field">
-          <span className="form-field__label">Stratégie</span>
+          <span className="form-field__label">{t("Stratégie")}</span>
           <select value={filters.strategy} onChange={handleStrategyChange}>
-            <option value="">Toutes</option>
+            <option value="">{t("Toutes")}</option>
             {availableFilters.strategies.map((strategy) => (
               <option key={strategy} value={strategy}>
                 {strategy}
@@ -135,7 +139,7 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
           </select>
         </label>
         <label className="form-field">
-          <span className="form-field__label">Entrées par page</span>
+          <span className="form-field__label">{t("Entrées par page")}</span>
           <select value={pagination.page_size} onChange={handlePageSizeChange}>
             {[5, 10, 20, 50].map((size) => (
               <option key={size} value={size}>
@@ -147,45 +151,49 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
       </div>
       {status === "loading" && (
         <p className="text" role="status">
-          Chargement de l'historique…
+          {t("Chargement de l'historique…")}
         </p>
       )}
       {status === "error" && (
         <p className="text text--critical" role="alert">
-          Impossible de récupérer l'historique pour le moment.
+          {t("Impossible de récupérer l'historique pour le moment.")}
         </p>
       )}
       {status === "ready" && items.length === 0 && (
-        <p className="text text--muted">Aucun déclenchement enregistré pour ces filtres.</p>
+        <p className="text text--muted">
+          {t("Aucun déclenchement enregistré pour ces filtres.")}
+        </p>
       )}
       {items.length > 0 && (
         <div className="table-responsive">
           <table className="table history-table" role="grid">
             <thead>
               <tr>
-                <th scope="col">Déclenchée le</th>
-                <th scope="col">Type</th>
-                <th scope="col">Canal</th>
-                <th scope="col">Règle</th>
-                <th scope="col">Stratégie</th>
-                <th scope="col">Sévérité</th>
-                <th scope="col">Symbole</th>
+                <th scope="col">{t("Déclenchée le")}</th>
+                <th scope="col">{t("Type")}</th>
+                <th scope="col">{t("Canal")}</th>
+                <th scope="col">{t("Règle")}</th>
+                <th scope="col">{t("Stratégie")}</th>
+                <th scope="col">{t("Sévérité")}</th>
+                <th scope="col">{t("Symbole")}</th>
               </tr>
             </thead>
             <tbody>
               {items.map((event) => (
                 <tr key={event.id || `${event.trigger_id}-${event.rule_id}`}>
-                  <td data-label="Déclenchée le">{formatDate(event.triggered_at)}</td>
-                  <td data-label="Type">{event.notification_type || "trigger"}</td>
-                  <td data-label="Canal">{event.notification_channel || "-"}</td>
-                  <td data-label="Règle">{event.rule_name}</td>
-                  <td data-label="Stratégie">{event.strategy}</td>
-                  <td data-label="Sévérité">
+                  <td data-label={t("Déclenchée le")}>
+                    {formatDate(event.triggered_at, i18n.language)}
+                  </td>
+                  <td data-label={t("Type")}>{event.notification_type || "trigger"}</td>
+                  <td data-label={t("Canal")}>{event.notification_channel || "-"}</td>
+                  <td data-label={t("Règle")}>{event.rule_name}</td>
+                  <td data-label={t("Stratégie")}>{event.strategy}</td>
+                  <td data-label={t("Sévérité")}>
                     <span className={`badge badge--${event.severity || "info"}`}>
                       {event.severity}
                     </span>
                   </td>
-                  <td data-label="Symbole">{event.symbol}</td>
+                  <td data-label={t("Symbole")}>{event.symbol}</td>
                 </tr>
               ))}
             </tbody>
@@ -199,10 +207,14 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
           onClick={goToPreviousPage}
           disabled={!canPrevious}
         >
-          Précédent
+          {t("Précédent")}
         </button>
         <span className="text text--muted">
-          Page {pagination.page} sur {pagination.pages || 1} ({pagination.total} alertes)
+          {t("Page {page} sur {pages} ({total} alertes)", {
+            page: pagination.page,
+            pages: pagination.pages || 1,
+            total: pagination.total,
+          })}
         </span>
         <button
           type="button"
@@ -210,7 +222,7 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
           onClick={goToNextPage}
           disabled={!canNext}
         >
-          Suivant
+          {t("Suivant")}
         </button>
       </footer>
     </section>

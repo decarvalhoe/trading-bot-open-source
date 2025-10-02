@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{{ current_language }}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,60 +8,10 @@
   </head>
   <body>
     <header class="layout__header">
-      <nav class="app-nav" aria-label="Navigation principale">
-        <a
-          href="{{ request.url_for('render_dashboard') }}"
-          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'dashboard' else '' }}"
-          aria-current="{{ 'page' if active_page == 'dashboard' else 'false' }}"
-        >
-          Tableau de bord
-        </a>
-        <a
-          href="{{ request.url_for('render_marketplace') }}"
-          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'marketplace' else '' }}"
-          aria-current="{{ 'page' if active_page == 'marketplace' else 'false' }}"
-        >
-          Marketplace
-        </a>
-        <a
-          href="{{ request.url_for('render_follower_dashboard') }}"
-          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'followers' else '' }}"
-          aria-current="{{ 'page' if active_page == 'followers' else 'false' }}"
-        >
-          Suivi copies
-        </a>
-        <a
-          href="{{ request.url_for('render_strategies') }}"
-          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
-          aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"
-        >
-          Stratégies
-        </a>
-        <a
-          href="{{ request.url_for('render_strategy_documentation') }}"
-          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategy-docs' else '' }}"
-          aria-current="{{ 'page' if active_page == 'strategy-docs' else 'false' }}"
-        >
-          Documentation stratégies
-        </a>
-        <a
-          href="{{ request.url_for('render_help_center') }}"
-          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'help' else '' }}"
-          aria-current="{{ 'page' if active_page == 'help' else 'false' }}"
-        >
-          Aide &amp; formation
-        </a>
-        <a
-          href="{{ request.url_for('render_account') }}"
-          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
-          aria-current="{{ 'page' if active_page == 'account' else 'false' }}"
-        >
-          Compte &amp; API
-        </a>
-      </nav>
-      <h1 class="heading heading--xl">Composer une stratégie</h1>
+      {% include "_navigation.html" %}
+      <h1 class="heading heading--xl">{{ _('Composer une stratégie') }}</h1>
       <p class="text text--muted">
-        Assemblez conditions, indicateurs et actions avant d'envoyer votre stratégie vers l'algo-engine.
+        {{ _('Assemblez conditions, indicateurs et actions avant d\'envoyer votre stratégie vers l\'algo-engine.') }}
       </p>
     </header>
     <main class="layout__main layout__main--wide">
@@ -188,8 +138,11 @@
       </section>
     </main>
     <footer class="layout__footer">
-      <p class="text text--muted">Conçu pour rester compatible avec /strategies/import de l'algo-engine.</p>
+      <p class="text text--muted">{{ _('Conçu pour rester compatible avec /strategies/import de l\'algo-engine.') }}</p>
     </footer>
+    <script id="i18n-bootstrap" type="application/json">
+      {{ i18n_bundle|tojson }}
+    </script>
     <script type="module" src="/static/dist/portfolio-chart.js"></script>
   </body>
 </html>

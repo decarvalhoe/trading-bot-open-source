@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Tooltip from "./Tooltip.jsx";
 import { mergeStepMetadata } from "./steps.js";
 
@@ -47,6 +48,7 @@ export default function OnboardingApp({
   resetEndpoint,
   userId,
 }) {
+  const { t, i18n } = useTranslation();
   const [progress, setProgress] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -63,7 +65,7 @@ export default function OnboardingApp({
 
   const fetchProgress = useCallback(async () => {
     if (!progressEndpoint) {
-      setError("Point d'accès onboarding non configuré.");
+      setError(t("Point d'accès onboarding non configuré."));
       setProgress(null);
       setIsLoading(false);
       return;
@@ -83,18 +85,18 @@ export default function OnboardingApp({
       setProgress(normaliseProgress(payload));
     } catch (err) {
       console.error("Impossible de charger la progression d'onboarding", err);
-      setError("Impossible de récupérer la progression pour le moment.");
+      setError(t("Impossible de récupérer la progression pour le moment."));
       setProgress(null);
     } finally {
       setIsLoading(false);
     }
-  }, [progressEndpoint, baseHeaders]);
+  }, [progressEndpoint, baseHeaders, t]);
 
   const handleComplete = useCallback(
     async (stepId) => {
       const target = buildStepUrl(stepTemplate, stepId);
       if (!target) {
-        setError("Impossible de déterminer l'étape à enregistrer.");
+        setError(t("Impossible de déterminer l'étape à enregistrer."));
         return;
       }
       setPendingStep(stepId);
@@ -112,17 +114,17 @@ export default function OnboardingApp({
         setProgress(normaliseProgress(payload));
       } catch (err) {
         console.error("Impossible de marquer l'étape d'onboarding", err);
-        setError("Enregistrement de l'étape impossible. Réessayez.");
+        setError(t("Enregistrement de l'étape impossible. Réessayez."));
       } finally {
         setPendingStep(null);
       }
     },
-    [baseHeaders, stepTemplate]
+    [baseHeaders, stepTemplate, t]
   );
 
   const handleReset = useCallback(async () => {
     if (!resetEndpoint) {
-      setError("Point d'accès de réinitialisation manquant.");
+      setError(t("Point d'accès de réinitialisation manquant."));
       return;
     }
     setIsResetting(true);
@@ -138,13 +140,13 @@ export default function OnboardingApp({
       }
       const payload = await response.json();
       setProgress(normaliseProgress(payload));
-    } catch (err) {
-      console.error("Impossible de réinitialiser le tutoriel", err);
-      setError("Réinitialisation impossible. Merci de réessayer.");
+      } catch (err) {
+        console.error("Impossible de réinitialiser le tutoriel", err);
+        setError(t("Réinitialisation impossible. Merci de réessayer."));
     } finally {
       setIsResetting(false);
     }
-  }, [baseHeaders, resetEndpoint]);
+  }, [baseHeaders, resetEndpoint, t]);
 
   useEffect(() => {
     fetchProgress();
@@ -152,11 +154,19 @@ export default function OnboardingApp({
 
   const totalSteps = progress?.steps?.length ?? 0;
   const completedCount = progress?.completedSteps?.length ?? 0;
+  const locale = useMemo(() => i18n.language || "fr", [i18n.language]);
+
   const summaryText = totalSteps
-    ? `${completedCount} / ${totalSteps} étapes complétées${
-        progress?.isComplete ? " – Parcours terminé !" : ""
-      }`
-    : "Chargement du parcours d'onboarding";
+    ? progress?.isComplete
+      ? t("{completed} / {total} étapes complétées – Parcours terminé !", {
+          completed: completedCount,
+          total: totalSteps,
+        })
+      : t("{completed} / {total} étapes complétées", {
+          completed: completedCount,
+          total: totalSteps,
+        })
+    : t("Chargement du parcours d'onboarding");
 
   return (
     <section
@@ -173,7 +183,7 @@ export default function OnboardingApp({
           onClick={handleReset}
           disabled={isResetting || isLoading || !progress}
         >
-          {isResetting ? "Réinitialisation…" : "Relancer le tutoriel"}
+          {isResetting ? t("Réinitialisation…") : t("Relancer le tutoriel")}
         </button>
       </header>
       {error ? (
@@ -183,7 +193,7 @@ export default function OnboardingApp({
       ) : null}
       {isLoading && !progress ? (
         <p className="onboarding__loading" role="status">
-          Chargement du tutoriel…
+          {t("Chargement du tutoriel…")}
         </p>
       ) : null}
       {progress && totalSteps ? (
@@ -200,10 +210,10 @@ export default function OnboardingApp({
                 (progress.currentStepId === step.id ||
                   (!progress.currentStepId && !progress.isComplete && index === completedCount));
               const statusLabel = isCompleted
-                ? "Terminée"
+                ? t("Terminée")
                 : isCurrent
-                ? "Étape en cours"
-                : "À faire";
+                ? t("Étape en cours")
+                : t("À faire");
               return (
                 <li
                   key={step.id}
@@ -218,7 +228,7 @@ export default function OnboardingApp({
                       {step.tooltip ? (
                         <Tooltip label={step.tooltip}>
                           <span aria-hidden="true">?</span>
-                          <span className="sr-only">Aide sur {step.title}</span>
+                          <span className="sr-only">{t("Aide sur {title}", { title: step.title })}</span>
                         </Tooltip>
                       ) : null}
                     </h3>
@@ -237,7 +247,7 @@ export default function OnboardingApp({
                   <p className="onboarding-step__description">{step.description}</p>
                   {step.videoUrl ? (
                     <details className="onboarding-step__video">
-                      <summary>Voir la vidéo d'accompagnement</summary>
+                      <summary>{t("Voir la vidéo d'accompagnement")}</summary>
                       <div className="onboarding-step__video-frame">
                         <iframe
                           src={step.videoUrl}
@@ -256,8 +266,8 @@ export default function OnboardingApp({
                       disabled={isCompleted || pendingStep === step.id || isLoading}
                     >
                       {pendingStep === step.id
-                        ? "Enregistrement…"
-                        : `Marquer "${step.title}" comme terminé`}
+                        ? t("Enregistrement…")
+                        : t('Marquer "{title}" comme terminé', { title: step.title })}
                     </button>
                   </div>
                 </li>
@@ -266,8 +276,13 @@ export default function OnboardingApp({
           </ol>
           <p className="onboarding__footnote text text--muted">
             {progress.updatedAt
-              ? `Dernière mise à jour : ${new Date(progress.updatedAt).toLocaleString("fr-FR")}`
-              : "Suivez les étapes pour débloquer l'ensemble des fonctionnalités."}
+              ? t("Dernière mise à jour : {timestamp}", {
+                  timestamp: new Intl.DateTimeFormat(locale, {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  }).format(new Date(progress.updatedAt)),
+                })
+              : t("Suivez les étapes pour débloquer l'ensemble des fonctionnalités.")}
           </p>
         </>
       ) : null}
