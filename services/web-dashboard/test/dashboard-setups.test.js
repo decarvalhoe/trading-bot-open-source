@@ -137,12 +137,25 @@ test("met à jour les setups lors d'un événement watchlist.update", async () =
     viewer_id: "viewer-1",
   };
 
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValue({
+  const fetchMock = vi.fn((url) => {
+    if (typeof url === "string" && url.includes("/config/tradingview")) {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            api_key: "",
+            library_url: "https://cdn.example.com/charting_library.js",
+            default_symbol: "BINANCE:BTCUSDT",
+            symbol_map: {},
+            overlays: [],
+          }),
+      });
+    }
+    return Promise.resolve({
       ok: true,
       json: () => Promise.resolve({ websocket_url: "wss://stream.example/ws" }),
     });
+  });
   global.fetch = fetchMock;
 
   class FakeWebSocket {
@@ -345,7 +358,7 @@ test("met à jour les portefeuilles en temps réel et restaure le fallback", asy
 
   items = document.querySelectorAll(".portfolio-list__item");
   expect(items.length).toBe(1);
-  expect(items[0].textContent).toContain("Portefeuille Fallback");
+  expect(items[0].textContent).toContain("Compte Alpha");
   expect(document.querySelector(".portfolio-list").getAttribute("data-source")).toBe(
     "fallback"
   );
