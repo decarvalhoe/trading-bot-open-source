@@ -2,6 +2,12 @@
 
 Ce document décrit la mise en place du module de streaming temps réel couvrant les services `streaming_gateway`, `overlay_renderer`, `obs_controller` et `streaming_bus` ainsi que les intégrations OAuth et TradingView.
 
+## Statut et périmètre
+
+- **Statut** : streaming dashboards livrés, automatisation OBS/overlay en bêta.
+- **Prérequis** : configurez les jetons `STREAMING_SERVICE_TOKEN_*` et démarrez la stack (`make demo-up`).
+- **Tutoriels** : suivez les notes dans `docs/tutorials/README.md` pour la démo vidéo.
+
 ## 1. Service `services/streaming`
 
 Le dossier `services/streaming/` expose une API FastAPI dédiée à la diffusion en direct des tableaux de bord et indicateurs métiers.

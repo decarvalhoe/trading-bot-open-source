@@ -16,19 +16,15 @@ services/market_data/
 
 ### External adapters
 
-* **Binance** – `adapters/binance.py` wraps the official
+* **Binance** – Production-ready (GA). `adapters/binance.py` wraps the official
   [`binance-connector`](https://pypi.org/project/binance-connector/) REST and
-  WebSocket clients. The adapter exposes coroutine friendly helpers to fetch
-  OHLCV bars and to stream live trades with automatic rate limiting and
-  reconnection.
-* **Interactive Brokers (IBKR)** – `adapters/ibkr.py` uses the
-  [`ib-async`](https://pypi.org/project/ib-async/) client to request historical
-  data and subscribe to live ticks. The adapter reuses the IBKR throttling
-  configuration and reconnects automatically when the gateway disconnects.
-* **Sierra Chart DTC (stub)** – `adapters/dtc.py` implements a small stub for
-  the Data and Trading Communications protocol. It currently exposes methods to
-  establish a session and push batches of ticks; replace these placeholders when
-  wiring the real binary protocol.
+  WebSocket clients with coroutine helpers, retry/backoff and rate limiting.
+* **Interactive Brokers (IBKR)** – Production-ready (GA). `adapters/ibkr.py`
+  relies on [`ib-async`](https://pypi.org/project/ib-async/) for historical data
+  and live ticks with automatic throttling and reconnects.
+* **Sierra Chart DTC (stub)** – Experimental. `adapters/dtc.py` currently
+  exposes placeholder methods to establish sessions and push batches of ticks;
+  replace them once the binary protocol integration starts.
 
 ### Persistence pipeline
 

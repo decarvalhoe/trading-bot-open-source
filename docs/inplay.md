@@ -2,6 +2,12 @@
 
 Le service `inplay` fournit une API REST et un flux WebSocket permettant à l'interface utilisateur de visualiser en temps réel les setups détectés sur les symboles surveillés.
 
+## Statut & activation
+
+- **Statut** : fonctionnalité livrée et utilisée par le dashboard web.
+- **Prérequis** : fournir un jeton `INPLAY_SERVICE_TOKEN` partagé avec le dashboard et lancer la stack streaming (`make demo-up`).
+- **Intégrations** : les setups alimentent les cartes temps réel du dashboard (`/dashboard`) et les flux notifications.
+
 ## Points d'accès
 
 ### WebSocket
