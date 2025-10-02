@@ -8,6 +8,7 @@ import { AIStrategyAssistant } from "./strategies/assistant/index.js";
 import { StrategyDesigner, STRATEGY_PRESETS } from "./strategies/designer/index.js";
 import { StrategyBacktestConsole } from "./strategies/backtest/index.js";
 import MarketplaceApp from "./marketplace/MarketplaceApp.jsx";
+import OnboardingApp from "./onboarding/OnboardingApp.jsx";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -249,3 +250,19 @@ if (backtestRoot) {
 }
 
 export default PortfolioChartApp;
+const onboardingContainer = document.getElementById("onboarding-root");
+if (onboardingContainer) {
+  const dataset = onboardingContainer.dataset || {};
+  const root = createRoot(onboardingContainer);
+  root.render(
+    <StrictMode>
+      <OnboardingApp
+        progressEndpoint={dataset.progressEndpoint || ""}
+        stepTemplate={dataset.stepTemplate || ""}
+        resetEndpoint={dataset.resetEndpoint || ""}
+        userId={dataset.userId || ""}
+      />
+    </StrictMode>
+  );
+}
+

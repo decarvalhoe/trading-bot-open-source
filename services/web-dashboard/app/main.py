@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional
@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import httpx
+from jose import jwt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -84,9 +85,83 @@ AI_ASSISTANT_BASE_URL = os.getenv(
 )
 AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10.0"))
 DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
+codex/create-onboarding-module-in-react
+USER_SERVICE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_USER_SERVICE_URL",
+    os.getenv("USER_SERVICE_URL", "http://user-service:8000/"),
+)
+USER_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_USER_SERVICE_TIMEOUT", "5.0"))
+USER_SERVICE_JWT_SECRET = os.getenv(
+    "USER_SERVICE_JWT_SECRET",
+    os.getenv("JWT_SECRET", "dev-secret-change-me"),
+)
+USER_SERVICE_JWT_ALG = "HS256"
+DEFAULT_DASHBOARD_USER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_USER_ID", "1")
+ 
 HELP_DEFAULT_USER_ID = os.getenv("WEB_DASHBOARD_HELP_DEFAULT_USER_ID", "demo-user")
+main
 
 security = HTTPBearer(auto_error=False)
+
+
+def _default_user_id() -> int:
+    try:
+        return int(DEFAULT_DASHBOARD_USER_ID)
+    except (TypeError, ValueError):  # pragma: no cover - invalid env configuration
+        return 1
+
+
+def _coerce_dashboard_user_id(value: Optional[str]) -> int:
+    if value:
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    return _default_user_id()
+
+
+def _extract_dashboard_user_id(request: Request) -> int:
+    header = request.headers.get("x-user-id")
+    query_value = request.query_params.get("user_id")
+    return _coerce_dashboard_user_id(header or query_value)
+
+
+def _build_user_service_token(user_id: int) -> str:
+    now = int(datetime.now(timezone.utc).timestamp())
+    return jwt.encode(
+        {"sub": str(user_id), "iat": now},
+        USER_SERVICE_JWT_SECRET,
+        algorithm=USER_SERVICE_JWT_ALG,
+    )
+
+
+async def _forward_onboarding_request(method: str, path: str, user_id: int) -> dict[str, object]:
+    base_url = USER_SERVICE_BASE_URL.rstrip("/") + "/"
+    target_url = urljoin(base_url, path)
+    headers = {
+        "Authorization": f"Bearer {_build_user_service_token(user_id)}",
+        "x-customer-id": str(user_id),
+        "x-user-id": str(user_id),
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=USER_SERVICE_TIMEOUT) as client:
+            response = await client.request(method.upper(), target_url, headers=headers)
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        detail = "Service utilisateur indisponible pour l'onboarding."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from error
+
+    if response.status_code >= 400:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"detail": response.text or "Erreur lors de la synchronisation de l'onboarding."}
+        raise HTTPException(status_code=response.status_code, detail=payload)
+
+    try:
+        return response.json()
+    except ValueError:
+        return {}
 
 
 ALERT_EVENTS_DATABASE_URL = os.getenv(
@@ -842,6 +917,31 @@ async def import_assistant_strategy(payload: StrategyAssistantImportRequest) -> 
         return {"status": "imported"}
 
 
+@app.get("/api/onboarding/progress", name="api_get_onboarding_progress")
+async def api_get_onboarding_progress(request: Request) -> dict[str, object]:
+    """Expose onboarding status proxied from user-service."""
+
+    user_id = _extract_dashboard_user_id(request)
+    return await _forward_onboarding_request("GET", "users/me/onboarding", user_id)
+
+
+@app.post("/api/onboarding/steps/{step_id}", name="api_complete_onboarding_step")
+async def api_complete_onboarding_step(step_id: str, request: Request) -> dict[str, object]:
+    """Mark an onboarding step as complete on behalf of the authenticated viewer."""
+
+    user_id = _extract_dashboard_user_id(request)
+    path = f"users/me/onboarding/steps/{step_id}"
+    return await _forward_onboarding_request("POST", path, user_id)
+
+
+@app.post("/api/onboarding/reset", name="api_reset_onboarding_progress")
+async def api_reset_onboarding_progress(request: Request) -> dict[str, object]:
+    """Reset onboarding progress for the current viewer."""
+
+    user_id = _extract_dashboard_user_id(request)
+    return await _forward_onboarding_request("POST", "users/me/onboarding/reset", user_id)
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def render_dashboard(request: Request) -> HTMLResponse:
     """Render an HTML dashboard that surfaces key trading signals."""
@@ -849,6 +949,15 @@ def render_dashboard(request: Request) -> HTMLResponse:
     context = load_dashboard_context()
     handshake_url = urljoin(STREAMING_BASE_URL, f"rooms/{STREAMING_ROOM_ID}/connection")
     alerts_token = os.getenv("WEB_DASHBOARD_ALERTS_TOKEN", "")
+    user_id = _extract_dashboard_user_id(request)
+    onboarding_api = {
+        "progress_endpoint": request.url_for("api_get_onboarding_progress"),
+        "step_template": request.url_for(
+            "api_complete_onboarding_step", step_id="__STEP__"
+        ),
+        "reset_endpoint": request.url_for("api_reset_onboarding_progress"),
+        "user_id": str(user_id),
+    }
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -866,6 +975,7 @@ def render_dashboard(request: Request) -> HTMLResponse:
             },
             "active_page": "dashboard",
             "annotation_status": request.query_params.get("annotation"),
+            "onboarding_api": onboarding_api,
         },
     )
 
