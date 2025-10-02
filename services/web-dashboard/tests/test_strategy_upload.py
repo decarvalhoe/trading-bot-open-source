@@ -47,3 +47,36 @@ def test_render_strategies_includes_presets():
     assert "data-presets=" in html
     assert "Importer un fichier" in html
     assert "Modèles disponibles" in html
+
+
+@respx.mock
+def test_clone_strategy_action_prefills_designer(monkeypatch):
+    main_module = _load_main_module()
+    monkeypatch.setattr(main_module, "ALGO_ENGINE_BASE_URL", "http://algo.local/")
+
+    clone_route = respx.post("http://algo.local/strategies/original-1/clone").mock(
+        return_value=Response(
+            201,
+            json={
+                "id": "clone-1",
+                "name": "Stratégie clonée",
+                "strategy_type": "declarative",
+                "parameters": {"threshold": 2},
+                "metadata": {"strategy_id": "clone-1", "derived_from": "original-1"},
+                "source_format": "yaml",
+                "source": "name: Stratégie clonée\nparameters:\n  threshold: 2\n",
+                "derived_from": "original-1",
+                "derived_from_name": "Stratégie source",
+            },
+        )
+    )
+
+    client = TestClient(load_dashboard_app())
+    response = client.post("/strategies/clone", data={"strategy_id": "original-1"})
+
+    assert response.status_code == 200
+    assert clone_route.called
+    html = response.text
+    assert "Clone de Stratégie source prêt à être édité." in html
+    assert "data-initial-strategy=" in html
+    assert '\"derived_from\":\"original-1\"' in html

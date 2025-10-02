@@ -727,10 +727,9 @@ def render_dashboard(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/strategies", response_class=HTMLResponse)
-def render_strategies(request: Request) -> HTMLResponse:
-    """Render the visual strategy designer page."""
-
+def _render_strategies_page(
+    request: Request, *, initial_strategy: dict[str, Any] | None = None
+) -> HTMLResponse:
     save_endpoint = request.url_for("save_strategy")
     ai_generate_endpoint = request.url_for("generate_strategy")
     ai_import_endpoint = request.url_for("import_assistant_strategy")
@@ -758,9 +757,60 @@ def render_strategies(request: Request) -> HTMLResponse:
             "preset_summaries": STRATEGY_PRESET_SUMMARIES,
             "presets": STRATEGY_PRESETS,
             "backtest_config": backtest_config,
+            "initial_strategy": initial_strategy,
             "active_page": "strategies",
         },
     )
+
+
+@app.get("/strategies", response_class=HTMLResponse)
+def render_strategies(request: Request) -> HTMLResponse:
+    """Render the visual strategy designer page."""
+
+    return _render_strategies_page(request)
+
+
+@app.post("/strategies/clone", response_class=HTMLResponse, name="clone_strategy_action")
+async def clone_strategy_action(request: Request, strategy_id: str = Form(...)) -> HTMLResponse:
+    """Clone an existing strategy and prefill the designer with the result."""
+
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, f"strategies/{strategy_id}/clone")
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.post(target_url, headers={"Accept": "application/json"})
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Impossible de cloner la stratégie pour le moment."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        detail = _safe_json(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    payload = _safe_json(response)
+    if not isinstance(payload, dict):
+        message = "Réponse invalide du moteur de stratégies."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message)
+
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+    initial_strategy = {
+        "id": payload.get("id"),
+        "name": payload.get("name"),
+        "strategy_type": payload.get("strategy_type"),
+        "parameters": parameters,
+        "metadata": metadata,
+        "source_format": payload.get("source_format"),
+        "source": payload.get("source"),
+        "derived_from": payload.get("derived_from"),
+        "derived_from_name": payload.get("derived_from_name"),
+    }
+
+    parent_label = initial_strategy.get("derived_from_name") or initial_strategy.get("derived_from")
+    if parent_label:
+        initial_strategy["status_message"] = f"Clone de {parent_label} prêt à être édité."
+        initial_strategy["status_type"] = "success"
+
+    return _render_strategies_page(request, initial_strategy=initial_strategy)
 
 
 @app.get("/account", response_class=HTMLResponse)

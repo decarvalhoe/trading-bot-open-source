@@ -329,9 +329,13 @@
                 <th scope="col">Dernière exécution</th>
                 <th scope="col">Détails</th>
                 <th scope="col">Erreur récente</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
-            <tbody class="strategy-table__body">
+            <tbody
+              class="strategy-table__body"
+              data-clone-endpoint="{{ request.url_for('clone_strategy_action') }}"
+            >
               {% if context.strategies %}
               {% for strategy in context.strategies %}
               <tr>
@@ -340,6 +344,11 @@
                     <span class="heading heading--md">{{ strategy.name }}</span>
                     {% if strategy.strategy_type %}
                     <span class="badge badge--neutral">{{ strategy.strategy_type }}</span>
+                    {% endif %}
+                    {% if strategy.derived_from_name or strategy.derived_from %}
+                    <p class="text text--muted strategy-name__parent">
+                      Clone de {{ strategy.derived_from_name or strategy.derived_from }}
+                    </p>
                     {% endif %}
                   </div>
                 </td>
@@ -387,11 +396,23 @@
                   <span class="text text--muted">—</span>
                   {% endif %}
                 </td>
+                <td data-label="Actions">
+                  <form
+                    method="post"
+                    action="{{ request.url_for('clone_strategy_action') }}"
+                    class="strategy-actions__form"
+                  >
+                    <input type="hidden" name="strategy_id" value="{{ strategy.id }}" />
+                    <button type="submit" class="button button--ghost button--small">
+                      Cloner
+                    </button>
+                  </form>
+                </td>
               </tr>
               {% endfor %}
               {% else %}
               <tr>
-                <td colspan="5">
+                <td colspan="6">
                   <p class="text text--muted">Aucune stratégie enregistrée pour le moment.</p>
                 </td>
               </tr>

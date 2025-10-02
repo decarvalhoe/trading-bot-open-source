@@ -234,6 +234,14 @@ class StrategyStatus(BaseModel):
         default_factory=dict,
         description="Additional metadata propagated from the orchestrator store",
     )
+    derived_from: str | None = Field(
+        default=None,
+        description="Identifier of the strategy this entry was cloned from when applicable",
+    )
+    derived_from_name: str | None = Field(
+        default=None,
+        description="Human readable name of the parent strategy when available",
+    )
 
 
 class LiveLogEntry(BaseModel):

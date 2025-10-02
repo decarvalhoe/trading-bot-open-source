@@ -78,6 +78,15 @@
     },
   };
 
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function getDatasetSource(dataset) {
     if (!state.current.data_sources || typeof state.current.data_sources !== "object") {
       return "unknown";
@@ -937,10 +946,11 @@
     const strategies = Array.isArray(state.current.strategies)
       ? state.current.strategies
       : [];
+    const cloneEndpoint = container.dataset ? container.dataset.cloneEndpoint || "" : "";
     if (!strategies.length) {
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td colspan="5">
+        <td colspan="6">
           <p class="text text--muted">Aucune stratégie enregistrée pour le moment.</p>
         </td>
       `;
@@ -981,14 +991,43 @@
       const executionStatus = lastExecution && (lastExecution.status || lastExecution.execution_status);
       const executionSymbol = lastExecution && (lastExecution.symbol || lastExecution.instrument);
       const executionOrderId = lastExecution && (lastExecution.order_id || lastExecution.orderId);
+      const strategyId = String(strategy.id || "");
+      const strategyName = strategy.name || strategyId || "Stratégie";
+      const strategyType = strategy.strategy_type || strategy.strategyType || "";
+      const derivedFrom = strategy.derived_from || strategy.derivedFrom || null;
+      const derivedFromName = strategy.derived_from_name || strategy.derivedFromName || null;
+      const lineageLabel = derivedFromName || derivedFrom || "";
+      const lineageMarkup = lineageLabel
+        ? `<p class="text text--muted strategy-name__parent">Clone de ${escapeHtml(lineageLabel)}</p>`
+        : "";
+      const typeBadge = strategyType
+        ? `<span class="badge badge--neutral">${escapeHtml(strategyType)}</span>`
+        : "";
+      const executionStatusLabel = executionStatus ? escapeHtml(executionStatus) : "";
+      const executionSymbolLabel = executionSymbol ? escapeHtml(executionSymbol) : "";
+      const executionOrderLabel = executionOrderId ? escapeHtml(executionOrderId) : "";
+      const lastError = strategy.last_error || strategy.lastError;
+      const lastErrorMarkup = lastError
+        ? `<p class="text text--critical">${escapeHtml(lastError)}</p>`
+        : '<span class="text text--muted">—</span>';
+      const detailsMarkup = lastExecution
+        ? `<p class="text text--muted">${executionStatusLabel}${
+            executionSymbolLabel ? ` · ${executionSymbolLabel}` : ""
+          }${executionOrderLabel ? ` · Ordre ${executionOrderLabel}` : ""}</p>`
+        : '<span class="text text--muted">En attente d\'exécution</span>';
+      const actionsMarkup = cloneEndpoint
+        ? `<form method="post" action="${cloneEndpoint}" class="strategy-actions__form">` +
+          `<input type="hidden" name="strategy_id" value="${escapeHtml(strategyId)}" />` +
+          '<button type="submit" class="button button--ghost button--small">Cloner</button>' +
+          "</form>"
+        : '<span class="text text--muted">—</span>';
 
       row.innerHTML = `
         <td data-label="Nom">
           <div class="strategy-name">
-            <span class="heading heading--md">${strategy.name || "Stratégie"}</span>
-            ${strategy.strategy_type || strategy.strategyType ? `<span class="badge badge--neutral">${
-              strategy.strategy_type || strategy.strategyType
-            }</span>` : ""}
+            <span class="heading heading--md">${escapeHtml(strategyName)}</span>
+            ${typeBadge}
+            ${lineageMarkup}
           </div>
         </td>
         <td data-label="Statut">
@@ -998,18 +1037,13 @@
           ${submittedText ? submittedText : '<span class="text text--muted">Aucune</span>'}
         </td>
         <td data-label="Détails">
-          ${lastExecution
-            ? `<p class="text text--muted">
-                ${executionStatus ? executionStatus : ""}
-                ${executionSymbol ? ` · ${executionSymbol}` : ""}
-                ${executionOrderId ? ` · Ordre ${executionOrderId}` : ""}
-              </p>`
-            : '<span class="text text--muted">En attente d\'exécution</span>'}
+          ${detailsMarkup}
         </td>
         <td data-label="Erreur récente">
-          ${strategy.last_error || strategy.lastError
-            ? `<p class="text text--critical">${strategy.last_error || strategy.lastError}</p>`
-            : '<span class="text text--muted">—</span>'}
+          ${lastErrorMarkup}
+        </td>
+        <td data-label="Actions">
+          ${actionsMarkup}
         </td>
       `;
 

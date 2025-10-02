@@ -162,6 +162,17 @@ if (strategyDesignerRoot) {
       console.error("Impossible de parser les modèles de stratégies", error);
     }
   }
+  let initialStrategy = null;
+  if (dataset.initialStrategy) {
+    try {
+      const parsed = JSON.parse(dataset.initialStrategy);
+      if (parsed && typeof parsed === "object") {
+        initialStrategy = parsed;
+      }
+    } catch (error) {
+      console.error("Impossible de parser la stratégie initiale", error);
+    }
+  }
   const root = createRoot(strategyDesignerRoot);
   root.render(
     <StrictMode>
@@ -170,6 +181,7 @@ if (strategyDesignerRoot) {
         defaultName={defaultName}
         defaultFormat={initialFormat}
         presets={presetCatalog}
+        initialStrategy={initialStrategy}
       />
     </StrictMode>
   );

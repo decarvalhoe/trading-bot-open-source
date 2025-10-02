@@ -84,6 +84,36 @@ else:
 strategy_repository = StrategyRepository(SessionLocal)
 
 
+def _attach_lineage_metadata(records: List[Dict[str, Any]]) -> None:
+    """Populate parent names for cloned strategies when available."""
+
+    id_to_name: Dict[str, str] = {}
+    for record in records:
+        identifier = record.get("id")
+        name = record.get("name")
+        if isinstance(identifier, str) and identifier:
+            id_to_name.setdefault(identifier, str(name) if name is not None else identifier)
+
+    for record in records:
+        parent_id = record.get("derived_from")
+        if not isinstance(parent_id, str) or not parent_id:
+            continue
+        parent_name = record.get("derived_from_name")
+        if not parent_name:
+            parent_name = id_to_name.get(parent_id)
+        if not parent_name:
+            try:
+                parent_record = strategy_repository.get(parent_id)
+            except KeyError:
+                parent_name = None
+            else:
+                parent_name = parent_record.name
+                if isinstance(parent_record.id, str) and parent_record.id:
+                    id_to_name.setdefault(parent_record.id, parent_record.name)
+        if parent_name:
+            record["derived_from_name"] = parent_name
+
+
 def _handle_strategy_execution_error(strategy: base.StrategyBase, error: Exception) -> None:
     logger.error(
         "Strategy %s routing failure, transitioning to ERROR: %s",
@@ -240,8 +270,10 @@ def health() -> Dict[str, str]:
 def list_strategies(request: Request) -> Dict[str, Any]:
     entitlements = getattr(request.state, "entitlements", None)
     limit = entitlements.quota("max_active_strategies") if entitlements else None
+    items = [record.as_dict() for record in strategy_repository.list()]
+    _attach_lineage_metadata(items)
     return {
-        "items": [record.as_dict() for record in strategy_repository.list()],
+        "items": items,
         "available": registry.available_strategies(),
         "active_limit": limit,
         "orchestrator_state": orchestrator.get_state().as_dict(),
@@ -292,7 +324,47 @@ def get_strategy(strategy_id: str) -> Dict[str, Any]:
         record = strategy_repository.get(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
-    return record.as_dict()
+    payload = record.as_dict()
+    _attach_lineage_metadata([payload])
+    return payload
+
+
+@app.post("/strategies/{strategy_id}/clone", status_code=status.HTTP_201_CREATED)
+def clone_strategy(strategy_id: str, request: Request) -> Dict[str, Any]:
+    try:
+        original = strategy_repository.get(strategy_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found") from exc
+
+    _enforce_entitlements(request, original.enabled)
+
+    clone_id = str(uuid.uuid4())
+    metadata = dict(original.metadata or {})
+    metadata.pop("strategy_id", None)
+    metadata["derived_from"] = original.id
+    if original.name:
+        metadata.setdefault("derived_from_name", original.name)
+
+    record = StrategyRecord(
+        id=clone_id,
+        name=original.name,
+        strategy_type=original.strategy_type,
+        parameters=dict(original.parameters or {}),
+        enabled=original.enabled,
+        tags=list(original.tags or []),
+        metadata=metadata,
+        source_format=original.source_format,
+        source=original.source,
+        derived_from=original.id,
+        status=StrategyStatus.PENDING,
+        last_error=None,
+        version=1,
+    )
+
+    stored = strategy_repository.create(record)
+    payload = stored.as_dict()
+    _attach_lineage_metadata([payload])
+    return payload
 
 
 @app.post("/strategies/import", status_code=status.HTTP_201_CREATED)

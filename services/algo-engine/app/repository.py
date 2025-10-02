@@ -37,6 +37,7 @@ class StrategyRecord:
     metadata: Dict[str, Any] = field(default_factory=dict)
     source_format: str | None = None
     source: str | None = None
+    derived_from: str | None = None
     last_backtest: Dict[str, Any] | None = None
     status: StrategyStatus = StrategyStatus.PENDING
     last_error: str | None = None
@@ -111,6 +112,7 @@ class StrategyRepository:
             metadata=metadata,
             source_format=model.source_format,
             source=model.source,
+            derived_from=model.derived_from,
             last_backtest=last_backtest,
             status=status,
             last_error=model.last_error,
@@ -158,6 +160,7 @@ class StrategyRepository:
                 metadata_=metadata,
                 source_format=record.source_format,
                 source=record.source,
+                derived_from=record.derived_from,
                 status=record.status.value,
                 last_error=record.last_error,
                 last_backtest=record.last_backtest,
@@ -175,6 +178,7 @@ class StrategyRepository:
                     tags=model.tags,
                     source_format=model.source_format,
                     source=model.source,
+                    derived_from=model.derived_from,
                 )
             )
             session.commit()
@@ -226,6 +230,8 @@ class StrategyRepository:
                 model.source_format = updates["source_format"]
             if "source" in updates:
                 model.source = updates["source"]
+            if "derived_from" in updates:
+                model.derived_from = updates["derived_from"]
             if "enabled" in updates and updates["enabled"] is not None:
                 model.enabled = bool(updates["enabled"])
             if "last_backtest" in updates:
@@ -258,6 +264,7 @@ class StrategyRepository:
                         tags=model.tags,
                         source_format=model.source_format,
                         source=model.source,
+                        derived_from=model.derived_from,
                     )
                 )
 
@@ -279,6 +286,7 @@ class StrategyRepository:
             "source_format",
             "source",
             "enabled",
+            "derived_from",
         )
         return any(key in updates for key in tracked)
 
