@@ -819,6 +819,19 @@ def render_dashboard(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/marketplace", response_class=HTMLResponse, name="render_marketplace")
+def render_marketplace(request: Request) -> HTMLResponse:
+    """Render the marketplace view that embeds the React catalogue."""
+
+    return templates.TemplateResponse(
+        "marketplace.html",
+        {
+            "request": request,
+            "active_page": "marketplace",
+        },
+    )
+
+
 def _render_strategies_page(
     request: Request, *, initial_strategy: dict[str, Any] | None = None
 ) -> HTMLResponse:

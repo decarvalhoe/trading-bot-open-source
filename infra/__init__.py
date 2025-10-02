@@ -12,6 +12,7 @@ from .entitlements_models import (
 from .marketplace_models import (
     Base as MarketplaceBase,
     Listing,
+    ListingReview,
     ListingVersion,
     MarketplaceSubscription,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "Subscription",
     "MarketplaceBase",
     "Listing",
+    "ListingReview",
     "ListingVersion",
     "MarketplaceSubscription",
     "ScreenerBase",

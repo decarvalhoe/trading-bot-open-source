@@ -1,16 +1,38 @@
 """Domain logic for the marketplace API."""
 from __future__ import annotations
 
-from typing import Optional
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from infra import Listing, ListingVersion, MarketplaceSubscription
+from infra import Listing, ListingReview, ListingVersion, MarketplaceSubscription
 from libs.audit import record_audit
 
-from .schemas import CopyRequest, ListingCreate, ListingVersionRequest
+from .schemas import CopyRequest, ListingCreate, ListingReviewCreate, ListingVersionRequest
+
+
+class ListingSortOption(str, Enum):
+    NEWEST = "created_desc"
+    PRICE_ASC = "price_asc"
+    PRICE_DESC = "price_desc"
+    PERFORMANCE_ASC = "performance_asc"
+    PERFORMANCE_DESC = "performance_desc"
+    RISK_ASC = "risk_asc"
+    RISK_DESC = "risk_desc"
+    RATING_DESC = "rating_desc"
+
+
+@dataclass(slots=True)
+class ListingFilters:
+    min_performance: Optional[float] = None
+    max_risk: Optional[float] = None
+    max_price: Optional[int] = None
+    search: Optional[str] = None
+    sort: ListingSortOption = ListingSortOption.NEWEST
 
 
 def create_listing(db: Session, *, owner_id: str, payload: ListingCreate) -> Listing:
@@ -21,6 +43,8 @@ def create_listing(db: Session, *, owner_id: str, payload: ListingCreate) -> Lis
         price_cents=payload.price_cents,
         currency=payload.currency.upper(),
         connect_account_id=payload.connect_account_id,
+        performance_score=payload.performance_score,
+        risk_score=payload.risk_score,
     )
     db.add(listing)
     db.flush()
@@ -78,20 +102,98 @@ def add_version(db: Session, *, listing: Listing, payload: ListingVersionRequest
     return version
 
 
-def list_listings(db: Session) -> list[Listing]:
-    stmt = select(Listing).options(selectinload(Listing.versions)).order_by(Listing.created_at.desc())
-    return db.scalars(stmt).all()
+def _with_review_stats(stmt: Select) -> tuple[Select, Any]:
+    review_stats = (
+        select(
+            ListingReview.listing_id.label("listing_id"),
+            func.count(ListingReview.id).label("reviews_count"),
+            func.avg(ListingReview.rating).label("average_rating"),
+        )
+        .group_by(ListingReview.listing_id)
+        .subquery()
+    )
+    stmt = (
+        stmt.outerjoin(review_stats, review_stats.c.listing_id == Listing.id)
+        .add_columns(review_stats.c.reviews_count, review_stats.c.average_rating)
+    )
+    return stmt, review_stats
+
+
+def _attach_review_stats(rows: list[tuple[Listing, Optional[int], Optional[float]]]) -> list[Listing]:
+    listings: list[Listing] = []
+    for listing, reviews_count, average_rating in rows:
+        setattr(listing, "reviews_count", int(reviews_count or 0))
+        setattr(listing, "average_rating", float(average_rating) if average_rating is not None else None)
+        listings.append(listing)
+    return listings
+
+
+def list_listings(db: Session, filters: Optional[ListingFilters] = None) -> list[Listing]:
+    filters = filters or ListingFilters()
+    stmt: Select = select(Listing).options(selectinload(Listing.versions))
+    stmt, review_stats = _with_review_stats(stmt)
+
+    if filters.min_performance is not None:
+        stmt = stmt.where(Listing.performance_score >= filters.min_performance)
+    if filters.max_risk is not None:
+        stmt = stmt.where(Listing.risk_score <= filters.max_risk)
+    if filters.max_price is not None:
+        stmt = stmt.where(Listing.price_cents <= filters.max_price)
+    if filters.search:
+        search_term = filters.search.strip().lower()
+        if search_term:
+            like_expr = f"%{search_term}%"
+            stmt = stmt.where(func.lower(Listing.strategy_name).like(like_expr))
+
+    sort_value = filters.sort
+    if sort_value == ListingSortOption.PRICE_ASC:
+        stmt = stmt.order_by(Listing.price_cents.asc(), Listing.created_at.desc())
+    elif sort_value == ListingSortOption.PRICE_DESC:
+        stmt = stmt.order_by(Listing.price_cents.desc(), Listing.created_at.desc())
+    elif sort_value == ListingSortOption.PERFORMANCE_ASC:
+        stmt = stmt.order_by(
+            func.coalesce(Listing.performance_score, 1e9).asc(),
+            Listing.created_at.desc(),
+        )
+    elif sort_value == ListingSortOption.PERFORMANCE_DESC:
+        stmt = stmt.order_by(
+            func.coalesce(Listing.performance_score, -1).desc(),
+            Listing.created_at.desc(),
+        )
+    elif sort_value == ListingSortOption.RISK_ASC:
+        stmt = stmt.order_by(
+            func.coalesce(Listing.risk_score, 1e9).asc(),
+            Listing.created_at.desc(),
+        )
+    elif sort_value == ListingSortOption.RISK_DESC:
+        stmt = stmt.order_by(
+            func.coalesce(Listing.risk_score, -1).desc(),
+            Listing.created_at.desc(),
+        )
+    elif sort_value == ListingSortOption.RATING_DESC:
+        stmt = stmt.order_by(
+            func.coalesce(review_stats.c.average_rating, 0).desc(),
+            Listing.created_at.desc(),
+        )
+    else:
+        stmt = stmt.order_by(Listing.created_at.desc())
+
+    result = db.execute(stmt).all()
+    return _attach_review_stats(result)
 
 
 def get_listing(db: Session, listing_id: int) -> Listing:
-    listing = db.scalar(
+    stmt: Select = (
         select(Listing)
         .where(Listing.id == listing_id)
         .options(selectinload(Listing.versions))
     )
-    if not listing:
+    stmt, _ = _with_review_stats(stmt)
+    row = db.execute(stmt).first()
+    if not row:
         raise HTTPException(status_code=404, detail="Listing not found")
-    return listing
+    listing, reviews_count, average_rating = row
+    return _attach_review_stats([(listing, reviews_count, average_rating)])[0]
 
 
 def create_subscription(
@@ -146,3 +248,52 @@ def create_subscription(
     db.commit()
     db.refresh(subscription)
     return subscription
+
+
+def list_reviews(db: Session, listing_id: int) -> list[ListingReview]:
+    stmt = (
+        select(ListingReview)
+        .where(ListingReview.listing_id == listing_id)
+        .order_by(ListingReview.created_at.desc())
+    )
+    return db.scalars(stmt).all()
+
+
+def create_or_update_review(
+    db: Session,
+    *,
+    listing: Listing,
+    reviewer_id: str,
+    payload: ListingReviewCreate,
+) -> ListingReview:
+    review = db.scalar(
+        select(ListingReview).where(
+            ListingReview.listing_id == listing.id,
+            ListingReview.reviewer_id == reviewer_id,
+        )
+    )
+    created = False
+    if review:
+        review.rating = payload.rating
+        review.comment = payload.comment
+    else:
+        review = ListingReview(
+            listing=listing,
+            reviewer_id=reviewer_id,
+            rating=payload.rating,
+            comment=payload.comment,
+        )
+        db.add(review)
+        created = True
+
+    record_audit(
+        db,
+        service="marketplace",
+        action="listing.reviewed" if created else "listing.review.updated",
+        actor_id=reviewer_id,
+        subject_id=str(listing.id),
+        details={"rating": payload.rating},
+    )
+    db.commit()
+    db.refresh(review)
+    return review
