@@ -14,6 +14,9 @@ from schemas.market import (
     Quote,
 )
 
+from .binance import normalize_symbol as normalize_binance_symbol
+from .ibkr import normalize_symbol as normalize_ibkr_symbol
+
 
 @dataclass(frozen=True)
 class PairLimit:
@@ -91,10 +94,19 @@ def universe() -> Dict[ExecutionVenue, Dict[str, PairLimit]]:
     return _SANDBOX_LIMITS
 
 
+def _normalise_symbol(venue: ExecutionVenue, symbol: str) -> str:
+    if venue is ExecutionVenue.BINANCE_SPOT:
+        return normalize_binance_symbol(symbol)
+    if venue is ExecutionVenue.IBKR_PAPER:
+        return normalize_ibkr_symbol(symbol)
+    return symbol.upper()
+
+
 def get_pair_limit(venue: ExecutionVenue, symbol: str) -> PairLimit | None:
     """Retrieve the configured limits for a symbol."""
 
-    return _SANDBOX_LIMITS.get(venue, {}).get(symbol.upper())
+    normalised = _normalise_symbol(venue, symbol)
+    return _SANDBOX_LIMITS.get(venue, {}).get(normalised)
 
 
 def iter_supported_pairs() -> Iterable[PairLimit]:

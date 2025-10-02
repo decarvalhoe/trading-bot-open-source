@@ -104,7 +104,17 @@ def test_order_persistence_and_filters(client, db_session):
     end_payload = end_filtered.json()
     for item in end_payload["items"]:
         submitted = item.get("submitted_at") or item["created_at"]
-        assert _parse_timestamp(submitted) <= end_time
+    assert _parse_timestamp(submitted) <= end_time
+
+
+@pytest.mark.usefixtures("clean_database")
+def test_symbol_normalization(client, db_session):
+    report = _submit_order(client, symbol="btc/usdt", account_id="acct-norm")
+    assert report["symbol"] == "BTCUSDT"
+
+    db_session.expire_all()
+    stored = db_session.query(OrderModel).filter(OrderModel.account_id == "acct-norm").one()
+    assert stored.symbol == "BTCUSDT"
 
 
 @pytest.mark.usefixtures("clean_database")
