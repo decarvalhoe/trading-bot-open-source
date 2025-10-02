@@ -118,16 +118,8 @@ class ReportCalculator:
 
         probability = _weighted(first.probability, second.probability)
         expectancy = _weighted(first.expectancy, second.expectancy)
-
-        if first.sample_size > 0:
-            target = first.target
-            stop = first.stop
-        elif second.sample_size > 0:
-            target = second.target
-            stop = second.stop
-        else:
-            target = 0.0
-            stop = 0.0
+        target = _weighted(first.target, second.target)
+        stop = _weighted(first.stop, second.stop)
 
         return StrategyMetrics(
             strategy=first.strategy,
