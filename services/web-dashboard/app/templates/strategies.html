@@ -59,6 +59,28 @@
           </div>
         </div>
       </section>
+
+      <section class="card card--assistant" aria-labelledby="assistant-card-title">
+        <div class="card__header">
+          <h2 id="assistant-card-title" class="heading heading--lg">Assistant IA</h2>
+          <p class="text text--muted">
+            Décrivez votre idée en langage naturel pour obtenir un brouillon de stratégie prêt à être importé.
+          </p>
+        </div>
+        <div class="card__body">
+          <div
+            id="ai-strategy-assistant-root"
+            data-generate-endpoint="{{ ai_generate_endpoint }}"
+            data-import-endpoint="{{ ai_import_endpoint }}"
+          >
+            <noscript>
+              <p class="text text--muted">
+                Activez JavaScript pour utiliser l'assistant IA.
+              </p>
+            </noscript>
+          </div>
+        </div>
+      </section>
     </main>
     <footer class="layout__footer">
       <p class="text text--muted">Conçu pour rester compatible avec /strategies/import de l'algo-engine.</p>

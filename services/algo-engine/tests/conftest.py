@@ -9,6 +9,10 @@ from typing import Any, Callable
 import httpx
 import pytest
 
+ASSISTANT_SRC = Path(__file__).resolve().parents[2] / "ai-strategy-assistant" / "src"
+if ASSISTANT_SRC.exists():
+    sys.path.insert(0, str(ASSISTANT_SRC))
+
 os.environ.setdefault("ENTITLEMENTS_BYPASS", "1")
 
 prometheus_stub = types.ModuleType("prometheus_client")

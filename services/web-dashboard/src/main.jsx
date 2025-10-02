@@ -4,6 +4,7 @@ import PortfolioChart from "./components/PortfolioChart.jsx";
 import AlertManager from "./alerts/AlertManager.jsx";
 import AlertHistory from "./alerts/AlertHistory.jsx";
 import ReportsList from "./reports/ReportsList.jsx";
+import { AIStrategyAssistant } from "./strategies/assistant/index.js";
 import { StrategyDesigner } from "./strategies/designer/index.js";
 
 function loadBootstrapData() {
@@ -156,6 +157,22 @@ if (strategyDesignerRoot) {
         saveEndpoint={saveEndpoint}
         defaultName={defaultName}
         defaultFormat={initialFormat}
+      />
+    </StrictMode>
+  );
+}
+
+const assistantRoot = document.getElementById("ai-strategy-assistant-root");
+if (assistantRoot) {
+  const dataset = assistantRoot.dataset || {};
+  const generateEndpoint = dataset.generateEndpoint || "/strategies/generate";
+  const importEndpoint = dataset.importEndpoint || "/strategies/import";
+  const root = createRoot(assistantRoot);
+  root.render(
+    <StrictMode>
+      <AIStrategyAssistant
+        generateEndpoint={generateEndpoint}
+        importEndpoint={importEndpoint}
       />
     </StrictMode>
   );
