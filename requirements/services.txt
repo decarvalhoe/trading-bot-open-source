@@ -1,0 +1,23 @@
+# Consolidated runtime dependencies for all Python services.
+# Each entry references the service-specific requirements file to ensure
+# GitHub workflows and local automation install a consistent set of
+# third-party packages before running tests.
+-r ../services/alert_engine/requirements.txt
+-r ../services/algo-engine/requirements.txt
+-r ../services/ai-strategy-assistant/requirements.txt
+-r ../services/auth-service/requirements.txt
+-r ../services/billing-service/requirements.txt
+-r ../services/codex_gateway/requirements.txt
+-r ../services/codex_worker/requirements.txt
+-r ../services/config-service/requirements.txt
+-r ../services/entitlements-service/requirements.txt
+-r ../services/inplay/requirements.txt
+-r ../services/market_data/requirements.txt
+-r ../services/notification-service/requirements.txt
+-r ../services/order-router/requirements.txt
+-r ../services/reports/requirements.txt
+-r ../services/screener/requirements.txt
+-r ../services/streaming/requirements.txt
+-r ../services/streaming_gateway/requirements.txt
+-r ../services/user-service/requirements.txt
+-r ../services/web-dashboard/requirements.txt
