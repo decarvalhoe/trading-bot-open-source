@@ -10,7 +10,11 @@ import httpx
 import pytest
 import respx
 
-from infra.trading_models import Execution as ExecutionModel, Order as OrderModel
+from infra.trading_models import (
+    Execution as ExecutionModel,
+    Order as OrderModel,
+    SimulatedExecution as SimulatedExecutionModel,
+)
 from libs.portfolio import decode_position_key
 
 
@@ -357,6 +361,60 @@ def test_streaming_event_emitted_on_cancellation(client):
     assert entry["status"] == "CANCELLED"
     assert entry["symbol"] == report["symbol"]
     assert "ordre" in entry["message"]
+
+
+@pytest.mark.usefixtures("clean_database")
+def test_dry_run_records_simulations_and_restores_state(client, db_session):
+    response = client.put("/state", json={"mode": "dry_run"})
+    assert response.status_code == 200, response.text
+
+    report = _submit_order(
+        client,
+        account_id="sim-acct",
+        quantity=0.3,
+        price=25_500,
+        tags=["strategy:dry-run"],
+    )
+    assert report["status"].lower() == "filled"
+
+    db_session.expire_all()
+    assert db_session.query(OrderModel).count() == 0
+    simulations = db_session.query(SimulatedExecutionModel).all()
+    assert len(simulations) == 1
+    simulation = simulations[0]
+    assert simulation.account_id == "sim-acct"
+    assert simulation.symbol == "BTCUSDT"
+    assert pytest.approx(float(simulation.filled_quantity), rel=1e-6) == 0.3
+    assert pytest.approx(float(simulation.price), rel=1e-6) == 25_500
+    assert any(tag.lower() == "strategy:dry-run" for tag in (simulation.tags or []))
+
+    positions = client.get("/positions")
+    assert positions.status_code == 200
+    payload = positions.json()
+    holding = _find_holding(payload["items"], "BTCUSDT")
+    assert holding is not None
+    assert holding["account_id"] == "sim-acct"
+    assert pytest.approx(holding["quantity"], rel=1e-6) == 0.3
+    assert pytest.approx(holding["average_price"], rel=1e-6) == 25_500
+
+    live_switch = client.put("/state", json={"mode": "live"})
+    assert live_switch.status_code == 200
+    live_positions = client.get("/positions")
+    assert live_positions.status_code == 200
+    assert _find_holding(live_positions.json()["items"], "BTCUSDT") is None
+
+    back_to_dry = client.put("/state", json={"mode": "dry_run"})
+    assert back_to_dry.status_code == 200
+    restored = client.get("/positions")
+    assert restored.status_code == 200
+    restored_holding = _find_holding(restored.json()["items"], "BTCUSDT")
+    assert restored_holding is not None
+    assert pytest.approx(restored_holding["quantity"], rel=1e-6) == pytest.approx(
+        holding["quantity"], rel=1e-6
+    )
+    assert pytest.approx(restored_holding["average_price"], rel=1e-6) == pytest.approx(
+        holding["average_price"], rel=1e-6
+    )
 
 
 def test_daily_notional_limit_enforced(client, router):

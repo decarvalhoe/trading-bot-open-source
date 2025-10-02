@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -34,6 +35,7 @@ from libs.portfolio import (
 )
 from infra.trading_models import Execution as ExecutionModel
 from infra.trading_models import Order as OrderModel
+from infra.trading_models import SimulatedExecution as SimulatedExecutionModel
 from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
 from schemas.market import (
     ExecutionFill,
@@ -193,6 +195,11 @@ class OrderEventsPublisher:
     def order_cancelled(self, order: OrderModel, report: ExecutionReport) -> None:
         raise NotImplementedError
 
+    def simulated_execution(
+        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+    ) -> None:
+        raise NotImplementedError
+
 
 class NullOrderEventsPublisher(OrderEventsPublisher):
     def order_persisted(
@@ -201,6 +208,11 @@ class NullOrderEventsPublisher(OrderEventsPublisher):
         return
 
     def order_cancelled(self, order: OrderModel, report: ExecutionReport) -> None:  # pragma: no cover - intentional no-op
+        return
+
+    def simulated_execution(
+        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+    ) -> None:  # pragma: no cover - intentional no-op
         return
 
 
@@ -368,10 +380,41 @@ def rebuild_positions_snapshot(
     return target.snapshot()
 
 
+def rebuild_simulated_snapshot(
+    session: Session, aggregator: PortfolioAggregator | None = None
+) -> List[Dict[str, Any]]:
+    """Rebuild an aggregated snapshot using simulated executions only."""
+
+    target = aggregator or PortfolioAggregator()
+    target.reset()
+    statement = select(SimulatedExecutionModel).order_by(
+        SimulatedExecutionModel.submitted_at.asc(),
+        SimulatedExecutionModel.created_at.asc(),
+    )
+    executions = session.execute(statement).scalars().all()
+    for execution in executions:
+        quantity = float(execution.filled_quantity or execution.quantity or 0.0)
+        price = float(execution.price or 0.0)
+        if quantity <= 0 or price <= 0:
+            continue
+        target.apply_fill(
+            account_id=execution.account_id,
+            symbol=execution.symbol,
+            side=execution.side,
+            quantity=quantity,
+            price=price,
+        )
+    return target.snapshot()
+
+
 def build_positions_response(session: Session) -> PositionsResponse:
     """Return a strongly typed response describing the current positions."""
 
-    snapshot = rebuild_positions_snapshot(session)
+    mode = router.current_mode()
+    if mode == "dry_run":
+        snapshot = rebuild_simulated_snapshot(session)
+    else:
+        snapshot = rebuild_positions_snapshot(session)
     items = [PortfolioSnapshot.model_validate(item) for item in snapshot]
     return PositionsResponse(items=items, as_of=datetime.now(timezone.utc))
 
@@ -380,6 +423,7 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
     def __init__(self, client: StreamingIngestClient | None) -> None:
         self._client = client
         self._aggregator = PortfolioAggregator()
+        self._simulated_aggregator = PortfolioAggregator()
 
     def order_persisted(
         self, order: ExecutionIntent, report: ExecutionReport, account_id: str
@@ -388,7 +432,9 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
             return
         aggregated = False
         if report.filled_quantity > 0:
-            transaction = self._build_transaction(order, report, account_id)
+            transaction = self._build_transaction(
+                order, report, account_id, mode="live"
+            )
             self._client.publish({"resource": "transactions", "items": [transaction]})
             aggregated = self._aggregator.apply_report(report, account_id)
         log_entry = self._build_log_entry(
@@ -403,10 +449,11 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
             quantity=report.quantity,
             filled_quantity=report.filled_quantity,
             avg_price=report.avg_price or order.price,
+            mode="live",
         )
         self._client.publish({"resource": "logs", "entry": log_entry})
         if aggregated:
-            self._publish_portfolios()
+            self._publish_portfolios(mode="live")
 
     def order_cancelled(self, order: OrderModel, report: ExecutionReport) -> None:
         if not self._client or not self._client.enabled:
@@ -423,6 +470,7 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
             quantity=float(order.quantity or 0),
             filled_quantity=float(order.filled_quantity or Decimal("0")),
             avg_price=report.avg_price,
+            mode="live",
         )
         self._client.publish({"resource": "logs", "entry": log_entry})
 
@@ -430,16 +478,59 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
         if not self._client or not self._client.enabled:
             return
         snapshot = rebuild_positions_snapshot(session, self._aggregator)
-        self._publish_portfolios(snapshot)
+        self._publish_portfolios(snapshot, mode="live")
+        simulated_snapshot = rebuild_simulated_snapshot(
+            session, self._simulated_aggregator
+        )
+        if simulated_snapshot:
+            self._publish_portfolios(simulated_snapshot, mode="dry_run")
 
-    def _publish_portfolios(self, snapshot: Optional[List[Dict[str, Any]]] = None) -> None:
+    def simulated_execution(
+        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+    ) -> None:
         if not self._client or not self._client.enabled:
             return
-        items = snapshot if snapshot is not None else self._aggregator.snapshot()
+        aggregated = False
+        if report.filled_quantity > 0:
+            transaction = self._build_transaction(
+                order, report, account_id, mode="dry_run"
+            )
+            transaction["simulated"] = True
+            self._client.publish({"resource": "transactions", "items": [transaction]})
+            aggregated = self._simulated_aggregator.apply_report(report, account_id)
+        log_entry = self._build_log_entry(
+            timestamp=report.submitted_at,
+            status=report.status.value,
+            symbol=report.symbol,
+            order_id=report.order_id,
+            tags=report.tags or order.tags,
+            broker=order.broker,
+            side=order.side.value,
+            account_id=account_id,
+            quantity=report.quantity,
+            filled_quantity=report.filled_quantity,
+            avg_price=report.avg_price or order.price,
+            mode="dry_run",
+            simulated=True,
+        )
+        self._client.publish({"resource": "logs", "entry": log_entry})
+        if aggregated:
+            self._publish_portfolios(mode="dry_run")
+
+    def _publish_portfolios(
+        self, snapshot: Optional[List[Dict[str, Any]]] = None, *, mode: str = "live"
+    ) -> None:
+        if not self._client or not self._client.enabled:
+            return
+        if mode == "dry_run":
+            aggregator = self._simulated_aggregator
+        else:
+            aggregator = self._aggregator
+        items = snapshot if snapshot is not None else aggregator.snapshot()
         payload = {
             "resource": "portfolios",
             "items": items,
-            "mode": "live",
+            "mode": mode,
             "type": "positions",
         }
         self._client.publish(payload)
@@ -453,17 +544,26 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
         return value.isoformat()
 
     def _build_transaction(
-        self, order: ExecutionIntent, report: ExecutionReport, account_id: str
+        self,
+        order: ExecutionIntent,
+        report: ExecutionReport,
+        account_id: str,
+        *,
+        mode: str = "live",
     ) -> Dict[str, Any]:
         price = report.avg_price or order.price or 0.0
-        return {
+        transaction = {
             "timestamp": self._normalise_timestamp(report.submitted_at),
             "portfolio": account_id,
             "symbol": report.symbol,
             "side": order.side.value,
             "quantity": report.filled_quantity,
             "price": price,
+            "mode": mode,
         }
+        if mode != "live":
+            transaction["simulated"] = True
+        return transaction
 
     def _build_log_entry(
         self,
@@ -479,8 +579,12 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
         quantity: float | Decimal | None,
         filled_quantity: float | Decimal | None,
         avg_price: float | Decimal | None,
+        mode: str = "live",
+        simulated: bool = False,
     ) -> Dict[str, Any]:
         status_text = status.upper()
+        if simulated or mode != "live":
+            status_text = f"SIMULATED {status_text}"
         message_parts = [status_text, symbol]
         if order_id:
             message_parts.append(f"(ordre {order_id})")
@@ -490,7 +594,10 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
             "status": status_text,
             "symbol": symbol,
             "order_id": order_id,
+            "mode": mode,
         }
+        if simulated or mode != "live":
+            entry["simulated"] = True
         strategy_hint = self._extract_strategy_hint(tags)
         if strategy_hint:
             entry["strategy_hint"] = strategy_hint
@@ -531,6 +638,8 @@ class RouterState:
     daily_notional_limit: float = 1_000_000.0
     notional_routed: float = 0.0
 
+    ALLOWED_MODES: Tuple[str, ...] = ("paper", "live", "dry_run")
+
     def as_dict(self) -> Dict[str, float | str]:
         return {
             "mode": self.mode,
@@ -567,14 +676,19 @@ class OrderRouter:
     def update_state(self, *, mode: Optional[str] = None, limit: Optional[float] = None) -> RouterState:
         with self._lock:
             if mode is not None:
-                if mode not in {"paper", "live"}:
-                    raise ValueError("mode must be 'paper' or 'live'")
+                if mode not in RouterState.ALLOWED_MODES:
+                    allowed = "', '".join(RouterState.ALLOWED_MODES)
+                    raise ValueError(f"mode must be one of '{allowed}'")
                 self._state.mode = mode
             if limit is not None:
                 if limit <= 0:
                     raise ValueError("daily_notional_limit must be positive")
                 self._state.daily_notional_limit = float(limit)
             return self.get_state()
+
+    def current_mode(self) -> str:
+        with self._lock:
+            return self._state.mode
 
     def _apply_daily_limit(self, notional: float) -> None:
         with self._lock:
@@ -607,6 +721,25 @@ class OrderRouter:
         if price_reference <= 0:
             price_reference = 1.0
         notional = abs(order.quantity) * price_reference
+        mode = self.current_mode()
+        if mode == "dry_run":
+            report = self._build_simulated_report(order, price_reference)
+            try:
+                self._persist_simulated_execution(
+                    session, order, report, account_id
+                )
+            except OrderPersistenceError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive safety net
+                logger.exception(
+                    "Unexpected error while persisting simulated execution %s",
+                    report.order_id,
+                )
+                raise OrderPersistenceError(
+                    "unexpected error while persisting simulated execution"
+                ) from exc
+            return report
+
         self._apply_daily_limit(notional)
         response = adapter.place_order(order, reference_price=price_reference)
         try:
@@ -634,6 +767,73 @@ class OrderRouter:
             )
             raise OrderPersistenceError("unexpected error while logging cancellation") from exc
         return result
+
+    def _build_simulated_report(
+        self, order: ExecutionIntent, price_reference: float
+    ) -> ExecutionReport:
+        timestamp = datetime.now(timezone.utc)
+        price = float(order.price or price_reference or 0.0)
+        if price <= 0:
+            price = max(price_reference, 1.0)
+        quantity = float(order.quantity)
+        fill = ExecutionFill(quantity=quantity, price=price, timestamp=timestamp)
+        return ExecutionReport(
+            order_id=f"SIM-{uuid4().hex[:12]}",
+            status=ExecutionStatus.FILLED,
+            broker=order.broker,
+            venue=order.venue,
+            symbol=order.symbol,
+            side=order.side,
+            quantity=quantity,
+            filled_quantity=quantity,
+            avg_price=price,
+            submitted_at=timestamp,
+            fills=[fill],
+            tags=list(order.tags or []),
+        )
+
+    def _persist_simulated_execution(
+        self,
+        session: Session,
+        order: ExecutionIntent,
+        report: ExecutionReport,
+        account_id: str,
+    ) -> None:
+        notes = self._format_notes(
+            "simulated",
+            ",".join(order.tags) if order.tags else None,
+            f"status={report.status.value}",
+        )
+        tags = self._merge_tags(order.tags, report.tags)
+        try:
+            with session.begin():
+                simulation = SimulatedExecutionModel(
+                    simulation_id=report.order_id,
+                    correlation_id=order.client_order_id,
+                    account_id=account_id,
+                    broker=order.broker,
+                    venue=order.venue.value,
+                    symbol=order.symbol,
+                    side=order.side.value,
+                    quantity=self._to_decimal(report.quantity) or Decimal("0"),
+                    filled_quantity=self._to_decimal(report.filled_quantity)
+                    or Decimal("0"),
+                    price=self._to_decimal(report.avg_price) or Decimal("0"),
+                    status=report.status.value,
+                    submitted_at=report.submitted_at,
+                    notes=notes,
+                    tags=tags,
+                )
+                session.add(simulation)
+        except SQLAlchemyError as exc:
+            logger.exception(
+                "Failed to persist simulated execution for %s", report.order_id
+            )
+            raise OrderPersistenceError(
+                "database error while persisting simulated execution"
+            ) from exc
+        else:
+            self._events.simulated_execution(order, report, account_id)
 
     def _persist_order(
         self,
@@ -1098,7 +1298,7 @@ class RiskAlertResponse(BaseModel):
 
 
 class StateUpdatePayload(BaseModel):
-    mode: Optional[str] = Field(default=None, pattern="^(paper|live)$")
+    mode: Optional[str] = Field(default=None, pattern="^(paper|live|dry_run)$")
     daily_notional_limit: Optional[float] = Field(default=None, gt=0)
 
 
