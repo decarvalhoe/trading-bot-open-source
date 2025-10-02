@@ -84,7 +84,13 @@ async def start_session(
         )
     except KeyError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
-    await bridge.publish(StreamEvent(room_id=session.room_id, payload={"type": "session_started", "session_id": session.session_id}, source="sessions"))
+    await bridge.publish(
+        StreamEvent(
+            room_id=session.room_id,
+            payload={"type": "session_started", "session_id": session.session_id},
+            source="sessions",
+        )
+    )
     return session
 
 
@@ -105,7 +111,13 @@ async def stop_session(
         )
     except KeyError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
-    await bridge.publish(StreamEvent(room_id=session.room_id, payload={"type": "session_stopped", "session_id": session.session_id}, source="sessions"))
+    await bridge.publish(
+        StreamEvent(
+            room_id=session.room_id,
+            payload={"type": "session_stopped", "session_id": session.session_id},
+            source="sessions",
+        )
+    )
     return session
 
 
@@ -131,7 +143,11 @@ async def register_replay(
     await bridge.publish(
         StreamEvent(
             room_id=session.room_id,
-            payload={"type": "session_replay", "session_id": session.session_id, "replay_url": payload.replay_url},
+            payload={
+                "type": "session_replay",
+                "session_id": session.session_id,
+                "replay_url": payload.replay_url,
+            },
             source="sessions",
         )
     )

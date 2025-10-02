@@ -1,4 +1,5 @@
 """SQLAlchemy models powering the marketplace service."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -41,6 +42,7 @@ class UTCDateTime(TypeDecorator):
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
+
 Base = declarative_base()
 
 
@@ -61,7 +63,9 @@ class Listing(Base):
     reviewed_at: Optional[datetime] = Column(DateTime(timezone=True))
     performance_score: Optional[float] = Column(Float, nullable=True)
     risk_score: Optional[float] = Column(Float, nullable=True)
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at: datetime = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -104,13 +108,13 @@ class ListingVersion(Base):
     changelog: Optional[str] = Column(Text)
     configuration: Dict[str, object] = Column(JSON, nullable=False, default=dict)
     is_published: bool = Column(Boolean, nullable=False, default=True)
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     listing = relationship("Listing", back_populates="versions")
 
-    __table_args__ = (
-        UniqueConstraint("listing_id", "version", name="uq_listing_version"),
-    )
+    __table_args__ = (UniqueConstraint("listing_id", "version", name="uq_listing_version"),)
 
 
 class MarketplaceSubscription(Base):
@@ -141,7 +145,9 @@ class MarketplaceSubscription(Base):
     last_synced_at: Optional[datetime] = Column(UTCDateTime())
     divergence_bps: Optional[float] = Column(Float)
     total_fees_paid: float = Column(Float, nullable=False, server_default="0")
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     listing = relationship("Listing", back_populates="subscriptions")
     version = relationship("ListingVersion")
@@ -166,7 +172,9 @@ class ListingReview(Base):
     reviewer_id: str = Column(String(64), nullable=False, index=True)
     rating: int = Column(Integer, nullable=False)
     comment: Optional[str] = Column(Text)
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at: datetime = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -176,9 +184,7 @@ class ListingReview(Base):
 
     listing = relationship("Listing", back_populates="reviews")
 
-    __table_args__ = (
-        UniqueConstraint("listing_id", "reviewer_id", name="uq_listing_reviewer"),
-    )
+    __table_args__ = (UniqueConstraint("listing_id", "reviewer_id", name="uq_listing_reviewer"),)
 
 
 __all__ = ["Base", "Listing", "ListingVersion", "MarketplaceSubscription", "ListingReview"]

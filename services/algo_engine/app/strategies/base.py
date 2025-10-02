@@ -1,4 +1,5 @@
 """Strategy plugin base classes and registry helpers."""
+
 from __future__ import annotations
 
 import abc

@@ -1,4 +1,5 @@
 """FastAPI application exposing the marketplace service."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, FastAPI, Query

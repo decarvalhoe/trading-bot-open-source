@@ -2,9 +2,6 @@ from pathlib import Path
 from typing import Dict
 
 import pytest
-from fastapi.testclient import TestClient
-from libs.entitlements.client import Entitlements
-
 from algo_engine.app.main import (
     StrategyRecord,
     StrategyStatus,
@@ -13,6 +10,9 @@ from algo_engine.app.main import (
     orchestrator,
     strategy_repository,
 )
+from fastapi.testclient import TestClient
+
+from libs.entitlements.client import Entitlements
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -286,6 +286,7 @@ def test_strategy_status_transitions():
     invalid = client.post(f"/strategies/{strategy_id}/status", json={"status": "PENDING"})
     assert invalid.status_code == 400
     assert "Invalid status transition" in invalid.json()["detail"]
+
 
 def test_build_execution_plan():
     client = TestClient(app)

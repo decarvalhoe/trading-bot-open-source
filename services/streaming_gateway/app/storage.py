@@ -64,7 +64,9 @@ class InMemoryStorage:
             overlay_id=payload.overlay_id,
             user_id=user_id,
             targets=[target.dict() for target in payload.targets],
-            scheduled_start=payload.scheduled_start.timestamp() if payload.scheduled_start else None,
+            scheduled_start=(
+                payload.scheduled_start.timestamp() if payload.scheduled_start else None
+            ),
             discord_webhook_url=payload.discord_webhook_url,
         )
         self.sessions[session_id] = session

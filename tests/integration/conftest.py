@@ -1,4 +1,5 @@
 """Pytest fixtures configuring provider sandbox and live modes."""
+
 from __future__ import annotations
 
 import os
@@ -8,7 +9,6 @@ from pathlib import Path
 
 import pytest
 import respx
-
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:

@@ -34,14 +34,12 @@ class StreamEvent:
 
 
 class Publisher(Protocol):
-    async def publish(self, event: StreamEvent) -> None:
-        ...
+    async def publish(self, event: StreamEvent) -> None: ...
 
     async def subscribe(self) -> AsyncIterator[StreamEvent]:  # pragma: no cover - optional usage
         ...
 
-    async def aclose(self) -> None:
-        ...
+    async def aclose(self) -> None: ...
 
 
 class InMemoryPublisher:
@@ -99,7 +97,9 @@ class RedisStreamPublisher:
         await self._redis.xadd(self._stream_key, {"event": payload})
 
     async def subscribe(self) -> AsyncIterator[StreamEvent]:
-        await self._redis.xgroup_create(name=self._stream_key, groupname=self._group, id="$", mkstream=True)
+        await self._redis.xgroup_create(
+            name=self._stream_key, groupname=self._group, id="$", mkstream=True
+        )
         while True:
             messages = await self._redis.xreadgroup(
                 groupname=self._group,
@@ -192,11 +192,9 @@ class StreamingBridge:
 
 
 class StreamingConnection(Protocol):
-    async def send_json(self, data: Dict[str, Any]) -> None:
-        ...
+    async def send_json(self, data: Dict[str, Any]) -> None: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 async def stream_events_from_sources(

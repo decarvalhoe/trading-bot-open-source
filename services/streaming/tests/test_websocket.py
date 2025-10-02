@@ -17,7 +17,9 @@ def client(monkeypatch) -> TestClient:
     from libs.entitlements.fastapi import Entitlements, EntitlementsClient
 
     async def _fake_require(self, customer_id, capabilities=None, quotas=None):  # type: ignore[unused-argument]
-        return Entitlements(customer_id=customer_id, features={cap: True for cap in capabilities or []}, quotas={})
+        return Entitlements(
+            customer_id=customer_id, features={cap: True for cap in capabilities or []}, quotas={}
+        )
 
     monkeypatch.setattr(EntitlementsClient, "require", _fake_require, raising=False)
     # Reset settings cache to ensure env vars are picked up

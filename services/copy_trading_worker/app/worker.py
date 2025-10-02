@@ -79,9 +79,7 @@ class CopyTradingWorker:
 
         for subscription in subscriptions:
             if self._should_suspend(subscription):
-                LOGGER.info(
-                    "Subscription %s paused by risk limits", subscription.id
-                )
+                LOGGER.info("Subscription %s paused by risk limits", subscription.id)
                 continue
 
             quantity, _, _ = compute_scaled_quantity(
@@ -115,15 +113,11 @@ class CopyTradingWorker:
                     subscription.follower_id,
                     exc,
                 )
-                self._repository.record_failure(
-                    subscription.id, executed_at=self._clock()
-                )
+                self._repository.record_failure(subscription.id, executed_at=self._clock())
                 continue
 
             divergence = self._compute_divergence(leader_price, follower_report)
-            follower_price = follower_report.avg_price or leader_reference_price(
-                follower_report
-            )
+            follower_price = follower_report.avg_price or leader_reference_price(follower_report)
             follower_notional = (
                 follower_price * follower_report.filled_quantity
                 if follower_price and follower_report.filled_quantity > 0
@@ -164,12 +158,8 @@ class CopyTradingWorker:
         return tags
 
     @staticmethod
-    def _compute_divergence(
-        leader_price: float, follower_report: ExecutionReport
-    ) -> float | None:
-        follower_price = follower_report.avg_price or leader_reference_price(
-            follower_report
-        )
+    def _compute_divergence(leader_price: float, follower_report: ExecutionReport) -> float | None:
+        follower_price = follower_report.avg_price or leader_reference_price(follower_report)
         if leader_price <= 0 or follower_price <= 0:
             return None
         return ((follower_price - leader_price) / leader_price) * 10_000

@@ -1,9 +1,8 @@
 from typing import Any, Dict
 
-from fastapi.testclient import TestClient
-
-from algo_engine.app.main import app
 from algo_engine.app import main as main_module
+from algo_engine.app.main import app
+from fastapi.testclient import TestClient
 
 
 class DummyAssistant:
@@ -18,7 +17,7 @@ class DummyAssistant:
 
 def test_generate_strategy_returns_draft(monkeypatch):
     from ai_strategy_assistant import StrategyDraft, StrategyGenerationResponse
-    from ai_strategy_assistant.schemas import StrategyGenerationRequest, StrategyFormat
+    from ai_strategy_assistant.schemas import StrategyFormat, StrategyGenerationRequest
 
     draft = StrategyDraft(
         summary="Breakout momentum",

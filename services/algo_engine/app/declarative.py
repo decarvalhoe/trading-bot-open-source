@@ -1,11 +1,11 @@
 """Helpers to load declarative strategy definitions."""
+
 from __future__ import annotations
 
 import ast
 import json
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping
-
 
 try:  # pragma: no cover - import guarded for environments without PyYAML
     import yaml
@@ -45,11 +45,14 @@ class DeclarativeDefinition:
 
     def to_parameters(self) -> Dict[str, Any]:
         params = dict(self.parameters)
-        params.setdefault("definition", {
-            "name": self.name,
-            "rules": self.rules,
-            "metadata": self.metadata,
-        })
+        params.setdefault(
+            "definition",
+            {
+                "name": self.name,
+                "rules": self.rules,
+                "metadata": self.metadata,
+            },
+        )
         return params
 
 
@@ -62,7 +65,9 @@ def _validate_definition(payload: Mapping[str, Any]) -> DeclarativeDefinition:
     metadata = payload.get("metadata", {})
 
     if not isinstance(name, str) or not name:
-        raise DeclarativeStrategyError("Declarative strategy definitions require a non-empty 'name'")
+        raise DeclarativeStrategyError(
+            "Declarative strategy definitions require a non-empty 'name'"
+        )
     if not isinstance(rules, list):
         raise DeclarativeStrategyError("'rules' must be a list of rule definitions")
     if not isinstance(parameters, Mapping):
@@ -95,7 +100,9 @@ def load_declarative_definition(content: str, fmt: str) -> DeclarativeDefinition
             try:
                 data = json.loads(content)
             except json.JSONDecodeError as exc:
-                raise DeclarativeStrategyError("PyYAML is required to load YAML strategies") from exc
+                raise DeclarativeStrategyError(
+                    "PyYAML is required to load YAML strategies"
+                ) from exc
     elif fmt == "python":
         namespace: Dict[str, Any] = {}
         try:
@@ -108,9 +115,13 @@ def load_declarative_definition(content: str, fmt: str) -> DeclarativeDefinition
         elif "STRATEGY" in namespace:
             data = namespace["STRATEGY"]
         else:
-            raise DeclarativeStrategyError("Python strategies must define STRATEGY or build_strategy()")
+            raise DeclarativeStrategyError(
+                "Python strategies must define STRATEGY or build_strategy()"
+            )
     else:
-        raise DeclarativeStrategyError("Unsupported declarative format; expected 'yaml' or 'python'")
+        raise DeclarativeStrategyError(
+            "Unsupported declarative format; expected 'yaml' or 'python'"
+        )
 
     if data is None:
         raise DeclarativeStrategyError("Strategy definition is empty")

@@ -4,7 +4,6 @@ import os
 import sys
 import types
 from importlib import util
-
 from logging.config import fileConfig
 from pathlib import Path
 
@@ -18,10 +17,10 @@ if str(_REPO_ROOT) not in sys.path:
 from infra.audit_models import Base as AuditBase
 from infra.entitlements_models import Base as EntitlementsBase
 from infra.marketplace_models import Base as MarketplaceBase
-from infra.social_models import Base as SocialBase
 from infra.screener_models import ScreenerBase
-from infra.trading_models import TradingBase
+from infra.social_models import Base as SocialBase
 from infra.strategy_models import StrategyBase
+from infra.trading_models import TradingBase
 
 config = context.config
 
@@ -30,6 +29,7 @@ if config.config_file_name is not None:
         fileConfig(config.config_file_name)
     except Exception as e:  # pragma: no cover - logging configuration is optional
         import logging
+
         logging.warning(f"Error configuring logging: {e}")
 
 
@@ -44,9 +44,7 @@ def _resolve_database_url() -> str:
     if url:
         return url
 
-    raise RuntimeError(
-        "Database URL must be provided via ALEMBIC_DATABASE_URL or DATABASE_URL."
-    )
+    raise RuntimeError("Database URL must be provided via ALEMBIC_DATABASE_URL or DATABASE_URL.")
 
 
 def _ensure_package_hierarchy(module_name: str, module_path: Path) -> None:
@@ -139,9 +137,7 @@ def _collect_target_metadata() -> tuple[MetaData, ...]:
         module = _load_module_from_path(module_name, relative_path)
         base = getattr(module, "Base", None)
         if base is None:
-            raise AttributeError(
-                f"Module {module_name} does not define a SQLAlchemy Base class."
-            )
+            raise AttributeError(f"Module {module_name} does not define a SQLAlchemy Base class.")
         metadata.append(base.metadata)
 
     return tuple(metadata)

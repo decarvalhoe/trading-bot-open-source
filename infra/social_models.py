@@ -1,4 +1,5 @@
 """SQLAlchemy models for social features (profiles, follows, leaderboards)."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -32,7 +33,9 @@ class Profile(Base):
     bio: Optional[str] = Column(Text)
     avatar_url: Optional[str] = Column(String(255))
     is_public: bool = Column(Boolean, nullable=False, default=True)
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at: datetime = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -51,11 +54,11 @@ class Follow(Base):
     id: int = Column(Integer, primary_key=True)
     follower_id: str = Column(String(64), nullable=False, index=True)
     followee_id: str = Column(String(64), nullable=False, index=True)
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-
-    __table_args__ = (
-        UniqueConstraint("follower_id", "followee_id", name="uq_social_follow"),
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    __table_args__ = (UniqueConstraint("follower_id", "followee_id", name="uq_social_follow"),)
 
 
 class Activity(Base):
@@ -72,7 +75,9 @@ class Activity(Base):
     )
     activity_type: str = Column(String(64), nullable=False)
     data: Dict[str, object] = Column(JSON, nullable=False, default=dict)
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     profile = relationship("Profile", back_populates="activities")
 
@@ -88,7 +93,9 @@ class Leaderboard(Base):
     metric: str = Column(String(64), nullable=False)
     period: str = Column(String(32), nullable=False, default="all")
     data: Dict[str, object] = Column(JSON, nullable=False, default=dict)
-    generated_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    generated_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 __all__ = ["Base", "Profile", "Follow", "Activity", "Leaderboard"]

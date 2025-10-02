@@ -12,7 +12,6 @@ from libs.connectors import MarketConnector
 
 from .rate_limiter import AsyncRateLimiter
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -33,9 +32,7 @@ class BinanceMarketConnector(MarketConnector):
     ) -> None:
         self._rest_client = rest_client or Spot(api_key=api_key, api_secret=api_secret)
         if websocket_client_factory is None:
-            websocket_client_factory = lambda **kwargs: BinanceWebsocketClient(
-                stream_url, **kwargs
-            )
+            websocket_client_factory = lambda **kwargs: BinanceWebsocketClient(stream_url, **kwargs)
         self._websocket_factory = websocket_client_factory
         self._rate_limiter = AsyncRateLimiter(request_rate, request_interval_seconds)
         self._reconnect_delay = reconnect_delay

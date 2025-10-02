@@ -21,9 +21,9 @@ from services.alert_engine.app.clients import (
 )
 from services.alert_engine.app.config import AlertEngineSettings
 from services.alert_engine.app.database import Base
-from services.alert_engine.app.event_recorder import AlertEventRecorder
 from services.alert_engine.app.engine import AlertEngine
 from services.alert_engine.app.evaluator import RuleEvaluator
+from services.alert_engine.app.event_recorder import AlertEventRecorder
 from services.alert_engine.app.main import create_app
 from services.alert_engine.app.models import AlertRule
 from services.alert_engine.app.repository import AlertRuleRepository
@@ -287,7 +287,11 @@ def test_api_creates_rules_and_applies_throttle(
                     },
                     "channels": [
                         {"type": "email", "target": "risk@example.com", "enabled": True},
-                        {"type": "webhook", "target": "https://alerts.test/webhook", "enabled": True},
+                        {
+                            "type": "webhook",
+                            "target": "https://alerts.test/webhook",
+                            "enabled": True,
+                        },
                     ],
                     "throttle_seconds": 600,
                 },

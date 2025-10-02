@@ -1,4 +1,5 @@
 """Async client used by the algo engine to reach the order router service."""
+
 from __future__ import annotations
 
 import asyncio

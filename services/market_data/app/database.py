@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .config import get_settings
 
-
 _engine = create_engine(get_settings().database_url, future=True, pool_pre_ping=True)
 _SessionLocal = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
 

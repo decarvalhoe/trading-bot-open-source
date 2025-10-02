@@ -49,9 +49,15 @@ def test_bootstrap_demo_smoke() -> None:
         "--billing-url",
         os.getenv("BOOTSTRAP_TEST_BILLING_URL", "http://127.0.0.1:8005"),
         "--alerts-token",
-        os.getenv("BOOTSTRAP_TEST_ALERTS_TOKEN", os.getenv("WEB_DASHBOARD_ALERTS_TOKEN", "demo-alerts-token")),
+        os.getenv(
+            "BOOTSTRAP_TEST_ALERTS_TOKEN",
+            os.getenv("WEB_DASHBOARD_ALERTS_TOKEN", "demo-alerts-token"),
+        ),
         "--streaming-token",
-        os.getenv("BOOTSTRAP_TEST_STREAMING_TOKEN", os.getenv("STREAMING_SERVICE_TOKEN_REPORTS", "reports-token")),
+        os.getenv(
+            "BOOTSTRAP_TEST_STREAMING_TOKEN",
+            os.getenv("STREAMING_SERVICE_TOKEN_REPORTS", "reports-token"),
+        ),
         "--skip-billing-setup",
     ]
 

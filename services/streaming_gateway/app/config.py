@@ -21,11 +21,11 @@ class Settings(BaseSettings):
         "", description="Optional API key used for polling YouTube live chat", repr=False
     )
     discord_client_id: str = Field("", description="Discord application identifier")
-    discord_client_secret: str = Field(
-        "", description="Discord application secret", repr=False
-    )
+    discord_client_secret: str = Field("", description="Discord application secret", repr=False)
     discord_bot_token: str = Field(
-        "", description="Bot token used to send embeds once the installation flow completed", repr=False
+        "",
+        description="Bot token used to send embeds once the installation flow completed",
+        repr=False,
     )
     encryption_key: str = Field(
         "", description="Base64 encoded symmetric key used to encrypt OAuth tokens", repr=False
@@ -41,14 +41,18 @@ class Settings(BaseSettings):
     public_base_url: str = Field(
         "http://localhost:8000", description="External URL pointing to this service"
     )
-    rate_limit_per_minute: int = Field(120, description="Maximum allowed requests per minute per IP")
+    rate_limit_per_minute: int = Field(
+        120, description="Maximum allowed requests per minute per IP"
+    )
     redis_url: str = Field("redis://localhost:6379/0", description="Redis URL for stream fan-out")
     nats_url: str = Field("nats://localhost:4222", description="NATS JetStream URL")
     pipeline_backend: str = Field(
         "redis", description="Streaming backend to use (redis|nats)", regex="^(redis|nats)$"
     )
     tradingview_hmac_secret: str = Field(
-        "", description="Optional secret used to validate TradingView webhook signatures", repr=False
+        "",
+        description="Optional secret used to validate TradingView webhook signatures",
+        repr=False,
     )
 
     class Config:

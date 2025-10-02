@@ -1,4 +1,5 @@
 """Domain services for the social API."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -11,7 +12,6 @@ from infra import Activity, Follow, Leaderboard, Profile
 from libs.audit import record_audit
 
 from .schemas import ActivityCreate, FollowRequest, LeaderboardUpsert, ProfileUpdate
-
 
 
 def upsert_profile(db: Session, *, actor_id: str, payload: ProfileUpdate) -> Profile:
@@ -142,7 +142,9 @@ def fetch_activity_feed(
     return db.scalars(stmt).all()
 
 
-def upsert_leaderboard(db: Session, *, slug: str, payload: LeaderboardUpsert, actor_id: str) -> Leaderboard:
+def upsert_leaderboard(
+    db: Session, *, slug: str, payload: LeaderboardUpsert, actor_id: str
+) -> Leaderboard:
     board = db.scalar(select(Leaderboard).where(Leaderboard.slug == slug))
     created = False
     if not board:
@@ -175,7 +177,13 @@ def upsert_leaderboard(db: Session, *, slug: str, payload: LeaderboardUpsert, ac
 
 
 def clear_profile_data(db: Session, *, user_id: str) -> None:
-    db.execute(delete(Follow).where((Follow.follower_id == user_id) | (Follow.followee_id == user_id)))
-    db.execute(delete(Activity).where(Activity.profile_id.in_(select(Profile.id).where(Profile.user_id == user_id))))
+    db.execute(
+        delete(Follow).where((Follow.follower_id == user_id) | (Follow.followee_id == user_id))
+    )
+    db.execute(
+        delete(Activity).where(
+            Activity.profile_id.in_(select(Profile.id).where(Profile.user_id == user_id))
+        )
+    )
     db.execute(delete(Profile).where(Profile.user_id == user_id))
     db.commit()

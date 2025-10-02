@@ -1,4 +1,5 @@
 """Client for the Financial Modeling Prep screener API."""
+
 from __future__ import annotations
 
 import json
@@ -38,7 +39,9 @@ class FinancialModelingPrepClient:
             await self._client.aclose()
             self._client = None
 
-    async def screen(self, *, filters: Dict[str, Any] | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    async def screen(
+        self, *, filters: Dict[str, Any] | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
         """Execute the screener endpoint with the provided filters."""
 
         if self._client is None:

@@ -1,4 +1,5 @@
 """Pydantic schemas for order router contracts and persisted entities."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,14 +8,9 @@ from typing import List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from datetime import datetime
-
-from schemas.market import (
-    ExecutionReport as MarketExecutionReport,
-    OrderRequest,
-)
-
 from providers import normalize_binance_symbol, normalize_ibkr_symbol
+from schemas.market import ExecutionReport as MarketExecutionReport
+from schemas.market import OrderRequest
 
 
 class RiskOverrides(BaseModel):

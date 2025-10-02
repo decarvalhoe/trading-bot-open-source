@@ -1,4 +1,5 @@
 """Shared sandbox trading limits and helper factories."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

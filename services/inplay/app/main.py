@@ -136,7 +136,9 @@ def create_app(
         try:
             return await state.get_watchlist(watchlist_id, session=session)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=f"Unknown watchlist '{watchlist_id}'") from exc
+            raise HTTPException(
+                status_code=404, detail=f"Unknown watchlist '{watchlist_id}'"
+            ) from exc
 
     @app.websocket("/inplay/ws")
     async def inplay_ws(

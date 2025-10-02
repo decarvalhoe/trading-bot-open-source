@@ -1,4 +1,5 @@
 """Simple HTTP client for the entitlements service."""
+
 from __future__ import annotations
 
 import asyncio
@@ -51,7 +52,9 @@ class EntitlementsClient:
             headers = {}
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
-            self._async_client = httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout, headers=headers)
+            self._async_client = httpx.AsyncClient(
+                base_url=self._base_url, timeout=self._timeout, headers=headers
+            )
         return self._async_client
 
     async def aclose(self) -> None:

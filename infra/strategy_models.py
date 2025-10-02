@@ -1,9 +1,11 @@
 """SQLAlchemy models backing strategy management for the algo engine."""
+
 from __future__ import annotations
 
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
@@ -11,14 +13,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import declarative_base, relationship
-
 
 StrategyBase = declarative_base()
 
@@ -103,9 +103,7 @@ class StrategyVersion(StrategyBase):
     strategy = relationship("Strategy", back_populates="versions")
 
     __table_args__ = (
-        UniqueConstraint(
-            "strategy_id", "version", name="uq_strategy_versions_strategy_version"
-        ),
+        UniqueConstraint("strategy_id", "version", name="uq_strategy_versions_strategy_version"),
     )
 
 

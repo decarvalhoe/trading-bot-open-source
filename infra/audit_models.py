@@ -1,4 +1,5 @@
 """Reusable audit trail models shared across services."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,7 +23,9 @@ class AuditLog(Base):
     subject_id: Optional[str] = Column(String(64), nullable=True, index=True)
     details: Dict[str, object] = Column(JSON, nullable=False, default=dict)
     message: Optional[str] = Column(Text)
-    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 __all__ = ["Base", "AuditLog"]

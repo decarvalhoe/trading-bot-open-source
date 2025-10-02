@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import csv
-from collections import defaultdict
 import math
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from io import StringIO
 from statistics import mean, pstdev
@@ -23,13 +23,7 @@ from schemas.report import (
     TradeOutcome,
 )
 
-from .tables import (
-    ReportBacktest,
-    ReportBenchmark,
-    ReportDaily,
-    ReportIntraday,
-    ReportSnapshot,
-)
+from .tables import ReportBacktest, ReportBenchmark, ReportDaily, ReportIntraday, ReportSnapshot
 
 
 def _normalise_strategy(value: str | None) -> str | None:
@@ -50,7 +44,9 @@ class ReportCalculator:
     def __init__(self, session: Session):
         self._session = session
 
-    def _rows_for_timeframe(self, symbol: str, timeframe: Timeframe) -> Iterable[ReportDaily | ReportIntraday]:
+    def _rows_for_timeframe(
+        self, symbol: str, timeframe: Timeframe
+    ) -> Iterable[ReportDaily | ReportIntraday]:
         if timeframe is Timeframe.DAILY:
             statement = select(ReportDaily).where(ReportDaily.symbol == symbol)
         else:
@@ -87,10 +83,7 @@ class ReportCalculator:
             return None
 
         equity_curve = [float(value) for value in row.equity_curve or []]
-        returns = [
-            current - previous
-            for previous, current in zip(equity_curve, equity_curve[1:])
-        ]
+        returns = [current - previous for previous, current in zip(equity_curve, equity_curve[1:])]
         wins = [value for value in returns if value > 0]
         losses = [value for value in returns if value < 0]
         sample_size = max(row.trades, len(returns)) or 1
@@ -210,9 +203,7 @@ class ReportCalculator:
 
 
 def load_report_from_snapshots(session: Session, symbol: str) -> ReportResponse | None:
-    rows = list(
-        session.scalars(select(ReportSnapshot).where(ReportSnapshot.symbol == symbol))
-    )
+    rows = list(session.scalars(select(ReportSnapshot).where(ReportSnapshot.symbol == symbol)))
     if not rows:
         return None
 
@@ -258,7 +249,9 @@ class DailyRiskCalculator:
             statement = statement.where(ReportDaily.account == account)
         if symbol:
             statement = statement.where(ReportDaily.symbol == symbol)
-        statement = statement.order_by(ReportDaily.account, ReportDaily.session_date, ReportDaily.id)
+        statement = statement.order_by(
+            ReportDaily.account, ReportDaily.session_date, ReportDaily.id
+        )
         return list(self._session.scalars(statement))
 
     def _fetch_backtests(
@@ -293,9 +286,7 @@ class DailyRiskCalculator:
             max_drawdown = max(max_drawdown, peak - value)
         return max_drawdown
 
-    def _convert_backtests(
-        self, rows: Sequence[ReportBacktest]
-    ) -> List[DailyRiskReport]:
+    def _convert_backtests(self, rows: Sequence[ReportBacktest]) -> List[DailyRiskReport]:
         reports: list[DailyRiskReport] = []
         for row in rows:
             equity_curve = [float(value) for value in row.equity_curve or []]
@@ -398,9 +389,7 @@ class DailyRiskCalculator:
             combined = combined[:limit]
         return combined
 
-    def _load_benchmarks(
-        self, account: str | None, dates: Sequence[date]
-    ) -> dict[date, float]:
+    def _load_benchmarks(self, account: str | None, dates: Sequence[date]) -> dict[date, float]:
         if not dates:
             return {}
 
@@ -452,9 +441,9 @@ class DailyRiskCalculator:
 
         portfolio_mean = mean(portfolio_returns)
         benchmark_mean = mean(benchmark_returns)
-        benchmark_variance = sum((value - benchmark_mean) ** 2 for value in benchmark_returns) / len(
-            benchmark_returns
-        )
+        benchmark_variance = sum(
+            (value - benchmark_mean) ** 2 for value in benchmark_returns
+        ) / len(benchmark_returns)
         if benchmark_variance == 0:
             return 0.0, 0.0
 
@@ -553,8 +542,7 @@ class DailyRiskCalculator:
         for row in rows:
             equity_curve = [float(value) for value in row.equity_curve or []]
             returns = [
-                current - previous
-                for previous, current in zip(equity_curve, equity_curve[1:])
+                current - previous for previous, current in zip(equity_curve, equity_curve[1:])
             ]
             cumulative_return = (
                 equity_curve[-1] - equity_curve[0]
@@ -602,7 +590,8 @@ class DailyRiskCalculator:
         writer.writerow(["session_date", "account", "pnl", "max_drawdown", "incidents"])
         for report in reports:
             incident_notes = ";".join(
-                f"{incident.symbol}:{incident.strategy.value}:{incident.outcome.value}" for incident in report.incidents
+                f"{incident.symbol}:{incident.strategy.value}:{incident.outcome.value}"
+                for incident in report.incidents
             )
             writer.writerow(
                 [

@@ -1,9 +1,9 @@
 """Add broker and venue columns to trading orders."""
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "6efde1f16e9f"
 down_revision = "8595db87b446"

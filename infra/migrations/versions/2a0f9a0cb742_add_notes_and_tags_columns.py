@@ -1,9 +1,9 @@
 """Add notes and tags columns to trading tables."""
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "2a0f9a0cb742"
 down_revision = "6efde1f16e9f"

@@ -1,4 +1,5 @@
 """Binance REST client with request signing and rate limiting helpers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -39,9 +40,7 @@ class SlidingWindowRateLimiter:
         while True:
             with self._lock:
                 now = time.monotonic()
-                self._timestamps = [
-                    ts for ts in self._timestamps if now - ts < self._per_seconds
-                ]
+                self._timestamps = [ts for ts in self._timestamps if now - ts < self._per_seconds]
                 if len(self._timestamps) < self._rate:
                     self._timestamps.append(now)
                     return

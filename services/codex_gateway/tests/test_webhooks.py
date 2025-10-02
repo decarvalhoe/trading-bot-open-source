@@ -38,7 +38,7 @@ async def test_github_webhook_enqueues_event(configured_settings: Settings) -> N
     app.dependency_overrides[deps.get_broker] = lambda: broker
     app.dependency_overrides[get_settings] = lambda: configured_settings
 
-    body = b"{\"action\": \"created\"}"
+    body = b'{"action": "created"}'
     signature = hmac.new(b"gh-secret", body, sha256).hexdigest()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -80,7 +80,7 @@ async def test_stripe_webhook_verifies_signature(configured_settings: Settings) 
     app.dependency_overrides[deps.get_broker] = lambda: broker
     app.dependency_overrides[get_settings] = lambda: configured_settings
 
-    body = b"{\"type\": \"checkout.session.completed\"}"
+    body = b'{"type": "checkout.session.completed"}'
     timestamp = int(time())
     signed_payload = f"{timestamp}.{body.decode('utf-8')}".encode("utf-8")
     signature = hmac.new(b"stripe-secret", msg=signed_payload, digestmod=sha256).hexdigest()
@@ -105,7 +105,7 @@ async def test_tradingview_webhook_verifies_signature(configured_settings: Setti
     app.dependency_overrides[deps.get_broker] = lambda: broker
     app.dependency_overrides[get_settings] = lambda: configured_settings
 
-    body = b"{\"type\": \"alert\"}"
+    body = b'{"type": "alert"}'
     digest = hmac.new(b"tv-secret", body, sha256).digest()
     signature = base64.b64encode(digest).decode("utf-8")
 

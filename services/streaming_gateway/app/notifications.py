@@ -24,7 +24,9 @@ async def post_discord_embed(settings: Settings, webhook_url: str, embed: dict) 
             logger.warning("Discord webhook failed: %s", response.text)
 
 
-async def announce_session_start(settings: Settings, session_id: str, overlay_url: str, webhook_url: Optional[str]) -> None:
+async def announce_session_start(
+    settings: Settings, session_id: str, overlay_url: str, webhook_url: Optional[str]
+) -> None:
     """Announce the start of a live session on Discord."""
 
     if not webhook_url:

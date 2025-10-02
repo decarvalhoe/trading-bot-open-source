@@ -36,7 +36,9 @@ def verify_stripe_signature(secret: str, signature_header: str | None, body: byt
         try:
             key, value = part.split("=", 1)
         except ValueError as exc:  # pragma: no cover - defensive
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature header") from exc
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature header"
+            ) from exc
         elements[key] = value
 
     timestamp = int(elements.get("t", "0"))

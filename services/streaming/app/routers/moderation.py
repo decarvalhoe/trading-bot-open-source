@@ -32,7 +32,12 @@ async def moderate_room(
     await bridge.publish(
         StreamEvent(
             room_id=room_id,
-            payload={"type": "moderation", "action": payload.action, "target": payload.target_user, "reason": payload.reason},
+            payload={
+                "type": "moderation",
+                "action": payload.action,
+                "target": payload.target_user,
+                "reason": payload.reason,
+            },
             source="moderation",
         )
     )

@@ -7,12 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from libs.alert_events import AlertEventRepository
 
 from .cache import AlertContextCache
-from .clients import (
-    MarketDataClient,
-    MarketDataStreamClient,
-    NotificationPublisher,
-    ReportsClient,
-)
+from .clients import MarketDataClient, MarketDataStreamClient, NotificationPublisher, ReportsClient
 from .config import AlertEngineSettings
 from .database import create_session_factory, get_session
 from .engine import AlertEngine
@@ -88,6 +83,7 @@ def create_app(
     app.state.clients = [market_client, reports_client, stream_client, publisher]
 
     if start_background_tasks:
+
         @app.on_event("startup")
         async def _startup() -> None:  # pragma: no cover - FastAPI wiring
             await engine.start_periodic_evaluation(session_factory)

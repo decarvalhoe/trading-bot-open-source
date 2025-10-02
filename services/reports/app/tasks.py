@@ -7,6 +7,7 @@ from typing import Iterable
 try:
     from celery import Celery
 except ModuleNotFoundError:  # pragma: no cover - fallback when Celery is unavailable
+
     class _SyncTask:
         def __init__(self, func):
             self._func = func
@@ -28,7 +29,12 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when Celery is unavai
             self.conf = type(
                 "Config",
                 (),
-                {"broker_url": None, "result_backend": None, "beat_schedule": {}, "timezone": "UTC"},
+                {
+                    "broker_url": None,
+                    "result_backend": None,
+                    "beat_schedule": {},
+                    "timezone": "UTC",
+                },
             )()
 
         def task(self, name: str | None = None, **_: object):
@@ -36,6 +42,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when Celery is unavai
                 return _SyncTask(func)
 
             return decorator
+
 
 from sqlalchemy import select
 
@@ -67,7 +74,13 @@ def _load_render_dependencies():  # pragma: no cover - imported lazily in produc
         _sanitize_filename,
     )
 
-    return RenderReportRequest, _build_render_payload, _render_template, _render_pdf, _sanitize_filename
+    return (
+        RenderReportRequest,
+        _build_render_payload,
+        _render_template,
+        _render_pdf,
+        _sanitize_filename,
+    )
 
 
 def _symbols(session) -> Iterable[str]:

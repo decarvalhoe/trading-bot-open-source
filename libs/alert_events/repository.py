@@ -149,9 +149,7 @@ class AlertEventRepository:
         total = session.execute(total_stmt).scalar_one()
 
         offset = (page - 1) * page_size
-        items = (
-            session.execute(stmt.limit(page_size).offset(offset)).scalars().all()
-        )
+        items = session.execute(stmt.limit(page_size).offset(offset)).scalars().all()
         return AlertHistoryPage(items=items, total=total, page=page, page_size=page_size)
 
     def list_strategies(self, session: Session) -> list[str]:

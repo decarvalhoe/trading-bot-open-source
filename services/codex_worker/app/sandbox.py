@@ -49,4 +49,6 @@ class SandboxRunner:
         )
         stdout, _ = await process.communicate()
         output = stdout.decode("utf-8", errors="ignore")
-        return SandboxResult(success=process.returncode == 0, logs=output, exit_code=process.returncode)
+        return SandboxResult(
+            success=process.returncode == 0, logs=output, exit_code=process.returncode
+        )

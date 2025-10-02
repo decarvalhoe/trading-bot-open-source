@@ -8,26 +8,19 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from hashlib import sha256
 
-from fastapi import (
-    BackgroundTasks,
-    Depends,
-    FastAPI,
-    Header,
-    HTTPException,
-    Query,
-    Request,
-)
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+
+from libs.observability.logging import RequestContextMiddleware, configure_logging
+from libs.observability.metrics import setup_metrics
+from providers.limits import PairLimit, build_orderbook, build_quote, get_pair_limit
+from schemas.market import ExecutionVenue, OrderBookSnapshot, Quote
 
 from ..adapters import BinanceMarketConnector, IBKRMarketConnector
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
 from .schemas import MarketContextSnapshot, MarketStreamEvent, PersistedTick, TradingViewSignal
-from providers.limits import PairLimit, build_orderbook, build_quote, get_pair_limit
-from schemas.market import ExecutionVenue, OrderBookSnapshot, Quote
-from libs.observability.logging import RequestContextMiddleware, configure_logging
-from libs.observability.metrics import setup_metrics
 
 configure_logging("market-data")
 
@@ -160,7 +153,9 @@ def _build_market_context(limit: PairLimit) -> MarketContextSnapshot:
     )
 
 
-def _stream_payload(limit: PairLimit, sequence: int, context: MarketContextSnapshot) -> MarketStreamEvent:
+def _stream_payload(
+    limit: PairLimit, sequence: int, context: MarketContextSnapshot
+) -> MarketStreamEvent:
     base_price = context.price
     variation = math.sin(sequence / 5.0) * limit.tick_size
     price = base_price + variation
@@ -183,7 +178,9 @@ def _stream_payload(limit: PairLimit, sequence: int, context: MarketContextSnaps
     )
 
 
-async def _event_generator(limit: PairLimit, *, max_events: int | None = None) -> AsyncIterator[str]:
+async def _event_generator(
+    limit: PairLimit, *, max_events: int | None = None
+) -> AsyncIterator[str]:
     context = _build_market_context(limit)
     sequence = 0
     emitted = 0

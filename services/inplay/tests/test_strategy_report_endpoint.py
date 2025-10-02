@@ -10,7 +10,6 @@ from services.inplay.app.config import Settings
 from services.inplay.app.main import create_app
 from services.inplay.app.schemas import TickPayload
 
-
 pytestmark = pytest.mark.anyio
 
 
@@ -74,7 +73,10 @@ async def test_strategy_report_endpoint_returns_combined_payload() -> None:
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        with patch("services.inplay.app.main.httpx.AsyncClient", lambda *args, **kwargs: DummyAsyncClient(responses)):
+        with patch(
+            "services.inplay.app.main.httpx.AsyncClient",
+            lambda *args, **kwargs: DummyAsyncClient(responses),
+        ):
             response = await client.get("/inplay/setups/AAPL/ORB")
 
     assert response.status_code == 200

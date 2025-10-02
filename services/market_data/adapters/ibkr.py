@@ -10,7 +10,6 @@ from libs.connectors import MarketConnector
 
 from .rate_limiter import AsyncRateLimiter
 
-
 logger = logging.getLogger(__name__)
 
 

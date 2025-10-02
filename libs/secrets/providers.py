@@ -1,4 +1,5 @@
 """Providers for retrieving secrets from various backends."""
+
 from __future__ import annotations
 
 import json
@@ -38,9 +39,7 @@ class VaultSecretProvider:
         try:  # Import lazily to avoid making hvac a hard dependency.
             import hvac  # type: ignore
         except Exception as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "hvac must be installed to use the Vault secret provider"
-            ) from exc
+            raise RuntimeError("hvac must be installed to use the Vault secret provider") from exc
 
         self._client = hvac.Client(url=url, token=token)
         self._exceptions = hvac.exceptions
@@ -122,6 +121,7 @@ class AWSSecretsManagerProvider:
     ) -> None:
         try:  # pragma: no cover - optional dependency
             import boto3  # type: ignore
+
             session = boto3.Session(profile_name=profile_name) if profile_name else boto3.Session()
             self._client = session.client("secretsmanager", region_name=region_name)
         except Exception as exc:  # pragma: no cover - requires AWS SDK

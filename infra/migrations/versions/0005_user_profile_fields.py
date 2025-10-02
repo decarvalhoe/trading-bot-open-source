@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "0005_user_profile_fields"
 down_revision = "0004_auth_user_timestamps"
@@ -65,11 +65,7 @@ def _drop_columns_if_exist(columns: Iterable[str]) -> None:
     existing = _existing_columns(connection, _TABLE_NAME)
     for column in columns:
         if column in existing:
-            op.execute(
-                sa.text(
-                    f'ALTER TABLE "{_TABLE_NAME}" DROP COLUMN IF EXISTS "{column}"'
-                )
-            )
+            op.execute(sa.text(f'ALTER TABLE "{_TABLE_NAME}" DROP COLUMN IF EXISTS "{column}"'))
 
 
 def _add_columns_if_missing(
@@ -89,11 +85,7 @@ def _add_columns_if_missing(
         # When a server_default was provided, drop it immediately to mimic the
         # behaviour of legacy schemas that did not persist defaults.
         if kwargs.get("server_default") is not None:
-            op.execute(
-                sa.text(
-                    f'ALTER TABLE "{_TABLE_NAME}" ALTER COLUMN "{name}" DROP DEFAULT'
-                )
-            )
+            op.execute(sa.text(f'ALTER TABLE "{_TABLE_NAME}" ALTER COLUMN "{name}" DROP DEFAULT'))
 
 
 def upgrade() -> None:

@@ -276,5 +276,5 @@ Ce projet est sous licence MIT - voir le fichier `LICENSE` pour plus de détails
 
 ---
 
-> **Développé avec ❤️ par decarvalhoe et la communauté open-source**  
+> **Développé avec ❤️ par decarvalhoe et la communauté open-source**
 > Dernière mise à jour : Décembre 2025

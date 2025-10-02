@@ -1,4 +1,5 @@
 """SQLAlchemy models describing billing and entitlements storage."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -86,7 +87,9 @@ class Subscription(Base):
 
     plan = relationship("Plan", back_populates="subscriptions")
 
-    __table_args__ = (UniqueConstraint("customer_id", "status", name="uq_subscription_customer_status"),)
+    __table_args__ = (
+        UniqueConstraint("customer_id", "status", name="uq_subscription_customer_status"),
+    )
 
 
 class EntitlementsCache(Base):
@@ -97,7 +100,9 @@ class EntitlementsCache(Base):
     id: int = Column(Integer, primary_key=True)
     customer_id: str = Column(String(64), unique=True, nullable=False)
     data: Dict[str, object] = Column(JSON, nullable=False)
-    refreshed_at: datetime = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    refreshed_at: datetime = Column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
 
 
 __all__ = [

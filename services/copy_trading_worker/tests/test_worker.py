@@ -9,9 +9,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from infra import Listing, MarketplaceBase, MarketplaceSubscription
-from schemas.market import ExecutionFill, ExecutionReport, ExecutionStatus, ExecutionVenue, OrderSide
+from schemas.market import (
+    ExecutionFill,
+    ExecutionReport,
+    ExecutionStatus,
+    ExecutionVenue,
+    OrderSide,
+)
 from schemas.order_router import ExecutionIntent
-
 from services.copy_trading_worker.app.events import LeaderExecutionEvent
 from services.copy_trading_worker.app.messaging import InMemoryLeaderExecutionBroker
 from services.copy_trading_worker.app.repository import CopySubscriptionRepository

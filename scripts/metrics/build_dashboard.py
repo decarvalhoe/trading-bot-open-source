@@ -6,9 +6,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 try:
     import tomllib  # Python 3.11+
@@ -22,17 +22,42 @@ STATUS_ICONS = {
     "at_risk": "🔴",
 }
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True, type=Path, help="Chemin vers le fichier TOML de configuration des KPI.")
-    parser.add_argument("--coverage-xml", type=Path, help="Chemin vers le rapport coverage.xml généré par coverage.py.")
-    parser.add_argument("--test-outcome", choices=["success", "failure", "cancelled", "skipped"], default="success",
-                        help="Statut du job de tests unitaires. Permet d'ajuster la valeur de couverture.")
+    parser.add_argument(
+        "--config",
+        required=True,
+        type=Path,
+        help="Chemin vers le fichier TOML de configuration des KPI.",
+    )
+    parser.add_argument(
+        "--coverage-xml",
+        type=Path,
+        help="Chemin vers le rapport coverage.xml généré par coverage.py.",
+    )
+    parser.add_argument(
+        "--test-outcome",
+        choices=["success", "failure", "cancelled", "skipped"],
+        default="success",
+        help="Statut du job de tests unitaires. Permet d'ajuster la valeur de couverture.",
+    )
     parser.add_argument("--e2e-log", type=Path, help="Journal texte produit par le scénario E2E.")
-    parser.add_argument("--e2e-outcome", choices=["success", "failure", "cancelled", "skipped"], default="success",
-                        help="Statut du job E2E pour calculer le taux de réussite.")
-    parser.add_argument("--output-md", type=Path, required=True, help="Fichier Markdown à générer pour le tableau de bord.")
-    parser.add_argument("--output-json", type=Path, required=True, help="Fichier JSON exportant les métriques.")
+    parser.add_argument(
+        "--e2e-outcome",
+        choices=["success", "failure", "cancelled", "skipped"],
+        default="success",
+        help="Statut du job E2E pour calculer le taux de réussite.",
+    )
+    parser.add_argument(
+        "--output-md",
+        type=Path,
+        required=True,
+        help="Fichier Markdown à générer pour le tableau de bord.",
+    )
+    parser.add_argument(
+        "--output-json", type=Path, required=True, help="Fichier JSON exportant les métriques."
+    )
     return parser.parse_args()
 
 
@@ -56,7 +81,9 @@ def format_percentage(value: float | None) -> str:
     return f"{value:.2f} %"
 
 
-def update_coverage(kpi: dict, coverage_xml: Path | None, outcome: str, generated_at: dt.datetime) -> None:
+def update_coverage(
+    kpi: dict, coverage_xml: Path | None, outcome: str, generated_at: dt.datetime
+) -> None:
     if kpi is None:
         return
     if outcome == "failure":
@@ -101,8 +128,12 @@ def update_coverage(kpi: dict, coverage_xml: Path | None, outcome: str, generate
         except ValueError:
             percent = None
     if percent is None:
-        lines_valid = sum(int(pkg.attrib.get("lines-valid", 0)) for pkg in root.findall(".//package"))
-        lines_covered = sum(int(pkg.attrib.get("lines-covered", 0)) for pkg in root.findall(".//package"))
+        lines_valid = sum(
+            int(pkg.attrib.get("lines-valid", 0)) for pkg in root.findall(".//package")
+        )
+        lines_covered = sum(
+            int(pkg.attrib.get("lines-covered", 0)) for pkg in root.findall(".//package")
+        )
         percent = (lines_covered / lines_valid * 100.0) if lines_valid else None
     kpi["current"] = format_percentage(percent)
     kpi["last_update"] = generated_at.isoformat()

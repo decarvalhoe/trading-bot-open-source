@@ -11,8 +11,8 @@ from openfeature.provider.in_memory_provider import InMemoryFlag, InMemoryProvid
 
 from libs.codex import CodexEvent, CodexEventPayload
 from services.codex_worker.app.entitlements import EntitlementChecker
-from services.codex_worker.app.worker import CodexWorker
 from services.codex_worker.app.sandbox import SandboxResult
+from services.codex_worker.app.worker import CodexWorker
 
 
 @pytest.fixture(autouse=True)

@@ -1,4 +1,5 @@
 """Service level state orchestration helpers."""
+
 from __future__ import annotations
 
 import logging
@@ -10,7 +11,6 @@ from schemas.order_router import ExecutionIntent, ExecutionReport
 
 from .order_router_client import OrderRouterClient, OrderRouterClientError
 from .strategies.base import StrategyBase
-
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,9 @@ class Orchestrator:
             self._state.mode = mode
             return self.get_state()
 
-    def update_daily_limit(self, *, limit: int | None = None, trades_submitted: int | None = None) -> OrchestratorState:
+    def update_daily_limit(
+        self, *, limit: int | None = None, trades_submitted: int | None = None
+    ) -> OrchestratorState:
         with self._lock:
             if limit is not None:
                 if limit <= 0:
@@ -223,7 +225,7 @@ class Orchestrator:
         with self._lock:
             self._state.recent_executions.append(payload)
             if len(self._state.recent_executions) > self._max_execution_records:
-                del self._state.recent_executions[:-self._max_execution_records]
+                del self._state.recent_executions[: -self._max_execution_records]
         repository = self._strategy_repository
         metadata = strategy.config.metadata or {}
         strategy_id = metadata.get("strategy_id") if isinstance(metadata, dict) else None
@@ -235,4 +237,3 @@ class Orchestrator:
 
 
 __all__ = ["Orchestrator", "OrchestratorState"]
-

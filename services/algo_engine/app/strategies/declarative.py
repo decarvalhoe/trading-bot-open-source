@@ -1,11 +1,11 @@
 """Declarative strategy implementation evaluated against market state."""
+
 from __future__ import annotations
 
 import operator
 from typing import Any, Dict, Mapping
 
 from .base import StrategyBase, register_strategy
-
 
 OPERATORS: Mapping[str, Any] = {
     "eq": operator.eq,

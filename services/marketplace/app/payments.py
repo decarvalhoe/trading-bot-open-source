@@ -1,4 +1,5 @@
 """Stripe Connect integration helpers for marketplace subscriptions."""
+
 from __future__ import annotations
 
 import os
@@ -50,7 +51,9 @@ class StripeAPIClient:
     def __init__(self, settings: StripeSettings) -> None:
         self.settings = settings
 
-    def create_subscription(self, request: StripeSubscriptionRequest) -> StripeSubscriptionResult:  # pragma: no cover - requires real Stripe
+    def create_subscription(
+        self, request: StripeSubscriptionRequest
+    ) -> StripeSubscriptionResult:  # pragma: no cover - requires real Stripe
         raise RuntimeError("Stripe API client is not configured for this environment")
 
 

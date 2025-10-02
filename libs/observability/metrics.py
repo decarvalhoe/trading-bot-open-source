@@ -56,9 +56,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             raise
         duration = time.perf_counter() - start
         status_code = getattr(response, "status_code", 500)
-        _REQUEST_COUNTER.labels(
-            self._service_name, method, path_template, str(status_code)
-        ).inc()
+        _REQUEST_COUNTER.labels(self._service_name, method, path_template, str(status_code)).inc()
         _REQUEST_LATENCY.labels(self._service_name, method, path_template).observe(duration)
         return response
 

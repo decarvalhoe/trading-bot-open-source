@@ -4,7 +4,6 @@ from sqlalchemy import BigInteger, Column, DateTime, Float, Integer, String, Uni
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
-
 Base = declarative_base()
 
 
