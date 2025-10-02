@@ -30,7 +30,7 @@ erreur `OrderRouterClientError` afin que l'orchestrateur puisse placer la strat�
 
 ## Script CLI `scripts/dev/bootstrap_demo.py`
 
-Le script `bootstrap_demo.py` enchaîne désormais les appels HTTP vers la stack
+Le script `bootstrap_demo.py` enchaîne désormais les appels HTTP vers la stack (assurez-vous d'avoir exécuté `pip install -r services/algo-engine/requirements.txt` si vous souhaitez tester l'assistant IA)
 docker locale pour provisionner un utilisateur, activer son profil, configurer
 une stratégie, router un ordre, générer un rapport, créer une alerte et publier
 un événement de streaming. Il prépare automatiquement les entitlements via le

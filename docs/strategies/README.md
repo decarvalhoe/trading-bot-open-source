@@ -2,6 +2,15 @@
 
 The algo engine now accepts declarative strategies that can be defined either in YAML (JSON is valid YAML) or in a lightweight Python file. Declarative strategies allow non-developers to describe trading rules that are dynamically evaluated by the engine and can be simulated before being promoted to live trading.
 
+## Feature status & prerequisites
+
+| Feature | Status | Activation prerequisites |
+| --- | --- | --- |
+| Declarative imports | General availability | Available by default via `/strategies/import` |
+| Visual Strategy Designer | Beta in the web dashboard | Access `/strategies` route on `web-dashboard`; enable streaming tokens |
+| AI Strategy Assistant | Opt-in beta | `pip install -r services/algo-engine/requirements.txt`, set `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| Backtesting API | General availability | Ensure `data/backtests/` is writable; run via `/strategies/{id}/backtest` |
+
 ## Declarative schema
 
 A declarative strategy definition is a mapping with the following keys:
@@ -66,10 +75,29 @@ Python strategies may alternatively expose a `build_strategy()` function returni
 
 Imported strategies are stored with their original source (for re-export) and the evaluated definition under `parameters.definition`.
 
+## Strategy Designer (visual editor)
+
+The web dashboard exposes a drag-and-drop designer under `/strategies`. Blocks are
+serialised to the declarative schema described above and can be exported as YAML or
+Python before being sent to the algo engine via `/strategies/import`. The feature is
+currently in **beta**:
+
+- Works best with the streaming stack running (`make demo-up`) so live setups stay in sync.
+- Requires the web dashboard service tokens (`WEB_DASHBOARD_*`) to reach `algo-engine`.
+- Tutorial: see the internal screencast referenced in `docs/tutorials/README.md`.
+
+Tests live under `services/web-dashboard/src/strategies/designer/__tests__/` and ensure
+block validation remains consistent when adding new components.
+
 ## AI strategy assistant
 
-The `ai-strategy-assistant` microservice leverages LangChain and OpenAI to transform
-natural language prompts into declarative or Python strategies. The algo engine exposes
+The `ai-strategy-assistant` microservice leverages LangChain and OpenAI to transform natural language prompts into declarative or Python strategies. This capability is opt-in and requires the following configuration before calling `/strategies/generate`:
+
+- Install optional dependencies via `pip install -r services/algo-engine/requirements.txt`.
+- Export `AI_ASSISTANT_ENABLED=1` for the algo engine service.
+- Provide a valid `OPENAI_API_KEY` to the assistant microservice.
+
+The algo engine exposes
 `POST /strategies/generate` which forwards the request to the assistant and returns a
 draft containing:
 
@@ -98,4 +126,4 @@ Backtests run through the `/strategies/{id}/backtest` endpoint leverage the new 
 
 Each backtest updates the orchestrator state with `mode = "simulation"` and exposes the latest summary under `/state` (`last_simulation`).
 
-Make sure the `data/backtests` directory is writable in your deployment target if you want to persist the artefacts.
+Make sure the `data/backtests` directory is writable in your deployment target if you want to persist the artefacts. Use the walkthrough in [`docs/tutorials/backtest-sandbox.ipynb`](../tutorials/backtest-sandbox.ipynb) to replay the demo script end-to-end.

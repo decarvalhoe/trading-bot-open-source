@@ -1,6 +1,6 @@
 # Feuille de route 2025 → 2026
 
-Cette feuille de route est alignée sur la revue de code de novembre 2025. Elle met en avant les
+Cette feuille de route est alignée sur la revue de code de novembre 2025. Les points marquants par domaine sont détaillés dans `docs/release-highlights/2025-12.md`. Elle met en avant les
 jalons trimestriels permettant de livrer un parcours de trading complet et observable.
 
 | Trimestre | Version cible | Fenêtre | Objectifs clés |

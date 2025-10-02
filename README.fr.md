@@ -21,6 +21,19 @@ Ce trading bot est une plateforme complète qui permet de :
 - ✅ **Facilité d'utilisation** : Interface intuitive et documentation complète
 - ✅ **Communauté active** : Support et contributions continues
 
+## 🧭 Panorama fonctionnel
+
+| Domaine | Périmètre | Statut | Prérequis d'activation |
+| --- | --- | --- | --- |
+| Stratégies & recherche | Strategy Designer visuel, imports déclaratifs, assistant IA, API de backtest | Livré (designer & backtests), Bêta opt-in (assistant) | `make demo-up`, `pip install -r services/algo-engine/requirements.txt`, `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| Trading & exécution | Routeur d'ordres sandbox, script bootstrap, connecteurs marché (Binance, IBKR, DTC) | Livré (sandbox + Binance/IBKR), Expérimental (DTC) | `scripts/dev/bootstrap_demo.py`, identifiants exchanges selon besoin |
+| Monitoring temps réel | Passerelle streaming, flux WebSocket InPlay, intégrations OBS/overlay | Livré (dashboard + alertes), Bêta (automatisation OBS) | Jetons de service (`reports`, `inplay`, `streaming`), secrets OAuth optionnels |
+| Reporting & analytics | API rapports quotidiens, exports PDF, métriques de risque | Livré (rapports), Enrichissement en cours (dashboards risque) | Répertoire `data/generated-reports/` accessible ; stack Prometheus/Grafana |
+| Notifications & alertes | Moteur d'alertes, service multi-canaux (Slack, email, Telegram, SMS) | Livré (cœur), Bêta (templates/throttling) | Variables d'environnement par canal, `NOTIFICATION_SERVICE_DRY_RUN` conseillé en staging |
+| Marketplace & onboarding | API listings avec Stripe Connect, abonnements copy-trading, parcours d'onboarding | Bêta privée | Compte Stripe Connect, entitlements via billing service |
+
+Retrouvez le détail des jalons dans [`docs/release-highlights/2025-12.md`](docs/release-highlights/2025-12.md).
+
 ## 🚀 État d'avancement du projet
 
 ### Phase 1 : Fondations (✅ Terminée)
@@ -60,10 +73,27 @@ curl http://localhost:8011/health
 make dev-down
 ```
 
-### Lancer le parcours de démonstration complet
+### Stack de démonstration
 
-Après avoir démarré la stack (`make demo-up`), vous pouvez exécuter le flux complet
-inscription → stratégie → exécution grâce au script suivant :
+Pour observer l'ensemble monitoring + alertes, lancez la stack complète :
+
+```bash
+make demo-up
+```
+
+La commande construit les services FastAPI additionnels, applique les migrations et
+câble Redis/PostgreSQL. Activez l'assistant IA en option via :
+
+```bash
+pip install -r services/algo-engine/requirements.txt
+export AI_ASSISTANT_ENABLED=1
+export OPENAI_API_KEY="sk-votre-cle"
+```
+
+Les artefacts générés sont déposés dans `data/generated-reports/` (PDF) et
+`data/alert-events/` (historique d'alertes SQLite).
+
+#### Lancer le parcours de démonstration complet
 
 ```bash
 scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
@@ -73,8 +103,10 @@ La commande crée un compte de démonstration, assigne les entitlements nécessa
 active le profil, configure une stratégie, route un ordre, génère un rapport PDF,
 enregistre une alerte et publie un événement streaming. Le JSON retourné résume les
 identifiants utiles (utilisateur, stratégie, ordre, alerte, chemin du rapport) ainsi
-que les tokens JWT associés. Le script historique `scripts/dev/run_mvp_flow.py`
-redirige désormais vers cette implémentation.
+que les tokens JWT associés. Rejouez le flux depuis le notebook
+[`docs/tutorials/backtest-sandbox.ipynb`](docs/tutorials/backtest-sandbox.ipynb).
+Le script historique `scripts/dev/run_mvp_flow.py` redirige désormais vers cette
+implémentation.
 
 ### Architecture technique
 
@@ -113,6 +145,12 @@ Nous accueillons toutes les contributions ! Que vous soyez :
 3. **Créez** une branche pour votre contribution
 4. **Soumettez** une pull request avec vos améliorations
 
+## 🌟 Points marquants & tutoriels
+
+- Consultez la synthèse des fonctionnalités et propriétaires dans [docs/release-highlights/2025-12.md](docs/release-highlights/2025-12.md).
+- Les notebooks et vidéos à jour sont listés dans [docs/tutorials/README.md](docs/tutorials/README.md) pour accompagner l'onboarding.
+- Les validations des responsables de service et la communication interne sont tracées dans [docs/governance/release-approvals/2025-12.md](docs/governance/release-approvals/2025-12.md) et [docs/communications/2025-12-release-update.md](docs/communications/2025-12-release-update.md).
+
 ## 📞 Support et communauté
 
 - **Issues GitHub** : Pour signaler des bugs ou proposer des fonctionnalités
@@ -145,18 +183,20 @@ Ce projet est sous licence MIT - voir le fichier `LICENSE` pour plus de détails
 **Objectif** : Permettre la création et l'exécution de stratégies de trading
 
 - ✅ **Moteur de stratégies** : Catalogue en mémoire, import déclaratif et API de backtesting
-- ✅ **Connecteurs de marché** : Adaptateurs sandbox Binance/IBKR avec limites partagées
+- ✅ **Strategy Designer visuel (bêta)** : Canvas web exportant YAML/Python compatibles avec l'algo-engine
+- 🟡 **Assistant IA (bêta opt-in)** : Endpoint `/strategies/generate` activé avec LangChain/OpenAI et variables d'environnement
+- ✅ **Connecteurs de marché** : Adaptateurs sandbox Binance/IBKR avec limites partagées ; stub Sierra Chart DTC en expérimentation
 - 🔄 **Gestion des ordres** : Persistance et historique d'exécutions en cours d'implémentation
 
 ### Phase 4 : Monitoring et Analytics (🔄 En cours - 53%)
 **Objectif** : Fournir des outils d'analyse et de suivi des performances
 
-- 🔄 **Service de rapports** (65%) : Calculs de métriques de performance, API et tests unitaires
-- 🔄 **Service de notifications** (45%) : Dispatcher, configuration et schémas de données
-- 🔄 **Dashboard web** (50%) : Composants React, intégration streaming et affichage des métriques
-- 🔄 **Infrastructure d'observabilité** (70%) : Configuration Prometheus/Grafana et dashboard FastAPI
+- ✅ **Dashboards temps réel** : Passerelle streaming + flux InPlay alimentent setups live, portefeuilles et alertes
+- ✅ **Service de rapports** (65%) : Calculs de métriques, exports PDF et API consommée par le dashboard
+- 🟡 **Service de notifications** (45%) : Diffusion multi-canale (Slack/email/Telegram/SMS) avec mode dry-run
+- 🟡 **Infrastructure d'observabilité** (70%) : Dashboards Prometheus/Grafana disponibles ; automatisation OBS ciblée T1 2026
 
-*Prochaines étapes* : Finalisation des services de notification, enrichissement du dashboard web, et configuration des alertes.
+*Prochaines étapes* : Durcir le throttling des notifications, enrichir les dashboards Grafana et documenter les bonnes pratiques OBS.
 
 ## 📊 Métriques du projet (Septembre 2025)
 

@@ -4,6 +4,14 @@ The marketplace service exposes APIs to publish algorithmic strategies and to
 manage copy-trading subscriptions. It relies on the shared entitlements service
 for access control and records all actions in the global audit trail.
 
+## Feature status
+
+| Feature | Status | Notes |
+| --- | --- | --- |
+| Listings publication & versioning | ✅ Beta (private) | Requires `can.publish_strategy` entitlement and Stripe Connect ID |
+| Copy-trading subscriptions | ✅ Beta | Requires `can.copy_trade` entitlement; payments optional via `payment_reference` |
+| Moderation & analytics | 🔜 Planned | Moderation workflows and creator analytics scheduled for Q1 2026 |
+
 ## Database schema
 
 | Table | Description |
@@ -72,3 +80,10 @@ operation is recorded to the audit trail.
 All state changes (listing publication, version releases, copy subscriptions and
 copy views) are inserted into `audit_logs`. This provides a central trace of
 monetisation events for compliance and revenue reconciliation.
+
+## Activation checklist
+
+1. Configure Stripe Connect account IDs and share them securely with operators.
+2. Ensure entitlements `can.publish_strategy` and `can.copy_trade` are provisioned via the billing service.
+3. Review audit entries in `audit_logs` after each publication to validate compliance.
+4. Track follow-up work (moderation tooling, analytics dashboards) under the roadmap in `docs/release-highlights/2025-12.md`.

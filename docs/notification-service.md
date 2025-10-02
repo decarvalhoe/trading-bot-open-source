@@ -1,5 +1,8 @@
 # Notification Service Configuration
 
+Le service est **en bêta** : les canaux webhook, Slack, email, Telegram et SMS fonctionnent en mode dry-run par défaut.
+Planifiez la bascule en production une fois le throttling documenté (Q1 2026).
+
 Le service de notifications prend en charge plusieurs canaux de diffusion (webhook, Slack, e-mail, Telegram, SMS).
 Les variables d'environnement suivantes contrôlent son comportement. Toutes les variables utilisent le préfixe `NOTIFICATION_SERVICE_`.
 
@@ -21,3 +24,9 @@ Les variables d'environnement suivantes contrôlent son comportement. Toutes les
 
 En mode `dry-run`, aucun appel réseau n'est effectué : les notifications sont simplement journalisées.
 Cela permet de tester la configuration de routage sans dépendre d'intégrations externes.
+
+## Checklist d’activation
+
+1. Renseigner les variables Slack/SMTP/Telegram/SMS selon les canaux autorisés.
+2. Laisser `NOTIFICATION_SERVICE_DRY_RUN=1` en recette pour éviter les envois accidentels.
+3. Activer la livraison réelle canal par canal (`NOTIFICATION_SERVICE_DRY_RUN=0`) une fois les tests validés et les alertes documentées dans `docs/operations/alerting.md`.

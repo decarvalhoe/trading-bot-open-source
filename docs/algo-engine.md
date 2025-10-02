@@ -2,6 +2,15 @@
 
 Le service **Algo Engine** fournit un registre de stratégies extensible grâce à un système de plugins.
 
+## État des fonctionnalités
+
+| Fonctionnalité | Statut | Prérequis |
+| --- | --- | --- |
+| Registre de stratégies & imports déclaratifs | ✅ Livré | `/strategies` et `/strategies/import` disponibles par défaut |
+| Assistant IA | 🟡 Bêta opt-in | `pip install -r services/algo-engine/requirements.txt`, `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| Backtests | ✅ Livré | Dossier `data/backtests/` accessible en écriture |
+| Visual Designer (via web-dashboard) | 🟡 Bêta | Service `web-dashboard` actif, tokens entitlements |
+
 ## Plugins de stratégie
 
 - Les classes héritent de `StrategyBase` et définissent un identifiant unique `key`.
@@ -44,10 +53,7 @@ et ses dépendances (`langchain`, `langchain-openai`, `openai`, ...). Ces paquet
 sont maintenant déclarés dans `services/algo-engine/requirements.txt` afin que
 `pip install -r services/algo-engine/requirements.txt` prépare l'environnement.
 
-Le service reste néanmoins fonctionnel sans ces dépendances. Pour désactiver
-explicitement l'assistant, définissez `AI_ASSISTANT_ENABLED=0` avant de lancer
-`uvicorn app.main:app`. Dans ce cas, `/strategies/generate` renverra un HTTP 503
-indiquant que la fonctionnalité est désactivée.
+Le service reste néanmoins fonctionnel sans ces dépendances. Pour désactiver explicitement l'assistant, définissez `AI_ASSISTANT_ENABLED=0` avant de lancer `uvicorn app.main:app`. Dans ce cas, `/strategies/generate` renverra un HTTP 503 indiquant que la fonctionnalité est désactivée. Le tutoriel `docs/tutorials/backtest-sandbox.ipynb` fournit un exemple d'appel complet.
 
 Le middleware d'entitlements vérifie la capacité `can.manage_strategies` et expose la limite de stratégies actives (`max_active_strategies`). L'orchestrateur interne applique les limites journalières.
 

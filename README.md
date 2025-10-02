@@ -21,6 +21,20 @@ This trading bot is a complete platform that allows you to:
 - ✅ **Ease of Use**: Intuitive interface and complete documentation
 - ✅ **Active Community**: Continuous support and contributions
 
+## 🧭 Feature overview
+
+| Domain | Scope | Status | Activation prerequisites |
+| --- | --- | --- | --- |
+| Strategies & research | Visual Strategy Designer, declarative imports, AI assistant, backtesting API | Delivered (designer & backtests), Beta opt-in (assistant) | `make demo-up`, `pip install -r services/algo-engine/requirements.txt`, `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| Trading & execution | Sandbox order router, strategy bootstrap script, market connectors (Binance, IBKR, DTC stub) | Delivered (sandbox + Binance/IBKR), Experimental (DTC) | `scripts/dev/bootstrap_demo.py`, connector credentials when available |
+| Real-time monitoring | Streaming gateway, InPlay WebSocket feed, OBS/overlay integrations | Delivered (dashboard + alerts), Beta (OBS automation) | Service tokens (`reports`, `inplay`, `streaming`), optional OAuth secrets |
+| Reporting & analytics | Daily reports API, PDF exports, risk metrics | Delivered (reports), In progress (extended risk dashboards) | Ensure `data/generated-reports/` is writable; enable Prometheus/Grafana stack |
+| Notifications & alerts | Alert engine, multi-channel notification service (Slack, email, Telegram, SMS) | Delivered (core delivery), Beta (templates/throttling) | Configure channel-specific environment variables; keep `NOTIFICATION_SERVICE_DRY_RUN` for staging |
+| Marketplace & onboarding | Listings API with Stripe Connect splits, copy-trading subscriptions, onboarding automation | Beta private launch | Stripe Connect account, entitlements via billing service |
+
+Track detailed milestones and owners in
+[`docs/release-highlights/2025-12.md`](docs/release-highlights/2025-12.md).
+
 ## 🚀 Project Status
 
 ### Phase 1: Foundations (✅ Completed)
@@ -55,10 +69,17 @@ make demo-up
 ```
 
 The command builds the additional FastAPI services, applies Alembic migrations and wires
-Redis/PostgreSQL before exposing the following ports:
+Redis/PostgreSQL before exposing the following ports. Enable the optional AI strategy
+assistant and connectors with:
+
+```bash
+pip install -r services/algo-engine/requirements.txt
+export AI_ASSISTANT_ENABLED=1
+export OPENAI_API_KEY="sk-your-key"
+```
 
 - `8013` — `order-router` (execution plans and simulated brokers)
-- `8014` — `algo-engine` (strategy catalogue and backtesting – optional AI assistant on `/strategies/generate`, install `services/algo-engine/requirements.txt` and keep `AI_ASSISTANT_ENABLED=1`)
+- `8014` — `algo-engine` (strategy catalogue, backtesting, optional AI assistant on `/strategies/generate`)
 - `8015` — `market_data` (spot quotes, orderbooks and TradingView webhooks)
 - `8016` — `reports` (risk reports and PDF generation)
 - `8017` — `alert_engine` (rule evaluation with streaming ingestion)
@@ -91,6 +112,8 @@ The command provisions a demo account, assigns entitlements, configures a strate
 routes an order, generates a PDF report, registers an alert and publishes a streaming
 event. The emitted JSON summarises all created identifiers (user, strategy, order,
 alert, report location) together with the JWT tokens associated to the demo profile.
+Replay the flow interactively with the notebook in
+[`docs/tutorials/backtest-sandbox.ipynb`](docs/tutorials/backtest-sandbox.ipynb).
 `scripts/dev/run_mvp_flow.py` now simply wraps this command for backward compatibility.
 
 ### Database migrations
@@ -200,18 +223,20 @@ This project is licensed under the MIT License - see the `LICENSE` file for more
 **Objective**: To allow the creation and execution of trading strategies
 
 - ✅ **Strategy Engine**: In-memory catalogue, declarative import and backtesting API
-- ✅ **Market Connectors**: Sandbox adapters for Binance/IBKR with shared limits
+- ✅ **Visual Designer (beta)**: Web dashboard canvas exporting YAML/Python definitions compatible with the importer
+- 🟡 **AI Strategy Assistant (opt-in beta)**: Enable `/strategies/generate` with LangChain/OpenAI once environment variables are set
+- ✅ **Market Connectors**: Sandbox adapters for Binance/IBKR with shared limits; Sierra Chart DTC stub remains experimental
 - 🔄 **Order Management**: Persistence and execution history implementation in progress
 
 ### Phase 4: Monitoring and Analytics (🔄 In Progress - 53%)
 **Objective**: To provide tools for performance analysis and tracking
 
-- 🔄 **Reports Service** (65%): Performance metrics calculations, API and unit tests
-- 🔄 **Notifications Service** (45%): Dispatcher, configuration and data schemas
-- 🔄 **Web Dashboard** (50%): React components, streaming integration and metrics display
-- 🔄 **Observability Infrastructure** (70%): Prometheus/Grafana configuration and FastAPI dashboard
+- ✅ **Real-time dashboards**: Streaming gateway + InPlay feed powering live setups, portfolio deltas and alert lists
+- ✅ **Reports Service** (65%): Performance metrics calculations, PDF exports and API endpoints consumed by the dashboard
+- 🟡 **Notifications Service** (45%): Multi-channel delivery (Slack/email/Telegram/SMS) available with dry-run safeguards
+- 🟡 **Observability Infrastructure** (70%): Prometheus/Grafana dashboards online; overlay automation for OBS targeted for Q1 2026
 
-*Next Steps*: Finalization of notification services, enhancement of web dashboard, and alert configuration.
+*Next Steps*: Harden notification throttling, enrich Grafana packs, and document OBS automation best practices.
 
 ## 📊 Project Metrics (September 2025)
 
@@ -252,5 +277,11 @@ This project is licensed under the MIT License - see the `LICENSE` file for more
    - Develop a library of ready-to-use strategies
    - Create a visual strategy editor
    - Implement advanced backtesting tools
+
+## 🌟 Release highlights & tutorials
+
+- Review consolidated milestones and status owners in [docs/release-highlights/2025-12.md](docs/release-highlights/2025-12.md).
+- Updated notebooks and videos are listed in [docs/tutorials/README.md](docs/tutorials/README.md) for quick onboarding.
+- Service sign-offs and communication log reside under [docs/governance/release-approvals/2025-12.md](docs/governance/release-approvals/2025-12.md) and [docs/communications/2025-12-release-update.md](docs/communications/2025-12-release-update.md).
 
 ## 🛠️ For Developers
