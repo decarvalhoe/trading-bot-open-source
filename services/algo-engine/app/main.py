@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import threading
 import uuid
@@ -14,15 +15,38 @@ from fastapi import FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 ASSISTANT_SRC = Path(__file__).resolve().parents[2] / "ai-strategy-assistant" / "src"
-if ASSISTANT_SRC.exists():
-    sys.path.insert(0, str(ASSISTANT_SRC))
+ASSISTANT_ENV_FLAG = os.getenv("AI_ASSISTANT_ENABLED", "true").lower()
+ASSISTANT_FEATURE_ENABLED = ASSISTANT_ENV_FLAG not in {"0", "false", "no", "off"}
+ASSISTANT_AVAILABLE = False
 
-from ai_strategy_assistant import (  # noqa: E402
-    AIStrategyAssistant,
-    StrategyGenerationError,
-    StrategyGenerationRequest,
-)
-from ai_strategy_assistant.schemas import StrategyFormat  # noqa: E402
+if ASSISTANT_FEATURE_ENABLED and ASSISTANT_SRC.exists():
+    sys.path.insert(0, str(ASSISTANT_SRC))
+    try:
+        from ai_strategy_assistant import (  # noqa: E402
+            AIStrategyAssistant,
+            StrategyGenerationError,
+            StrategyGenerationRequest,
+        )
+        from ai_strategy_assistant.schemas import StrategyFormat  # noqa: E402
+    except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover - optional dependency
+        logging.getLogger(__name__).warning(
+            "AI strategy assistant unavailable: %s", exc
+        )
+        AIStrategyAssistant = None  # type: ignore[assignment]
+        StrategyGenerationError = RuntimeError  # type: ignore[assignment]
+        StrategyGenerationRequest = None  # type: ignore[assignment]
+        StrategyFormat = None  # type: ignore[assignment]
+    else:
+        ASSISTANT_AVAILABLE = True
+else:
+    if not ASSISTANT_FEATURE_ENABLED:
+        logging.getLogger(__name__).info(
+            "AI strategy assistant disabled via AI_ASSISTANT_ENABLED environment flag"
+        )
+    AIStrategyAssistant = None  # type: ignore[assignment]
+    StrategyGenerationError = RuntimeError  # type: ignore[assignment]
+    StrategyGenerationRequest = None  # type: ignore[assignment]
+    StrategyFormat = None  # type: ignore[assignment]
 
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
@@ -41,6 +65,21 @@ from .strategies import declarative, gap_fill, orb  # noqa: F401 - register plug
 
 
 logger = logging.getLogger(__name__)
+
+ASSISTANT_UNAVAILABLE_DETAIL = (
+    "AI strategy assistant is disabled or unavailable. "
+    "Install optional dependencies from services/ai-strategy-assistant and set "
+    "AI_ASSISTANT_ENABLED=1 to enable the feature."
+)
+
+
+if ASSISTANT_AVAILABLE and "AIStrategyAssistant" in globals() and AIStrategyAssistant:
+    logger.info("AI strategy assistant enabled")
+    ai_assistant = AIStrategyAssistant()
+else:
+    if ASSISTANT_FEATURE_ENABLED and not ASSISTANT_AVAILABLE:
+        logger.warning("AI strategy assistant dependencies missing; feature disabled")
+    ai_assistant = None
 
 
 class StrategyStatus(str, Enum):
@@ -183,7 +222,6 @@ orchestrator = Orchestrator(
 )
 backtester = Backtester()
 reports_publisher = ReportsPublisher()
-ai_assistant = AIStrategyAssistant()
 
 configure_logging("algo-engine")
 
@@ -390,6 +428,16 @@ def import_strategy(payload: StrategyImportPayload, request: Request) -> Dict[st
 
 @app.post("/strategies/generate")
 def generate_strategy_from_prompt(payload: StrategyGenerationPayload) -> Dict[str, Any]:
+    if (
+        ai_assistant is None
+        or not ASSISTANT_AVAILABLE
+        or StrategyGenerationRequest is None
+        or StrategyFormat is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=ASSISTANT_UNAVAILABLE_DETAIL,
+        )
     try:
         assistant_request = StrategyGenerationRequest(
             prompt=payload.prompt,

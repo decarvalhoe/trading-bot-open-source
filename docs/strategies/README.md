@@ -83,6 +83,12 @@ from predefined prompts, toggle indicator suggestions, review the generated code
 edit it before importing via `POST /strategies/import/assistant`, which proxies the
 payload to the algo engine.
 
+> ℹ️ **Runtime requirements** – Installing
+> `pip install -r services/algo-engine/requirements.txt` now pulls the optional
+> `langchain`, `langchain-openai` and `openai` dependencies needed by the assistant.
+> Set `AI_ASSISTANT_ENABLED=0` to boot the algo engine without the feature; in that
+> case `/strategies/generate` returns HTTP 503 with a clear message.
+
 ## Simulation & artefacts
 
 Backtests run through the `/strategies/{id}/backtest` endpoint leverage the new simulation mode. Results are saved inside `data/backtests/`:
