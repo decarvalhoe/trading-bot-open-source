@@ -235,8 +235,34 @@ class DashboardClient:
     def close(self) -> None:
         self._client.close()
 
-    def create_alert(self, *, title: str, detail: str, risk: str = "info") -> Mapping[str, Any]:
-        payload = {"title": title, "detail": detail, "risk": risk}
+    def create_alert(
+        self,
+        *,
+        title: str,
+        detail: str,
+        risk: str = "info",
+        symbol: str = "BTCUSDT",
+        throttle_seconds: int = 900,
+    ) -> Mapping[str, Any]:
+        payload = {
+            "title": title,
+            "detail": detail,
+            "risk": risk,
+            "rule": {
+                "symbol": symbol,
+                "timeframe": "1h",
+                "conditions": {
+                    "pnl": {"enabled": True, "operator": "below", "value": -150.0},
+                    "drawdown": {"enabled": True, "operator": "above", "value": 5.0},
+                    "indicators": [],
+                },
+            },
+            "channels": [
+                {"type": "email", "target": "alerts@example.com", "enabled": True},
+                {"type": "webhook", "target": "https://hooks.example.com/alerts", "enabled": True},
+            ],
+            "throttle_seconds": throttle_seconds,
+        }
         return self._client.create_alert(payload)
 
 
@@ -479,6 +505,8 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
             title=f"{args.symbol} order executed",
             detail=f"Bootstrap routed {args.quantity} {args.symbol} ({side.value}).",
             risk="info",
+            symbol=args.symbol,
+            throttle_seconds=900,
         )
 
         streaming_client = StreamingClient(args.streaming_url, service_token=args.streaming_token)

@@ -164,6 +164,8 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
             <thead>
               <tr>
                 <th scope="col">Déclenchée le</th>
+                <th scope="col">Type</th>
+                <th scope="col">Canal</th>
                 <th scope="col">Règle</th>
                 <th scope="col">Stratégie</th>
                 <th scope="col">Sévérité</th>
@@ -172,8 +174,10 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
             </thead>
             <tbody>
               {items.map((event) => (
-                <tr key={event.id || `${event.trigger_id}-${event.rule_id}`}> 
+                <tr key={event.id || `${event.trigger_id}-${event.rule_id}`}>
                   <td data-label="Déclenchée le">{formatDate(event.triggered_at)}</td>
+                  <td data-label="Type">{event.notification_type || "trigger"}</td>
+                  <td data-label="Canal">{event.notification_channel || "-"}</td>
                   <td data-label="Règle">{event.rule_name}</td>
                   <td data-label="Stratégie">{event.strategy}</td>
                   <td data-label="Sévérité">
