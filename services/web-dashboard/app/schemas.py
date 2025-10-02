@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from enum import Enum
 
@@ -434,6 +434,30 @@ class TradingViewConfigUpdate(BaseModel):
     default_symbol: str | None = Field(default=None)
     symbol_map: Dict[str, str] | None = Field(default=None)
     overlays: List[TradingViewOverlay] | None = Field(default=None)
+
+
+class FollowerCopySnapshot(BaseModel):
+    """State of a copy-trading subscription from the follower perspective."""
+
+    listing_id: int
+    strategy_name: str | None = None
+    leader_id: str | None = None
+    leverage: float
+    allocated_capital: float | None = None
+    risk_limits: Dict[str, Any] = Field(default_factory=dict)
+    divergence_bps: float | None = None
+    estimated_fees: float = 0.0
+    replication_status: str = "idle"
+    last_synced_at: datetime | None = None
+
+
+class FollowerDashboardContext(BaseModel):
+    """Aggregated view rendered by the follower dashboard."""
+
+    copies: List[FollowerCopySnapshot] = Field(default_factory=list)
+    source: Literal["live", "fallback"] = "live"
+    viewer_id: str
+    fallback_reason: str | None = None
 
 
 class DashboardContext(BaseModel):

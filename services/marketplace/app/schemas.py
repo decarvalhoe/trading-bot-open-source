@@ -67,6 +67,9 @@ class CopyRequest(BaseModel):
     listing_id: int
     version_id: Optional[int] = None
     payment_reference: Optional[str] = Field(default=None, max_length=128)
+    leverage: float = Field(default=1.0, ge=0.1, le=10.0)
+    allocated_capital: Optional[float] = Field(default=None, ge=0)
+    risk_limits: Dict[str, Any] = Field(default_factory=dict)
 
 
 class CopyResponse(BaseModel):
@@ -77,6 +80,15 @@ class CopyResponse(BaseModel):
     payment_reference: Optional[str]
     connect_transfer_reference: Optional[str]
     status: str
+    leverage: float
+    allocated_capital: Optional[float]
+    risk_limits: Dict[str, Any]
+    replication_status: str
+    divergence_bps: Optional[float]
+    total_fees_paid: float
+    last_synced_at: Optional[datetime]
+    strategy_name: Optional[str] = None
+    leader_id: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

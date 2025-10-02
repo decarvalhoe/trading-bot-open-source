@@ -94,7 +94,13 @@ def test_publish_and_copy_flow(entitlements_state):
         features={"can.copy_trade": True},
         quotas={},
     )
-    copy_payload = {"listing_id": listing_id, "payment_reference": "pi_123"}
+    copy_payload = {
+        "listing_id": listing_id,
+        "payment_reference": "pi_123",
+        "leverage": 1.5,
+        "allocated_capital": 2500.0,
+        "risk_limits": {"max_notional": 3000},
+    }
     copy_response = client.post(
         "/marketplace/copies",
         json=copy_payload,
@@ -106,10 +112,20 @@ def test_publish_and_copy_flow(entitlements_state):
     assert subscription["payment_reference"] == "pi_123"
     assert subscription["status"] == "active"
     assert subscription["connect_transfer_reference"] is None
+    assert subscription["leverage"] == pytest.approx(1.5)
+    assert subscription["allocated_capital"] == pytest.approx(2500.0)
+    assert subscription["risk_limits"]["max_notional"] == 3000
+    assert subscription["replication_status"] == "pending"
+    assert subscription["total_fees_paid"] == pytest.approx(0.0)
+    assert subscription["strategy_name"] == "Momentum Edge"
+    assert subscription["leader_id"] == "creator-1"
 
     copies_response = client.get("/marketplace/copies", headers={"x-user-id": "investor-9"})
     assert copies_response.status_code == 200
     assert len(copies_response.json()) == 1
+    returned = copies_response.json()[0]
+    assert returned["strategy_name"] == "Momentum Edge"
+    assert returned["leader_id"] == "creator-1"
 
     with SessionLocal() as db:
         listing = db.get(Listing, listing_id)
@@ -119,6 +135,11 @@ def test_publish_and_copy_flow(entitlements_state):
         assert versions, "Expected at least one stored version"
         audit_actions = db.scalars(select(AuditLog.action)).all()
         assert {"listing.created", "listing.copied"}.issubset(set(audit_actions))
+        subscription_row = db.scalar(select(MarketplaceSubscription).where(MarketplaceSubscription.listing_id == listing_id))
+        assert subscription_row is not None
+        assert subscription_row.leverage == pytest.approx(1.5)
+        assert subscription_row.allocated_capital == pytest.approx(2500.0)
+        assert subscription_row.risk_limits.get("max_notional") == 3000
 
 
 def test_only_owner_can_publish_new_version(entitlements_state):

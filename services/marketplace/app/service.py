@@ -218,6 +218,29 @@ def get_listing(db: Session, listing_id: int) -> Listing:
     return _attach_review_stats([(listing, reviews_count, average_rating)])[0]
 
 
+def serialize_subscription(subscription: MarketplaceSubscription) -> dict[str, object]:
+    listing = subscription.listing
+    return {
+        "id": subscription.id,
+        "listing_id": subscription.listing_id,
+        "subscriber_id": subscription.subscriber_id,
+        "version_id": subscription.version_id,
+        "payment_reference": subscription.payment_reference,
+        "connect_transfer_reference": subscription.connect_transfer_reference,
+        "status": subscription.status,
+        "leverage": subscription.leverage,
+        "allocated_capital": subscription.allocated_capital,
+        "risk_limits": subscription.risk_limits or {},
+        "replication_status": subscription.replication_status,
+        "divergence_bps": subscription.divergence_bps,
+        "total_fees_paid": subscription.total_fees_paid or 0.0,
+        "last_synced_at": subscription.last_synced_at,
+        "strategy_name": listing.strategy_name if listing else None,
+        "leader_id": listing.owner_id if listing else None,
+        "created_at": subscription.created_at,
+    }
+
+
 def create_subscription(
     db: Session,
     *,
@@ -263,15 +286,27 @@ def create_subscription(
     elif payment_reference:
         status = "active"
 
-    subscription = MarketplaceSubscription(
-        listing=listing,
-        subscriber_id=actor_id,
-        version=version,
-        payment_reference=payment_reference,
-        connect_transfer_reference=connect_transfer_reference,
-        status=status,
-    )
-    db.add(subscription)
+    if existing:
+        subscription = existing
+        subscription.version = version
+        subscription.payment_reference = payment_reference
+        subscription.connect_transfer_reference = connect_transfer_reference
+        subscription.status = status
+    else:
+        subscription = MarketplaceSubscription(
+            listing=listing,
+            subscriber_id=actor_id,
+            version=version,
+            payment_reference=payment_reference,
+            connect_transfer_reference=connect_transfer_reference,
+            status=status,
+        )
+        db.add(subscription)
+
+    subscription.leverage = payload.leverage
+    subscription.allocated_capital = payload.allocated_capital
+    subscription.risk_limits = payload.risk_limits or {}
+    subscription.replication_status = "pending"
     db.flush()
 
     record_audit(

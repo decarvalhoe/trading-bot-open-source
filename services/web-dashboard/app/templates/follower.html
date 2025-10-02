@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Suivi des copies</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="layout__header">
+      <nav class="app-nav" aria-label="Navigation principale">
+        <a
+          href="{{ request.url_for('render_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'dashboard' else '' }}"
+          aria-current="{{ 'page' if active_page == 'dashboard' else 'false' }}"
+        >
+          Tableau de bord
+        </a>
+        <a
+          href="{{ request.url_for('render_marketplace') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'marketplace' else '' }}"
+          aria-current="{{ 'page' if active_page == 'marketplace' else 'false' }}"
+        >
+          Marketplace
+        </a>
+        <a
+          href="{{ request.url_for('render_follower_dashboard') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'followers' else '' }}"
+          aria-current="{{ 'page' if active_page == 'followers' else 'false' }}"
+        >
+          Suivi copies
+        </a>
+        <a
+          href="{{ request.url_for('render_strategies') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategies' else 'false' }}"
+        >
+          Stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_strategy_documentation') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategy-docs' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategy-docs' else 'false' }}"
+        >
+          Documentation stratégies
+        </a>
+        <a
+          href="{{ request.url_for('render_account') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
+          aria-current="{{ 'page' if active_page == 'account' else 'false' }}"
+        >
+          Compte &amp; API
+        </a>
+      </nav>
+      <h1 class="heading heading--xl">Suivi des copies</h1>
+      <p class="text text--muted">
+        Visualisez l'état de vos abonnements copy-trading : niveaux de levier, divergence d'exécution et frais estimés.
+      </p>
+    </header>
+    <main class="layout__main">
+      {% if context.source != 'live' %}
+      <section class="card" aria-live="polite">
+        <div class="card__body">
+          <p class="text text--muted">{{ context.fallback_reason or 'Les données en temps réel ne sont pas disponibles pour le moment.' }}</p>
+        </div>
+      </section>
+      {% endif %}
+      <section class="card" aria-labelledby="copies-title">
+        <div class="card__header">
+          <h2 id="copies-title" class="heading heading--lg">Copies actives</h2>
+          <p class="text text--muted">Identifiant suiveur : {{ context.viewer_id }}</p>
+        </div>
+        <div class="card__body">
+          {% if context.copies %}
+          <div class="table-responsive">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">Stratégie</th>
+                  <th scope="col">Leader</th>
+                  <th scope="col">Levier</th>
+                  <th scope="col">Capital alloué</th>
+                  <th scope="col">Divergence (bps)</th>
+                  <th scope="col">Frais estimés</th>
+                  <th scope="col">Statut</th>
+                  <th scope="col">Dernière synchro</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for copy in context.copies %}
+                <tr>
+                  <td data-label="Stratégie">{{ copy.strategy_name or 'N/A' }}</td>
+                  <td data-label="Leader">{{ copy.leader_id or '—' }}</td>
+                  <td data-label="Levier">{{ '%.2f' | format(copy.leverage) }}</td>
+                  <td data-label="Capital alloué">
+                    {% if copy.allocated_capital is not none %}
+                    {{ '%.2f' | format(copy.allocated_capital) }}
+                    {% else %}
+                    —
+                    {% endif %}
+                  </td>
+                  <td data-label="Divergence (bps)">
+                    {% if copy.divergence_bps is not none %}
+                    {{ '%.2f' | format(copy.divergence_bps) }}
+                    {% else %}
+                    —
+                    {% endif %}
+                  </td>
+                  <td data-label="Frais estimés">{{ '%.2f' | format(copy.estimated_fees) }}</td>
+                  <td data-label="Statut">
+                    <span class="badge {{ 'badge--success' if copy.replication_status == 'filled' else 'badge--info' if copy.replication_status == 'active' else 'badge--warning' if copy.replication_status == 'pending' else 'badge--critical' if copy.replication_status == 'error' else 'badge--neutral' }}">
+                      {{ copy.replication_status | capitalize }}
+                    </span>
+                  </td>
+                  <td data-label="Dernière synchro">
+                    {% if copy.last_synced_at %}
+                    {{ copy.last_synced_at.strftime('%d/%m/%Y %H:%M') }}
+                    {% else %}
+                    —
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="text text--muted">
+            Aucun abonnement actif n'a été trouvé pour votre profil. Abonnez-vous depuis la marketplace pour activer la réplication.
+          </p>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

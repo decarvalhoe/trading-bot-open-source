@@ -23,6 +23,8 @@ from .order_router_client import OrderRouterClient, OrderRouterError
 from .schemas import (
     Alert,
     DashboardContext,
+    FollowerCopySnapshot,
+    FollowerDashboardContext,
     Holding,
     InPlayDashboardSetups,
     InPlaySetupStatus,
@@ -76,6 +78,11 @@ ORDER_ROUTER_TIMEOUT_SECONDS = float(
 )
 ORDER_ROUTER_LOG_LIMIT = int(os.getenv("WEB_DASHBOARD_ORDER_LOG_LIMIT", "200"))
 MAX_TRANSACTIONS = int(os.getenv("WEB_DASHBOARD_MAX_TRANSACTIONS", "25"))
+MARKETPLACE_BASE_URL = os.getenv("WEB_DASHBOARD_MARKETPLACE_URL", "http://marketplace:8000/")
+MARKETPLACE_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_MARKETPLACE_TIMEOUT", "5.0"))
+FOLLOWER_FALLBACK_MESSAGE = (
+    "Marketplace indisponible pour récupérer vos copies."
+)
 
 
 def _fallback_portfolios() -> List[Portfolio]:
@@ -1334,6 +1341,96 @@ def load_dashboard_context() -> DashboardContext:
         setups=_fetch_inplay_setups(),
         data_sources=data_sources,
     )
+
+
+def load_follower_dashboard(viewer_id: str) -> FollowerDashboardContext:
+    """Retrieve copy-trading subscriptions for the follower dashboard."""
+
+    base_url = _normalise_base_url(MARKETPLACE_BASE_URL)
+    endpoint = urljoin(base_url, "marketplace/copies")
+    headers = {"x-user-id": viewer_id}
+    try:
+        response = httpx.get(
+            endpoint,
+            headers=headers,
+            timeout=MARKETPLACE_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "Unable to load copy subscriptions for %s: %s", viewer_id, exc
+        )
+        return FollowerDashboardContext(
+            viewer_id=viewer_id,
+            source="fallback",
+            fallback_reason=FOLLOWER_FALLBACK_MESSAGE,
+        )
+
+    try:
+        payload = response.json()
+    except ValueError:
+        logger.warning("Marketplace returned invalid JSON for copies endpoint")
+        return FollowerDashboardContext(
+            viewer_id=viewer_id,
+            source="fallback",
+            fallback_reason="Réponse marketplace invalide.",
+        )
+
+    snapshots: List[FollowerCopySnapshot] = []
+    if isinstance(payload, list):
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            listing_id = entry.get("listing_id")
+            if not isinstance(listing_id, int):
+                continue
+            strategy_name = entry.get("strategy_name")
+            leader_id = entry.get("leader_id")
+            leverage_raw = entry.get("leverage", 1.0)
+            try:
+                leverage = float(leverage_raw)
+            except (TypeError, ValueError):
+                leverage = 1.0
+            allocated_raw = entry.get("allocated_capital")
+            try:
+                allocated = float(allocated_raw) if allocated_raw is not None else None
+            except (TypeError, ValueError):
+                allocated = None
+            risk_limits = entry.get("risk_limits")
+            if not isinstance(risk_limits, dict):
+                risk_limits = {}
+            divergence = entry.get("divergence_bps")
+            try:
+                divergence_value = (
+                    float(divergence) if divergence is not None else None
+                )
+            except (TypeError, ValueError):
+                divergence_value = None
+            fees = entry.get("total_fees_paid") or entry.get("estimated_fees")
+            try:
+                fees_value = float(fees) if fees is not None else 0.0
+            except (TypeError, ValueError):
+                fees_value = 0.0
+            status = entry.get("replication_status") or entry.get("status") or "idle"
+            last_synced = _parse_timestamp(entry.get("last_synced_at"))
+            snapshots.append(
+                FollowerCopySnapshot(
+                    listing_id=listing_id,
+                    strategy_name=str(strategy_name)
+                    if isinstance(strategy_name, str)
+                    else None,
+                    leader_id=str(leader_id) if isinstance(leader_id, str) else None,
+                    leverage=leverage,
+                    allocated_capital=allocated,
+                    risk_limits=risk_limits,
+                    divergence_bps=divergence_value,
+                    estimated_fees=fees_value,
+                    replication_status=str(status),
+                    last_synced_at=last_synced,
+                )
+            )
+
+    return FollowerDashboardContext(copies=snapshots, viewer_id=viewer_id)
 
 
 def load_portfolio_history() -> List[PortfolioHistorySeries]:

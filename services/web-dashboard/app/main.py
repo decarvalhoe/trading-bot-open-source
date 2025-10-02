@@ -36,6 +36,7 @@ from .data import (
     ORDER_ROUTER_BASE_URL,
     ORDER_ROUTER_TIMEOUT_SECONDS,
     load_dashboard_context,
+    load_follower_dashboard,
     load_portfolio_history,
     load_tradingview_config,
     save_tradingview_config,
@@ -76,6 +77,7 @@ AI_ASSISTANT_BASE_URL = os.getenv(
     "http://ai-strategy-assistant:8085/",
 )
 AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10.0"))
+DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
 
 security = HTTPBearer(auto_error=False)
 
@@ -817,6 +819,23 @@ def render_dashboard(request: Request) -> HTMLResponse:
             },
             "active_page": "dashboard",
             "annotation_status": request.query_params.get("annotation"),
+        },
+    )
+
+
+@app.get("/dashboard/followers", response_class=HTMLResponse)
+def render_follower_dashboard(request: Request) -> HTMLResponse:
+    """Render the follower dashboard summarising copy-trading allocations."""
+
+    viewer_id = request.headers.get("x-user-id") or request.query_params.get("viewer_id")
+    viewer_id = viewer_id or DEFAULT_FOLLOWER_ID
+    context = load_follower_dashboard(viewer_id)
+    return templates.TemplateResponse(
+        "follower.html",
+        {
+            "request": request,
+            "context": context,
+            "active_page": "followers",
         },
     )
 
