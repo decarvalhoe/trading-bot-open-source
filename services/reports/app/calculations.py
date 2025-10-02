@@ -96,7 +96,7 @@ class ReportCalculator:
         sample_size = max(row.trades, len(returns)) or 1
         expectancy = mean(returns) if returns else row.total_return * row.initial_balance
         probability = len(wins) / len(returns) if returns else 0.0
-        target = mean(wins) if wins else max(equity_curve) - equity_curve[0] if equity_curve else 0.0
+        target = mean(wins) if wins else 0.0
         stop = abs(mean(losses)) if losses else 0.0
         return StrategyMetrics(
             strategy=strategy,
@@ -116,12 +116,25 @@ class ReportCalculator:
         def _weighted(a: float, b: float) -> float:
             return (a * first.sample_size + b * second.sample_size) / total_samples
 
+        probability = _weighted(first.probability, second.probability)
+        expectancy = _weighted(first.expectancy, second.expectancy)
+
+        if first.sample_size > 0:
+            target = first.target
+            stop = first.stop
+        elif second.sample_size > 0:
+            target = second.target
+            stop = second.stop
+        else:
+            target = 0.0
+            stop = 0.0
+
         return StrategyMetrics(
             strategy=first.strategy,
-            probability=_weighted(first.probability, second.probability),
-            target=_weighted(first.target, second.target),
-            stop=_weighted(first.stop, second.stop),
-            expectancy=_weighted(first.expectancy, second.expectancy),
+            probability=probability,
+            target=target,
+            stop=stop,
+            expectancy=expectancy,
             sample_size=total_samples,
         )
 
