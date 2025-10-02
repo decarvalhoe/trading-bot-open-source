@@ -122,6 +122,32 @@ async def test_dashboard_exposes_accessible_landmarks(page: Page, dashboard_base
     )
 
 
+async def test_portfolio_chart_zoom_and_exports(page: Page, dashboard_base_url: str, mock_streaming):
+    await page.goto(f"{dashboard_base_url}/dashboard", wait_until="networkidle")
+
+    zoom_status = page.get_by_role("status", name=re.compile("Affichage complet", re.I))
+    await expect(zoom_status).to_be_visible()
+
+    start_slider = page.get_by_label("Début du zoom")
+    await start_slider.evaluate(
+        "slider => { slider.value = '1'; slider.dispatchEvent(new Event('input', { bubbles: true })); slider.dispatchEvent(new Event('change', { bubbles: true })); }"
+    )
+
+    await expect(page.get_by_role("status", name=re.compile("Zoom", re.I))).to_be_visible()
+
+    async with page.expect_download() as csv_download_info:
+        await page.get_by_role("button", name="Exporter CSV").click()
+    csv_download = await csv_download_info.value
+    assert csv_download.suggested_filename.endswith(".csv")
+    csv_bytes = await csv_download.content()
+    assert b"Date" in csv_bytes
+
+    async with page.expect_download() as png_download_info:
+        await page.get_by_role("button", name=re.compile("Exporter PNG", re.I)).click()
+    png_download = await png_download_info.value
+    assert png_download.suggested_filename.endswith(".png")
+
+
 async def test_dashboard_updates_positions_after_closing(page: Page, dashboard_base_url: str, mock_streaming):
     growth_id = encode_portfolio_key("alice")
     income_id = encode_portfolio_key("bob")
@@ -217,4 +243,3 @@ async def test_dashboard_updates_positions_after_closing(page: Page, dashboard_b
     await expect(
         page.locator("td[data-label='Symbole']").filter(has_text="AAPL")
     ).to_have_count(0)
-
