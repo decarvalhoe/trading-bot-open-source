@@ -300,6 +300,109 @@ body {
   font-weight: 600;
 }
 
+.portfolio-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.chart-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: stretch;
+}
+
+.chart-toolbar__group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.chart-toolbar__series {
+  justify-content: flex-start;
+}
+
+.chart-toolbar__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.chart-toolbar__checkbox:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.chart-toolbar__checkbox input {
+  accent-color: rgba(56, 189, 248, 0.8);
+}
+
+.chart-toolbar__swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.chart-toolbar__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: stretch;
+}
+
+.chart-toolbar__zoom {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.chart-toolbar__sliders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.chart-toolbar__slider {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.chart-toolbar__slider input[type="range"] {
+  width: 140px;
+}
+
+.chart-toolbar__downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+@media (min-width: 720px) {
+  .chart-toolbar {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .chart-toolbar__actions {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+}
+
 .portfolio-list,
 .alert-list {
   list-style: none;
