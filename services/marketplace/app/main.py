@@ -15,9 +15,11 @@ from libs.observability.metrics import setup_metrics
 from .dependencies import (
     get_actor_id,
     get_entitlements,
+    get_payments_gateway,
     require_copy_capability,
     require_publish_capability,
 )
+from .payments import StripeConnectGateway
 from .schemas import (
     CopyRequest,
     CopyResponse,
@@ -130,8 +132,14 @@ def copy_strategy(
     db: Session = Depends(get_db),
     actor_id: str = Depends(get_actor_id),
     _: object = Depends(require_copy_capability),
+    payments_gateway: StripeConnectGateway = Depends(get_payments_gateway),
 ):
-    subscription = create_subscription(db, actor_id=actor_id, payload=payload)
+    subscription = create_subscription(
+        db,
+        actor_id=actor_id,
+        payload=payload,
+        payments_gateway=payments_gateway,
+    )
     return CopyResponse.model_validate(subscription)
 
 

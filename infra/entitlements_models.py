@@ -30,6 +30,10 @@ class Plan(Base):
     name: str = Column(String(128), nullable=False)
     stripe_price_id: str = Column(String(128), unique=True, nullable=False)
     description: Optional[str] = Column(String(255))
+    billing_interval: str = Column(
+        String(16), nullable=False, server_default=text("monthly"), default="monthly"
+    )
+    trial_period_days: Optional[int] = Column(Integer)
     active: bool = Column(Boolean, nullable=False, server_default=text("true"))
 
     features = relationship("PlanFeature", back_populates="plan", cascade="all, delete-orphan")
@@ -76,6 +80,9 @@ class Subscription(Base):
     plan_id: int = Column(Integer, ForeignKey("plans.id", ondelete="SET NULL"))
     status: str = Column(String(32), nullable=False)
     current_period_end: Optional[datetime] = Column(DateTime(timezone=True))
+    trial_end: Optional[datetime] = Column(DateTime(timezone=True))
+    connect_account_id: Optional[str] = Column(String(64))
+    payment_reference: Optional[str] = Column(String(128))
 
     plan = relationship("Plan", back_populates="subscriptions")
 

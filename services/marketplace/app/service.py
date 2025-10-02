@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 from infra import Listing, ListingReview, ListingVersion, MarketplaceSubscription
 from libs.audit import record_audit
 
+from .payments import StripeConnectGateway
+from .review import ListingStatus, perform_review
 from .schemas import CopyRequest, ListingCreate, ListingReviewCreate, ListingVersionRequest
 
 
@@ -59,6 +61,11 @@ def create_listing(db: Session, *, owner_id: str, payload: ListingCreate) -> Lis
             )
         )
 
+    review_result = perform_review(listing)
+    listing.status = review_result.status.value
+    listing.review_notes = review_result.summary
+    listing.reviewed_at = review_result.executed_at
+
     record_audit(
         db,
         service="marketplace",
@@ -69,6 +76,17 @@ def create_listing(db: Session, *, owner_id: str, payload: ListingCreate) -> Lis
             "strategy_name": listing.strategy_name,
             "price_cents": listing.price_cents,
             "currency": listing.currency,
+        },
+    )
+    record_audit(
+        db,
+        service="marketplace",
+        action="listing.review.automated",
+        actor_id=owner_id,
+        subject_id=str(listing.id),
+        details={
+            "status": listing.status,
+            "notes": review_result.notes,
         },
     )
     db.commit()
@@ -130,7 +148,11 @@ def _attach_review_stats(rows: list[tuple[Listing, Optional[int], Optional[float
 
 def list_listings(db: Session, filters: Optional[ListingFilters] = None) -> list[Listing]:
     filters = filters or ListingFilters()
-    stmt: Select = select(Listing).options(selectinload(Listing.versions))
+    stmt: Select = (
+        select(Listing)
+        .where(Listing.status == ListingStatus.APPROVED.value)
+        .options(selectinload(Listing.versions))
+    )
     stmt, review_stats = _with_review_stats(stmt)
 
     if filters.min_performance is not None:
@@ -201,11 +223,14 @@ def create_subscription(
     *,
     actor_id: str,
     payload: CopyRequest,
+    payments_gateway: StripeConnectGateway | None = None,
 ) -> MarketplaceSubscription:
     listing = get_listing(db, payload.listing_id)
 
     if listing.owner_id == actor_id:
         raise HTTPException(status_code=400, detail="Creators cannot subscribe to their own strategy")
+    if listing.status != ListingStatus.APPROVED.value:
+        raise HTTPException(status_code=403, detail="Listing is not approved for subscription")
 
     existing = db.scalar(
         select(MarketplaceSubscription).where(
@@ -224,11 +249,27 @@ def create_subscription(
     else:
         version = listing.versions[0] if listing.versions else None
 
+    payment_reference = payload.payment_reference
+    connect_transfer_reference: Optional[str] = None
+    status = "pending"
+    if not payment_reference and payments_gateway and payments_gateway.is_configured:
+        payment_result = payments_gateway.create_subscription(
+            listing,
+            subscriber_id=actor_id,
+        )
+        payment_reference = payment_result.reference
+        connect_transfer_reference = payment_result.transfer_reference
+        status = payment_result.status
+    elif payment_reference:
+        status = "active"
+
     subscription = MarketplaceSubscription(
         listing=listing,
         subscriber_id=actor_id,
         version=version,
-        payment_reference=payload.payment_reference,
+        payment_reference=payment_reference,
+        connect_transfer_reference=connect_transfer_reference,
+        status=status,
     )
     db.add(subscription)
     db.flush()
@@ -242,7 +283,8 @@ def create_subscription(
         details={
             "subscription_id": subscription.id,
             "version_id": subscription.version_id,
-            "payment_reference": payload.payment_reference,
+            "payment_reference": payment_reference,
+            "status": subscription.status,
         },
     )
     db.commit()
