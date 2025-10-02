@@ -1,4 +1,4 @@
-import "../src/ui/design-system/design-system.css";
+import "../app/static/styles.css";
 
 const customViewports = {
   mobile: {
