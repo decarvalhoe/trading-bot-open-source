@@ -22,7 +22,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -815,8 +815,31 @@ def render_dashboard(request: Request) -> HTMLResponse:
                 "token": alerts_token,
             },
             "active_page": "dashboard",
+            "annotation_status": request.query_params.get("annotation"),
         },
     )
+
+
+@app.post("/dashboard/annotate")
+def annotate_dashboard_order(
+    request: Request,
+    order_id: int = Form(..., ge=1),
+    note: str = Form(..., min_length=1),
+    tags: str = Form(default=""),
+) -> Response:
+    tag_list = [part.strip() for part in tags.split(",") if part.strip()]
+    base_url = ORDER_ROUTER_BASE_URL.rstrip("/") + "/"
+    status_flag = "success"
+    try:
+        with OrderRouterClient(
+            base_url=base_url, timeout=ORDER_ROUTER_TIMEOUT_SECONDS
+        ) as client:
+            client.annotate_order(order_id, notes=note, tags=tag_list)
+    except (httpx.HTTPError, OrderRouterError):
+        status_flag = "error"
+    redirect_target = request.url_for("render_dashboard")
+    redirect_url = redirect_target.include_query_params(annotation=status_flag)
+    return RedirectResponse(str(redirect_url), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/marketplace", response_class=HTMLResponse, name="render_marketplace")

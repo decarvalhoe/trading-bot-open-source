@@ -12,8 +12,10 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
+    Text,
     func,
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -46,7 +48,8 @@ class Order(TradingBase):
     time_in_force: Optional[str] = Column(String(16))
     submitted_at: Optional[datetime] = Column(DateTime(timezone=True))
     expires_at: Optional[datetime] = Column(DateTime(timezone=True))
-    notes: Optional[str] = Column(String(255))
+    notes: Optional[str] = Column(Text)
+    tags: list[str] = Column(JSON, nullable=False, default=list)
     created_at: datetime = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -91,6 +94,8 @@ class Execution(TradingBase):
     created_at: datetime = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    notes: Optional[str] = Column(Text)
+    tags: list[str] = Column(JSON, nullable=False, default=list)
 
     order = relationship("Order", back_populates="executions")
 

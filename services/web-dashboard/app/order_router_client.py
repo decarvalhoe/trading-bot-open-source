@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import httpx
 from pydantic import ValidationError
 
 from schemas.order_router import (
+    OrderRecord,
     PaginatedOrders,
     PositionCloseRequest,
     PositionCloseResponse,
@@ -46,12 +48,37 @@ class OrderRouterClient:
     def close(self) -> None:
         self._client.close()
 
-    def fetch_orders(self, *, limit: int = 100, offset: int = 0) -> PaginatedOrders:
-        """Return a slice of the orders log."""
+    def fetch_orders(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        account_id: str | None = None,
+        symbol: str | None = None,
+        start: datetime | str | None = None,
+        end: datetime | str | None = None,
+        tag: str | None = None,
+        strategy: str | None = None,
+    ) -> PaginatedOrders:
+        """Return a slice of the orders log with optional filters applied."""
+
+        params: dict[str, object] = {"limit": limit, "offset": offset}
+        if account_id:
+            params["account_id"] = account_id
+        if symbol:
+            params["symbol"] = symbol
+        if start:
+            params["start"] = start.isoformat() if isinstance(start, datetime) else start
+        if end:
+            params["end"] = end.isoformat() if isinstance(end, datetime) else end
+        if tag:
+            params["tag"] = tag
+        if strategy:
+            params["strategy"] = strategy
 
         response = self._client.get(
             "/orders/log",
-            params={"limit": limit, "offset": offset},
+            params=params,
             headers={"accept": "application/json"},
         )
         try:
@@ -64,6 +91,30 @@ class OrderRouterClient:
             raise OrderRouterError("Order router returned non JSON payload", response=response) from exc
         try:
             return PaginatedOrders.model_validate(payload)
+        except ValidationError as exc:
+            raise OrderRouterError("Unable to parse order router payload", response=response) from exc
+
+    def annotate_order(self, order_id: int, *, notes: str, tags: list[str] | None = None) -> OrderRecord:
+        payload: dict[str, object] = {"notes": notes}
+        if tags:
+            payload["tags"] = tags
+        response = self._client.post(
+            f"/orders/{order_id}/notes",
+            json=payload,
+            headers={"accept": "application/json"},
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise exc
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise OrderRouterError(
+                "Order router returned non JSON payload", response=response
+            ) from exc
+        try:
+            return OrderRecord.model_validate(body)
         except ValidationError as exc:
             raise OrderRouterError("Unable to parse order router payload", response=response) from exc
 

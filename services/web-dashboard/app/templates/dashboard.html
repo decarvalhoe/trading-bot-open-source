@@ -583,6 +583,74 @@
         </div>
       </section>
 
+      <section class="card" aria-labelledby="annotations-title">
+        <div class="card__header">
+          <h2 id="annotations-title" class="heading heading--lg">Annoter un ordre</h2>
+          <p class="text text--muted">Ajoutez du contexte aux exécutions directement depuis le tableau de bord.</p>
+        </div>
+        <div class="card__body">
+          {% if annotation_status == 'success' %}
+          <p class="annotation-form__feedback annotation-form__feedback--success">
+            <span class="badge badge--success">Note enregistrée</span>
+            Votre annotation a été sauvegardée avec succès.
+          </p>
+          {% elif annotation_status == 'error' %}
+          <p class="annotation-form__feedback annotation-form__feedback--error">
+            <span class="badge badge--critical">Échec</span>
+            Impossible d'enregistrer la note pour le moment. Veuillez réessayer.
+          </p>
+          {% endif %}
+          <form
+            class="annotation-form"
+            method="post"
+            action="{{ request.url_for('annotate_dashboard_order') }}"
+          >
+            <div class="annotation-form__row">
+              <label class="annotation-form__field">
+                <span class="annotation-form__label">Identifiant d'ordre</span>
+                <input
+                  class="annotation-form__input"
+                  type="number"
+                  name="order_id"
+                  min="1"
+                  required
+                  aria-describedby="annotation-order-hint"
+                />
+                <span id="annotation-order-hint" class="annotation-form__hint"
+                  >Retrouvez l'identifiant dans le journal des ordres.</span
+                >
+              </label>
+              <label class="annotation-form__field">
+                <span class="annotation-form__label">Tags</span>
+                <input
+                  class="annotation-form__input"
+                  type="text"
+                  name="tags"
+                  placeholder="alpha, hedging, stratégie:momentum"
+                  aria-describedby="annotation-tags-hint"
+                />
+                <span id="annotation-tags-hint" class="annotation-form__hint"
+                  >Séparez les tags par des virgules.</span
+                >
+              </label>
+            </div>
+            <label class="annotation-form__field annotation-form__field--full">
+              <span class="annotation-form__label">Note</span>
+              <textarea
+                class="annotation-form__textarea"
+                name="note"
+                rows="3"
+                required
+                aria-label="Saisissez votre annotation"
+              ></textarea>
+            </label>
+            <div class="annotation-form__actions">
+              <button type="submit" class="button button--primary">Enregistrer la note</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
       <section class="card" aria-labelledby="alerts-title">
         <div class="card__header">
           <h2 id="alerts-title" class="heading heading--lg">Alertes</h2>
