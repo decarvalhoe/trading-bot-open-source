@@ -9,21 +9,21 @@ REVISION ?= head
 DOWN_REVISION ?= -1
 
 setup:
-        pipx install pre-commit || pip install pre-commit
-        pre-commit install
+	pipx install pre-commit || pip install pre-commit
+	pre-commit install
 
 dev-up:
 	docker compose up -d postgres redis
 	docker compose up -d --build auth-service user-service
 
 dev-down:
-        docker compose down -v
+	docker compose down -v
 
 demo-up:
 	docker compose up -d postgres redis
 	docker compose up -d --build streaming streaming_gateway market_data order-router algo-engine \
-		reports alert_engine notification-service inplay web-dashboard auth-service user-service \
-		prometheus grafana
+	reports alert_engine notification-service inplay web-dashboard auth-service user-service \
+	prometheus grafana
 
 demo-down:
 	docker compose down -v
@@ -41,23 +41,23 @@ test:
 	python -m coverage html
 
 e2e:
-        pwsh -NoProfile -File ./scripts/e2e/auth_e2e.ps1
+	pwsh -NoProfile -File ./scripts/e2e/auth_e2e.ps1
 
 e2e-sh:
-        bash ./scripts/e2e/auth_e2e.sh
+	bash ./scripts/e2e/auth_e2e.sh
 
 web-dashboard-e2e:
-        python -m pytest services/web-dashboard/tests/e2e
+	python -m pytest services/web-dashboard/tests/e2e
 
 migrate-generate:
-        @if [ -z "$(message)" ]; then \
-                echo "Usage: make migrate-generate message=\"Add new table\""; \
-                exit 1; \
-        fi
-        ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) revision --autogenerate -m "$(message)"
+	@if [ -z "$(message)" ]; then \
+	echo "Usage: make migrate-generate message=\"Add new table\""; \
+	exit 1; \
+	fi
+	ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) revision --autogenerate -m "$(message)"
 
 migrate-up:
-        ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) upgrade $(REVISION)
+	ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) upgrade $(REVISION)
 
 migrate-down:
-        ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) downgrade $(DOWN_REVISION)
+	ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) downgrade $(DOWN_REVISION)

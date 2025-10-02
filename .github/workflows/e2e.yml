@@ -17,10 +17,21 @@ jobs:
           docker compose up -d --build auth-service
       - name: Wait for auth-service
         run: |
-          for i in {1..30}; do
-            curl -sf http://127.0.0.1:8011/health && exit 0
+          set -euo pipefail
+          PORT=$(docker compose port auth-service 8000 | awk -F: '{print $2}')
+          if [ -z "${PORT:-}" ]; then
+            echo "Unable to determine auth-service port"
+            docker ps -a
+            exit 1
+          fi
+          for i in {1..60}; do
+            if curl -sf "http://127.0.0.1:${PORT}/health"; then
+              exit 0
+            fi
             sleep 2
           done
-          echo "auth-service not ready" && exit 1
+          echo "auth-service not ready"
+          docker logs $(docker compose ps -q auth-service) || true
+          exit 1
       - name: Run E2E (bash)
         run: bash ./scripts/e2e/auth_e2e.sh
