@@ -29,6 +29,7 @@
     fallback: JSON.parse(JSON.stringify(initialState)),
     setupsFallbackActive: false,
     sessionSnapshots: Object.create(null),
+    received: { portfolios: false },
   };
 
   function ensureSetupsContainer(target) {
@@ -210,6 +211,13 @@
     const container = selectors.portfolios;
     if (!container) {
       return;
+    }
+    if (
+      (!Array.isArray(state.current.portfolios) || state.current.portfolios.length === 0) &&
+      !state.received.portfolios &&
+      Array.isArray(state.fallback.portfolios)
+    ) {
+      state.current.portfolios = JSON.parse(JSON.stringify(state.fallback.portfolios));
     }
     updateDatasetNotice("portfolios");
     container.innerHTML = "";
@@ -1113,6 +1121,9 @@
     state.current = JSON.parse(JSON.stringify(state.fallback));
     ensureSetupsContainer(state.current);
     state.setupsFallbackActive = true;
+    if (state.received && typeof state.received === "object") {
+      state.received.portfolios = false;
+    }
     renderAll();
     if (alertsReactRoot) {
       document.dispatchEvent(
@@ -1158,8 +1169,15 @@
 
     const resource = payload.resource || payload.type;
     if (resource === "portfolios" && Array.isArray(payload.items)) {
-      state.current.portfolios = payload.items;
-      updateDatasetSource("portfolios", payload.mode || payload.source || "live");
+      const mode = payload.mode || payload.source || "live";
+      updateDatasetSource("portfolios", mode);
+      state.received.portfolios = true;
+      if (mode === "fallback" || mode === "degraded") {
+        state.fallback.portfolios = JSON.parse(JSON.stringify(payload.items));
+        state.current.portfolios = JSON.parse(JSON.stringify(payload.items));
+      } else {
+        state.current.portfolios = payload.items;
+      }
       renderPortfolios();
     } else if (resource === "transactions" && Array.isArray(payload.items)) {
       state.current.transactions = payload.items;

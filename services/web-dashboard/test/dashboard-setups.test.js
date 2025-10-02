@@ -223,3 +223,130 @@ test("met à jour les setups lors d'un événement watchlist.update", async () =
   const statusNode = document.getElementById("inplay-setups-status");
   expect(statusNode.textContent.trim()).toBe("Flux InPlay connecté.");
 });
+
+test("met à jour les portefeuilles en temps réel et restaure le fallback", async () => {
+  const streaming = {
+    handshake_url: "https://stream.example/rooms/public-room/connection",
+    viewer_id: "viewer-portfolio",
+  };
+
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ websocket_url: "wss://stream.example/ws" }),
+    });
+  global.fetch = fetchMock;
+
+  class StreamingWebSocket {
+    static instances = [];
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = StreamingWebSocket.OPEN;
+      StreamingWebSocket.instances.push(this);
+      setTimeout(() => {
+        if (typeof this.onopen === "function") {
+          this.onopen();
+        }
+      }, 0);
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = StreamingWebSocket.CLOSED;
+      if (typeof this.onclose === "function") {
+        this.onclose();
+      }
+    }
+
+    emit(message) {
+      if (typeof this.onmessage === "function") {
+        this.onmessage({ data: JSON.stringify(message) });
+      }
+    }
+  }
+
+  global.WebSocket = StreamingWebSocket;
+
+  const context = {
+    ...SAMPLE_CONTEXT,
+    portfolios: [
+      {
+        name: "Portefeuille Fallback",
+        owner: "fallback",
+        total_value: 1000,
+        holdings: [
+          {
+            symbol: "AAPL",
+            quantity: 5,
+            average_price: 100,
+            current_price: 120,
+            market_value: 600,
+          },
+        ],
+      },
+    ],
+    data_sources: { ...(SAMPLE_CONTEXT.data_sources || {}), portfolios: "fallback" },
+  };
+
+  mountBaseDom(context, streaming);
+
+  await import(SCRIPT_PATH);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(StreamingWebSocket.instances.length).toBe(1);
+  const socket = StreamingWebSocket.instances[0];
+
+  let items = document.querySelectorAll(".portfolio-list__item");
+  expect(items.length).toBe(1);
+  expect(items[0].textContent).toContain("Portefeuille Fallback");
+  expect(document.querySelector(".portfolio-list").getAttribute("data-source")).toBe(
+    "fallback"
+  );
+
+  socket.emit({
+    payload: {
+      resource: "portfolios",
+      mode: "live",
+      items: [
+        {
+          name: "Compte Alpha",
+          owner: "alpha",
+          total_value: 2500,
+          holdings: [
+            {
+              symbol: "MSFT",
+              quantity: 10,
+              average_price: 230,
+              current_price: 250,
+              market_value: 2500,
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  items = document.querySelectorAll(".portfolio-list__item");
+  expect(items.length).toBe(1);
+  expect(items[0].textContent).toContain("Compte Alpha");
+  expect(document.querySelector(".portfolio-list").getAttribute("data-source")).toBe(
+    "live"
+  );
+
+  socket.close();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  items = document.querySelectorAll(".portfolio-list__item");
+  expect(items.length).toBe(1);
+  expect(items[0].textContent).toContain("Portefeuille Fallback");
+  expect(document.querySelector(".portfolio-list").getAttribute("data-source")).toBe(
+    "fallback"
+  );
+});

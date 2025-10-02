@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import threading
+from collections import defaultdict
 from concurrent.futures import Future
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -20,6 +23,7 @@ from sqlalchemy.orm import Session, selectinload
 
 import httpx
 
+from libs.db.db import SessionLocal
 from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
@@ -187,18 +191,149 @@ class NullOrderEventsPublisher(OrderEventsPublisher):
         return
 
 
+class PortfolioAggregator:
+    """Maintain per-account positions derived from executions."""
+
+    _EPSILON = 1e-9
+
+    def __init__(self) -> None:
+        self._positions: dict[str, dict[str, dict[str, float]]] = defaultdict(
+            lambda: defaultdict(
+                lambda: {
+                    "net_quantity": 0.0,
+                    "abs_quantity": 0.0,
+                    "abs_notional": 0.0,
+                    "last_price": 0.0,
+                }
+            )
+        )
+
+    @staticmethod
+    def _normalise_account(account_id: str | None) -> str:
+        cleaned = (account_id or "").strip()
+        return cleaned or "default"
+
+    @staticmethod
+    def _normalise_symbol(symbol: str | None) -> str:
+        return (symbol or "").strip()
+
+    @staticmethod
+    def _format_account_label(account_id: str) -> str:
+        normalised = account_id.replace("_", " ").replace("-", " ")
+        words = [segment for segment in normalised.split(" ") if segment]
+        if not words:
+            return account_id or "Portefeuille"
+        return " ".join(word.capitalize() for word in words)
+
+    @staticmethod
+    def _direction(side: str | OrderSide | None) -> float:
+        if isinstance(side, OrderSide):
+            value = side.value
+        else:
+            value = str(side or "buy")
+        return -1.0 if value.lower().startswith("s") else 1.0
+
+    def reset(self) -> None:
+        self._positions.clear()
+
+    def apply_fill(
+        self,
+        *,
+        account_id: str | None,
+        symbol: str | None,
+        side: str | OrderSide | None,
+        quantity: float,
+        price: float | None,
+    ) -> bool:
+        symbol_key = self._normalise_symbol(symbol)
+        if not symbol_key:
+            return False
+        if quantity <= 0:
+            return False
+        price_value = float(price or 0.0)
+        if price_value <= 0:
+            return False
+        account_key = self._normalise_account(account_id)
+        direction = self._direction(side)
+        stats = self._positions[account_key][symbol_key]
+        stats["net_quantity"] += quantity * direction
+        stats["abs_quantity"] += quantity
+        stats["abs_notional"] += quantity * price_value
+        stats["last_price"] = price_value
+        return True
+
+    def apply_report(self, report: ExecutionReport, account_id: str) -> bool:
+        applied = False
+        for fill in report.fills:
+            applied |= self.apply_fill(
+                account_id=account_id,
+                symbol=report.symbol,
+                side=report.side,
+                quantity=float(fill.quantity),
+                price=float(fill.price),
+            )
+        if not applied and report.filled_quantity > 0:
+            applied = self.apply_fill(
+                account_id=account_id,
+                symbol=report.symbol,
+                side=report.side,
+                quantity=float(report.filled_quantity),
+                price=float(report.avg_price or 0.0),
+            )
+        return applied
+
+    def snapshot(self) -> List[Dict[str, Any]]:
+        portfolios: List[Dict[str, Any]] = []
+        for account_id, symbols in sorted(self._positions.items(), key=lambda item: item[0]):
+            holdings: List[Dict[str, Any]] = []
+            total_value = 0.0
+            for symbol, stats in sorted(symbols.items(), key=lambda item: item[0]):
+                net_quantity = stats["net_quantity"]
+                if math.isclose(net_quantity, 0.0, abs_tol=self._EPSILON):
+                    if stats["abs_quantity"] <= self._EPSILON:
+                        continue
+                    net_quantity = 0.0
+                if math.isclose(stats["abs_quantity"], 0.0, abs_tol=self._EPSILON):
+                    continue
+                average_price = stats["abs_notional"] / stats["abs_quantity"]
+                last_price = stats["last_price"] or average_price
+                market_value = net_quantity * last_price
+                holding = {
+                    "symbol": symbol,
+                    "quantity": float(net_quantity),
+                    "average_price": float(average_price or 0.0),
+                    "current_price": float(last_price or 0.0),
+                    "market_value": float(market_value),
+                }
+                holdings.append(holding)
+                total_value += float(market_value)
+            if holdings:
+                portfolios.append(
+                    {
+                        "name": self._format_account_label(account_id),
+                        "owner": account_id,
+                        "holdings": holdings,
+                        "total_value": float(total_value),
+                    }
+                )
+        return portfolios
+
+
 class StreamingOrderEventsPublisher(OrderEventsPublisher):
     def __init__(self, client: StreamingIngestClient | None) -> None:
         self._client = client
+        self._aggregator = PortfolioAggregator()
 
     def order_persisted(
         self, order: ExecutionIntent, report: ExecutionReport, account_id: str
     ) -> None:
         if not self._client or not self._client.enabled:
             return
+        aggregated = False
         if report.filled_quantity > 0:
             transaction = self._build_transaction(order, report, account_id)
             self._client.publish({"resource": "transactions", "items": [transaction]})
+            aggregated = self._aggregator.apply_report(report, account_id)
         log_entry = self._build_log_entry(
             timestamp=report.submitted_at,
             status=report.status.value,
@@ -213,6 +348,8 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
             avg_price=report.avg_price or order.price,
         )
         self._client.publish({"resource": "logs", "entry": log_entry})
+        if aggregated:
+            self._publish_portfolios()
 
     def order_cancelled(self, order: OrderModel, report: ExecutionReport) -> None:
         if not self._client or not self._client.enabled:
@@ -231,6 +368,46 @@ class StreamingOrderEventsPublisher(OrderEventsPublisher):
             avg_price=report.avg_price,
         )
         self._client.publish({"resource": "logs", "entry": log_entry})
+
+    def reload_state(self, session: Session) -> None:
+        if not self._client or not self._client.enabled:
+            return
+        statement = (
+            select(OrderModel)
+            .options(selectinload(OrderModel.executions))
+            .order_by(OrderModel.created_at.asc())
+        )
+        result = session.execute(statement).unique()
+        orders = list(result.scalars().all())
+        self._aggregator.reset()
+        for order in orders:
+            side = order.side
+            account_id = order.account_id
+            for execution in sorted(order.executions, key=lambda item: item.executed_at):
+                quantity = float(execution.quantity or 0.0)
+                price = float(execution.price or 0.0)
+                if quantity <= 0 or price <= 0:
+                    continue
+                self._aggregator.apply_fill(
+                    account_id=account_id,
+                    symbol=order.symbol,
+                    side=side,
+                    quantity=quantity,
+                    price=price,
+                )
+        snapshot = self._aggregator.snapshot()
+        self._publish_portfolios(snapshot)
+
+    def _publish_portfolios(self, snapshot: Optional[List[Dict[str, Any]]] = None) -> None:
+        if not self._client or not self._client.enabled:
+            return
+        items = snapshot if snapshot is not None else self._aggregator.snapshot()
+        payload = {
+            "resource": "portfolios",
+            "items": items,
+            "mode": "live",
+        }
+        self._client.publish(payload)
 
     @staticmethod
     def _normalise_timestamp(value: datetime) -> str:
@@ -752,6 +929,13 @@ async def _configure_streaming_client() -> None:
         streaming_logger.info(
             "Streaming ingest enabled for room %s", _streaming_config.room_id
         )
+        try:
+            with closing(SessionLocal()) as session:
+                _events_publisher.reload_state(session)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            streaming_logger.warning(
+                "Unable to preload portfolio snapshot", exc_info=exc
+            )
     else:
         streaming_logger.info(
             "Streaming ingest disabled (missing STREAMING_INGEST_URL or STREAMING_SERVICE_TOKEN)"
