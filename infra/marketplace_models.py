@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -34,6 +35,8 @@ class Listing(Base):
     currency: str = Column(String(3), nullable=False, default="USD")
     connect_account_id: str = Column(String(64), nullable=False)
     status: str = Column(String(16), nullable=False, default="published")
+    performance_score: Optional[float] = Column(Float, nullable=True)
+    risk_score: Optional[float] = Column(Float, nullable=True)
     created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: datetime = Column(
         DateTime(timezone=True),
@@ -52,6 +55,12 @@ class Listing(Base):
         "MarketplaceSubscription",
         back_populates="listing",
         cascade="all, delete-orphan",
+    )
+    reviews = relationship(
+        "ListingReview",
+        back_populates="listing",
+        cascade="all, delete-orphan",
+        order_by="ListingReview.created_at.desc()",
     )
 
 
@@ -110,4 +119,34 @@ class MarketplaceSubscription(Base):
     )
 
 
-__all__ = ["Base", "Listing", "ListingVersion", "MarketplaceSubscription"]
+class ListingReview(Base):
+    """User-generated feedback attached to a marketplace listing."""
+
+    __tablename__ = "marketplace_reviews"
+
+    id: int = Column(Integer, primary_key=True)
+    listing_id: int = Column(
+        Integer,
+        ForeignKey("marketplace_listings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reviewer_id: str = Column(String(64), nullable=False, index=True)
+    rating: int = Column(Integer, nullable=False)
+    comment: Optional[str] = Column(Text)
+    created_at: datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: datetime = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    listing = relationship("Listing", back_populates="reviews")
+
+    __table_args__ = (
+        UniqueConstraint("listing_id", "reviewer_id", name="uq_listing_reviewer"),
+    )
+
+
+__all__ = ["Base", "Listing", "ListingVersion", "MarketplaceSubscription", "ListingReview"]

@@ -19,6 +19,8 @@ class ListingCreate(BaseModel):
     price_cents: int = Field(ge=0)
     currency: str = Field(default="USD", max_length=3)
     connect_account_id: str = Field(max_length=64)
+    performance_score: Optional[float] = Field(default=None, ge=0)
+    risk_score: Optional[float] = Field(default=None, ge=0)
     initial_version: Optional[ListingVersionCreate] = None
 
 
@@ -42,6 +44,10 @@ class ListingOut(BaseModel):
     currency: str
     connect_account_id: str
     status: str
+    performance_score: Optional[float] = None
+    risk_score: Optional[float] = None
+    average_rating: Optional[float] = None
+    reviews_count: int = 0
     created_at: datetime
     updated_at: datetime
     versions: list[ListingVersionOut] = Field(default_factory=list)
@@ -69,5 +75,22 @@ class CopyResponse(BaseModel):
     payment_reference: Optional[str]
     status: str
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ListingReviewCreate(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ListingReviewOut(BaseModel):
+    id: int
+    listing_id: int
+    reviewer_id: str
+    rating: int
+    comment: Optional[str]
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

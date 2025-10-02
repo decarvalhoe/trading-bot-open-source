@@ -12,6 +12,7 @@ from libs.entitlements.client import Entitlements
 
 from services.marketplace.app.dependencies import get_entitlements
 from services.marketplace.app.main import app
+from services.marketplace.app.service import ListingSortOption
 
 client = TestClient(app)
 
@@ -156,3 +157,120 @@ def test_only_owner_can_publish_new_version(entitlements_state):
     )
     assert ok_resp.status_code == 200
     assert ok_resp.json()["versions"][0]["version"] == "2.0.0"
+
+
+def _grant_publish(monkeypatch_state, customer_id="creator-1"):
+    monkeypatch_state["value"] = Entitlements(
+        customer_id=customer_id,
+        features={"can.publish_strategy": True},
+        quotas={},
+    )
+
+
+def _publish_listing(payload: dict, actor_id: str = "creator-1") -> int:
+    response = client.post("/marketplace/listings", json=payload, headers={"x-user-id": actor_id})
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def test_listings_filters_and_sorting(entitlements_state):
+    _grant_publish(entitlements_state, customer_id="creator-1")
+    base_payload = {
+        "description": "",
+        "price_cents": 1000,
+        "currency": "USD",
+        "connect_account_id": "acct_test",
+    }
+    listings = [
+        {
+            **base_payload,
+            "strategy_name": "Alpha",
+            "price_cents": 1999,
+            "performance_score": 1.2,
+            "risk_score": 1.5,
+        },
+        {
+            **base_payload,
+            "strategy_name": "Bravo",
+            "price_cents": 9900,
+            "performance_score": 2.8,
+            "risk_score": 2.0,
+        },
+        {
+            **base_payload,
+            "strategy_name": "Charlie",
+            "price_cents": 5000,
+            "performance_score": 1.8,
+            "risk_score": 0.9,
+        },
+    ]
+    for payload in listings:
+        _publish_listing(payload)
+
+    response = client.get(
+        "/marketplace/listings",
+        params={
+            "min_performance": 1.5,
+            "max_risk": 2.0,
+            "sort": ListingSortOption.PRICE_ASC.value,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert [item["strategy_name"] for item in data] == ["Charlie", "Bravo"]
+    assert all(item["performance_score"] >= 1.5 for item in data)
+    assert all(item["risk_score"] <= 2.0 for item in data)
+
+    search_resp = client.get("/marketplace/listings", params={"search": "alpha"})
+    assert search_resp.status_code == 200
+    assert [item["strategy_name"] for item in search_resp.json()] == ["Alpha"]
+
+
+def test_reviews_flow_updates_listing_metrics(entitlements_state):
+    _grant_publish(entitlements_state, customer_id="creator-reviewer")
+    payload = {
+        "strategy_name": "Delta",
+        "description": "",
+        "price_cents": 2500,
+        "currency": "USD",
+        "connect_account_id": "acct_delta",
+        "performance_score": 2.5,
+        "risk_score": 1.1,
+    }
+    listing_id = _publish_listing(payload, actor_id="creator-reviewer")
+
+    entitlements_state["value"] = Entitlements(
+        customer_id="investor-1",
+        features={},
+        quotas={},
+    )
+    review_payload = {"rating": 4, "comment": "Solide exécution"}
+    review_resp = client.post(
+        f"/marketplace/listings/{listing_id}/reviews",
+        json=review_payload,
+        headers={"x-user-id": "investor-1"},
+    )
+    assert review_resp.status_code == 201, review_resp.text
+    first_review = review_resp.json()
+    assert first_review["rating"] == 4
+
+    update_payload = {"rating": 5, "comment": "Encore mieux avec la V2"}
+    update_resp = client.post(
+        f"/marketplace/listings/{listing_id}/reviews",
+        json=update_payload,
+        headers={"x-user-id": "investor-1"},
+    )
+    assert update_resp.status_code == 201
+    assert update_resp.json()["rating"] == 5
+
+    listing_resp = client.get(f"/marketplace/listings/{listing_id}")
+    assert listing_resp.status_code == 200
+    listing = listing_resp.json()
+    assert listing["reviews_count"] == 1
+    assert listing["average_rating"] == 5
+
+    reviews_resp = client.get(f"/marketplace/listings/{listing_id}/reviews")
+    assert reviews_resp.status_code == 200
+    reviews = reviews_resp.json()
+    assert len(reviews) == 1
+    assert reviews[0]["comment"].startswith("Encore mieux")
