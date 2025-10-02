@@ -6,15 +6,16 @@ import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, Iterable, List, MutableMapping
+from typing import Any, Callable, Dict, Iterable, List, MutableMapping, Tuple
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from infra.strategy_models import (
     Strategy,
     StrategyBase,
     StrategyExecution,
+    StrategyBacktest,
     StrategyVersion,
 )
 
@@ -299,6 +300,7 @@ class StrategyRepository:
         """Remove all strategies and executions. Intended for tests."""
 
         with self._session_factory() as session:
+            session.execute(delete(StrategyBacktest))
             session.execute(delete(StrategyExecution))
             session.execute(delete(StrategyVersion))
             session.execute(delete(Strategy))
@@ -342,6 +344,73 @@ class StrategyRepository:
         with self._session_factory() as session:
             executions = session.execute(stmt).scalars().all()
         return [dict(exec.payload) for exec in executions if isinstance(exec.payload, dict)]
+
+    def record_backtest(
+        self,
+        strategy_id: str,
+        summary: Dict[str, Any],
+        *,
+        ran_at: datetime | None = None,
+    ) -> None:
+        """Persist a backtest summary for historical reporting."""
+
+        timestamp = ran_at or datetime.now(timezone.utc)
+        equity_curve = summary.get("equity_curve")
+        if not isinstance(equity_curve, list):
+            equity_curve = []
+        payload = dict(summary)
+        payload.setdefault("metadata", {})
+        payload["ran_at"] = timestamp.isoformat()
+
+        with self._session_factory() as session:
+            session.add(
+                StrategyBacktest(
+                    strategy_id=strategy_id,
+                    ran_at=timestamp,
+                    initial_balance=float(summary.get("initial_balance", 0.0) or 0.0),
+                    profit_loss=float(summary.get("profit_loss", 0.0) or 0.0),
+                    total_return=float(summary.get("total_return", 0.0) or 0.0),
+                    max_drawdown=float(summary.get("max_drawdown", 0.0) or 0.0),
+                    equity_curve=list(equity_curve),
+                    summary=payload,
+                )
+            )
+            session.commit()
+
+    def get_backtests(
+        self,
+        strategy_id: str,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Return paginated backtest history for a strategy."""
+
+        stmt = (
+            select(StrategyBacktest)
+            .where(StrategyBacktest.strategy_id == strategy_id)
+            .order_by(StrategyBacktest.ran_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        count_stmt = select(func.count()).select_from(StrategyBacktest).where(
+            StrategyBacktest.strategy_id == strategy_id
+        )
+        with self._session_factory() as session:
+            results = session.execute(stmt).scalars().all()
+            total = session.execute(count_stmt).scalar_one()
+
+        items: List[Dict[str, Any]] = []
+        for record in results:
+            summary = dict(record.summary or {})
+            summary.setdefault("ran_at", record.ran_at.isoformat())
+            summary.setdefault("initial_balance", record.initial_balance)
+            summary.setdefault("profit_loss", record.profit_loss)
+            summary.setdefault("total_return", record.total_return)
+            summary.setdefault("max_drawdown", record.max_drawdown)
+            summary.setdefault("equity_curve", record.equity_curve or [])
+            items.append(summary)
+        return items, int(total)
 
     def _parse_timestamp(self, value: Any) -> datetime:
         if isinstance(value, datetime):
