@@ -8,7 +8,12 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from schemas.order_router import PaginatedOrders
+from schemas.order_router import (
+    PaginatedOrders,
+    PositionCloseRequest,
+    PositionCloseResponse,
+    PositionsResponse,
+)
 
 
 class OrderRouterError(RuntimeError):
@@ -59,6 +64,57 @@ class OrderRouterClient:
             raise OrderRouterError("Order router returned non JSON payload", response=response) from exc
         try:
             return PaginatedOrders.model_validate(payload)
+        except ValidationError as exc:
+            raise OrderRouterError("Unable to parse order router payload", response=response) from exc
+
+
+    def fetch_positions(self) -> PositionsResponse:
+        """Return the current positions snapshot exposed by the order router."""
+
+        response = self._client.get(
+            "/positions",
+            headers={"accept": "application/json"},
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise exc
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise OrderRouterError(
+                "Order router returned non JSON payload", response=response
+            ) from exc
+        try:
+            return PositionsResponse.model_validate(payload)
+        except ValidationError as exc:
+            raise OrderRouterError("Unable to parse order router payload", response=response) from exc
+
+
+    def close_position(
+        self, position_id: str, *, target_quantity: float | None = None
+    ) -> PositionCloseResponse:
+        """Request a close or adjustment for an existing position."""
+
+        request_model = PositionCloseRequest(target_quantity=target_quantity)
+        body = request_model.model_dump(exclude_none=True)
+        response = self._client.post(
+            f"/positions/{position_id}/close",
+            json=body,
+            headers={"accept": "application/json"},
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise exc
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise OrderRouterError(
+                "Order router returned non JSON payload", response=response
+            ) from exc
+        try:
+            return PositionCloseResponse.model_validate(payload)
         except ValidationError as exc:
             raise OrderRouterError("Unable to parse order router payload", response=response) from exc
 

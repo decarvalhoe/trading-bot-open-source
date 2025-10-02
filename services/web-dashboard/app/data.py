@@ -16,6 +16,7 @@ from urllib.parse import quote, urljoin
 import httpx
 
 from schemas.order_router import OrderRecord
+from libs.portfolio import encode_portfolio_key, encode_position_key
 
 from .order_router_client import OrderRouterClient, OrderRouterError
 from .schemas import (
@@ -77,21 +78,57 @@ MAX_TRANSACTIONS = int(os.getenv("WEB_DASHBOARD_MAX_TRANSACTIONS", "25"))
 
 
 def _fallback_portfolios() -> List[Portfolio]:
+    growth_id = encode_portfolio_key("alice")
+    income_id = encode_portfolio_key("bob")
     return [
         Portfolio(
+            id=growth_id,
             name="Growth",
             owner="alice",
             holdings=[
-                Holding(symbol="AAPL", quantity=12, average_price=154.2, current_price=178.4),
-                Holding(symbol="MSFT", quantity=5, average_price=298.1, current_price=310.6),
+                Holding(
+                    id=encode_position_key("alice", "AAPL"),
+                    symbol="AAPL",
+                    quantity=12,
+                    average_price=154.2,
+                    current_price=178.4,
+                    portfolio="alice",
+                    portfolio_id=growth_id,
+                ),
+                Holding(
+                    id=encode_position_key("alice", "MSFT"),
+                    symbol="MSFT",
+                    quantity=5,
+                    average_price=298.1,
+                    current_price=310.6,
+                    portfolio="alice",
+                    portfolio_id=growth_id,
+                ),
             ],
         ),
         Portfolio(
+            id=income_id,
             name="Income",
             owner="bob",
             holdings=[
-                Holding(symbol="TLT", quantity=20, average_price=100.5, current_price=98.2),
-                Holding(symbol="XOM", quantity=15, average_price=88.5, current_price=105.7),
+                Holding(
+                    id=encode_position_key("bob", "TLT"),
+                    symbol="TLT",
+                    quantity=20,
+                    average_price=100.5,
+                    current_price=98.2,
+                    portfolio="bob",
+                    portfolio_id=income_id,
+                ),
+                Holding(
+                    id=encode_position_key("bob", "XOM"),
+                    symbol="XOM",
+                    quantity=15,
+                    average_price=88.5,
+                    current_price=105.7,
+                    portfolio="bob",
+                    portfolio_id=income_id,
+                ),
             ],
         ),
     ]
@@ -215,10 +252,13 @@ def _build_portfolios_from_orders(orders: Sequence[OrderRecord]) -> List[Portfol
     portfolios: List[Portfolio] = []
     for account, symbols in sorted(positions.items(), key=lambda item: item[0].lower()):
         holdings: List[Holding] = []
+        portfolio_id = encode_portfolio_key(account)
         for symbol, stats in sorted(symbols.items(), key=lambda item: item[0]):
             quantity = stats["net_quantity"]
             total_traded = stats["abs_quantity"]
-            if not quantity and not total_traded:
+            if math.isclose(quantity, 0.0, abs_tol=1e-9):
+                continue
+            if math.isclose(total_traded, 0.0, abs_tol=1e-9):
                 continue
             average_price = (
                 stats["abs_notional"] / total_traded if total_traded else stats["last_price"]
@@ -226,15 +266,19 @@ def _build_portfolios_from_orders(orders: Sequence[OrderRecord]) -> List[Portfol
             current_price = stats["last_price"] or average_price or 0.0
             holdings.append(
                 Holding(
+                    id=encode_position_key(account, symbol),
                     symbol=symbol,
                     quantity=quantity,
                     average_price=average_price or 0.0,
                     current_price=current_price,
+                    portfolio=account,
+                    portfolio_id=portfolio_id,
                 )
             )
         holdings.sort(key=lambda holding: holding.symbol)
         portfolios.append(
             Portfolio(
+                id=portfolio_id,
                 name=_format_account_label(account),
                 owner=account,
                 holdings=holdings,
@@ -274,6 +318,47 @@ def _build_transactions_from_orders(orders: Sequence[OrderRecord]) -> List[Trans
     if len(transactions) > MAX_TRANSACTIONS:
         transactions = transactions[:MAX_TRANSACTIONS]
     return transactions
+
+
+def _load_positions_snapshot() -> tuple[List[Portfolio], str]:
+    base_url = _normalise_base_url(ORDER_ROUTER_BASE_URL)
+    endpoint = urljoin(base_url, "positions")
+    try:
+        with OrderRouterClient(
+            base_url=base_url, timeout=ORDER_ROUTER_TIMEOUT_SECONDS
+        ) as client:
+            snapshot = client.fetch_positions()
+    except (httpx.HTTPError, OrderRouterError) as exc:
+        logger.warning("Unable to retrieve positions from %s: %s", endpoint, exc)
+        return _fallback_portfolios(), "fallback"
+    except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
+        logger.exception("Unexpected error while retrieving positions from %s: %s", endpoint, exc)
+        return _fallback_portfolios(), "fallback"
+
+    items = snapshot.items or []
+    portfolios: List[Portfolio] = []
+    for entry in items:
+        holdings = [
+            Holding(
+                id=holding.id,
+                symbol=holding.symbol,
+                quantity=holding.quantity,
+                average_price=holding.average_price,
+                current_price=holding.current_price,
+                portfolio=holding.portfolio or entry.owner,
+                portfolio_id=holding.portfolio_id or entry.id,
+            )
+            for holding in entry.holdings
+        ]
+        portfolios.append(
+            Portfolio(
+                id=entry.id,
+                name=entry.name,
+                owner=entry.owner,
+                holdings=holdings,
+            )
+        )
+    return portfolios, "live"
 
 
 def _load_order_log() -> tuple[List[OrderRecord], str]:
@@ -1217,17 +1302,25 @@ def load_dashboard_context() -> DashboardContext:
     """Return consistent sample data for the dashboard view."""
 
     strategies, logs = _build_strategy_statuses()
+    portfolios, portfolios_mode = _load_positions_snapshot()
     orders, orders_mode = _load_order_log()
-    if orders_mode == "live":
+
+    if portfolios_mode != "live" and orders_mode == "live":
         portfolios = _build_portfolios_from_orders(orders)
+        portfolios_mode = orders_mode
+
+    if not portfolios and portfolios_mode != "live":
+        portfolios = _fallback_portfolios()
+        portfolios_mode = "fallback"
+
+    if orders_mode == "live":
         transactions = _build_transactions_from_orders(orders)
     else:
-        portfolios = _fallback_portfolios()
         transactions = _fallback_transactions()
 
     data_sources = {
-        "portfolios": orders_mode,
-        "transactions": orders_mode,
+        "portfolios": portfolios_mode,
+        "transactions": orders_mode if orders_mode == "live" else "fallback",
     }
     return DashboardContext(
         portfolios=portfolios,

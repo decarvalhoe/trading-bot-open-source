@@ -166,6 +166,10 @@
     });
   }
 
+  if (selectors.portfolios) {
+    selectors.portfolios.addEventListener("click", handlePortfolioActionClick);
+  }
+
   function formatCurrency(value) {
     if (typeof value !== "number") {
       value = Number(value || 0);
@@ -233,15 +237,32 @@
     state.current.portfolios.forEach((portfolio) => {
       const item = document.createElement("li");
       item.className = "portfolio-list__item";
+      const portfolioName = escapeHtml(portfolio.name || "");
+      const owner = escapeHtml(portfolio.owner || "");
+      const portfolioId = escapeHtml(portfolio.id || "");
+      item.dataset.portfolioId = portfolio.id || "";
+      item.dataset.portfolioOwner = portfolio.owner || "";
+      const holdingsList = Array.isArray(portfolio.holdings) ? portfolio.holdings : [];
+      const totalValue = portfolio.total_value ?? portfolio.totalValue;
+      const computedValue =
+        typeof totalValue === "number"
+          ? totalValue
+          : holdingsList.reduce(
+              (sum, holding) =>
+                sum +
+                Number(holding.quantity || 0) *
+                  Number(holding.current_price ?? holding.currentPrice ?? 0),
+              0
+            );
       item.innerHTML = `
         <div class="portfolio-list__title">
-          <span class="badge badge--neutral" aria-label="Nom du portefeuille">${portfolio.name}</span>
-          <span class="text text--muted">Géré par ${portfolio.owner}</span>
+          <span class="badge badge--neutral" aria-label="Nom du portefeuille">${portfolioName}</span>
+          <span class="text text--muted">Géré par ${owner}</span>
         </div>
         <div class="portfolio-list__value" aria-label="Valeur totale">
-          ${formatCurrency(portfolio.total_value ?? portfolio.totalValue ?? (portfolio.holdings || []).reduce((sum, holding) => sum + (holding.quantity || 0) * (holding.current_price || holding.currentPrice || 0), 0))}
+          ${formatCurrency(computedValue)}
         </div>
-        <table class="table" role="grid" aria-label="Positions du portefeuille ${portfolio.name}">
+        <table class="table" role="grid" aria-label="Positions du portefeuille ${portfolioName}">
           <thead>
             <tr>
               <th scope="col">Symbole</th>
@@ -249,22 +270,61 @@
               <th scope="col">Px. moyen</th>
               <th scope="col">Px. actuel</th>
               <th scope="col">Valeur</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${(portfolio.holdings || [])
+            ${holdingsList
               .map((holding) => {
                 const quantity = Number(holding.quantity || 0);
-                const averagePrice = Number(holding.average_price ?? holding.averagePrice ?? 0);
-                const currentPrice = Number(holding.current_price ?? holding.currentPrice ?? 0);
-                const marketValue = Number(holding.market_value ?? holding.marketValue ?? quantity * currentPrice);
+                const averagePrice = Number(
+                  holding.average_price ?? holding.averagePrice ?? 0
+                );
+                const currentPrice = Number(
+                  holding.current_price ?? holding.currentPrice ?? 0
+                );
+                const marketValue = Number(
+                  holding.market_value ?? holding.marketValue ?? quantity * currentPrice
+                );
+                const accountId = String(holding.portfolio || portfolio.owner || "");
+                const rawPositionId =
+                  holding.id || `${accountId}:${holding.symbol || ""}`;
+                const safePositionId = escapeHtml(rawPositionId);
+                const safeSymbol = escapeHtml(holding.symbol || "");
+                const safeAccount = escapeHtml(accountId);
                 return `
                   <tr>
-                    <td data-label="Symbole">${holding.symbol}</td>
+                    <td data-label="Symbole">${safeSymbol}</td>
                     <td data-label="Quantité">${quantity.toFixed(2)}</td>
                     <td data-label="Prix moyen">${formatCurrency(averagePrice)}</td>
                     <td data-label="Prix actuel">${formatCurrency(currentPrice)}</td>
                     <td data-label="Valeur">${formatCurrency(marketValue)}</td>
+                    <td data-label="Actions">
+                      <div class="portfolio-actions">
+                        <button
+                          type="button"
+                          class="button button--ghost portfolio-actions__button"
+                          data-action="close"
+                          data-position-id="${safePositionId}"
+                          data-portfolio="${safeAccount}"
+                          data-quantity="${quantity}"
+                          data-symbol="${safeSymbol}"
+                        >
+                          Fermer
+                        </button>
+                        <button
+                          type="button"
+                          class="button button--ghost portfolio-actions__button"
+                          data-action="adjust"
+                          data-position-id="${safePositionId}"
+                          data-portfolio="${safeAccount}"
+                          data-quantity="${quantity}"
+                          data-symbol="${safeSymbol}"
+                        >
+                          Ajuster
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 `;
               })
@@ -274,6 +334,99 @@
       `;
       container.appendChild(item);
     });
+  }
+
+  function handlePortfolioActionClick(event) {
+    const target = event.target.closest("button[data-action][data-position-id]");
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    const action = (target.dataset.action || "").toLowerCase();
+    if (!action) {
+      return;
+    }
+    const currentQuantity = Number(target.dataset.quantity || 0);
+    if (action === "close") {
+      void performPositionAdjustment(target, 0);
+      return;
+    }
+    if (action === "adjust") {
+      const symbol = target.dataset.symbol || "";
+      const promptValue = window.prompt(
+        `Nouvelle quantité pour ${symbol || "cette position"}`,
+        Number.isFinite(currentQuantity) ? currentQuantity.toString() : "0"
+      );
+      if (promptValue === null) {
+        return;
+      }
+      const targetQuantity = Number(promptValue);
+      if (!Number.isFinite(targetQuantity)) {
+        window.alert("Quantité invalide. Veuillez saisir une valeur numérique.");
+        return;
+      }
+      if (Math.abs(targetQuantity - currentQuantity) < 1e-9) {
+        return;
+      }
+      void performPositionAdjustment(target, targetQuantity);
+    }
+  }
+
+  async function performPositionAdjustment(button, targetQuantity) {
+    if (!button || typeof fetch !== "function") {
+      return;
+    }
+    const positionId = button.dataset.positionId;
+    if (!positionId) {
+      return;
+    }
+    const currentQuantity = Number(button.dataset.quantity || 0);
+    if (
+      typeof targetQuantity === "number" &&
+      Math.abs(targetQuantity - currentQuantity) < 1e-9
+    ) {
+      return;
+    }
+    const payload = {};
+    if (typeof targetQuantity === "number") {
+      payload.target_quantity = targetQuantity;
+    }
+    button.disabled = true;
+    button.dataset.loading = "true";
+    try {
+      const response = await fetch(
+        `/positions/${encodeURIComponent(positionId)}/close`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      if (
+        result &&
+        result.positions &&
+        Array.isArray(result.positions.items)
+      ) {
+        const items = result.positions.items;
+        state.fallback.portfolios = JSON.parse(JSON.stringify(items));
+        state.current.portfolios = items;
+        state.received.portfolios = true;
+        updateDatasetSource("portfolios", "live");
+        renderPortfolios();
+      }
+    } catch (error) {
+      console.error("Impossible d'ajuster la position", error);
+      window.alert(
+        "Impossible de mettre à jour la position. Veuillez réessayer plus tard."
+      );
+    } finally {
+      button.disabled = false;
+      delete button.dataset.loading;
+    }
   }
 
   function renderTransactions() {
@@ -1202,14 +1355,19 @@
     }
 
     const resource = payload.resource || payload.type;
-    if (resource === "portfolios" && Array.isArray(payload.items)) {
+    if (
+      (resource === "portfolios" || resource === "positions") &&
+      Array.isArray(payload.items)
+    ) {
       const mode = payload.mode || payload.source || "live";
       updateDatasetSource("portfolios", mode);
       state.received.portfolios = true;
       if (mode === "fallback" || mode === "degraded") {
-        state.fallback.portfolios = JSON.parse(JSON.stringify(payload.items));
-        state.current.portfolios = JSON.parse(JSON.stringify(payload.items));
+        const copy = JSON.parse(JSON.stringify(payload.items));
+        state.fallback.portfolios = copy;
+        state.current.portfolios = copy;
       } else {
+        state.fallback.portfolios = JSON.parse(JSON.stringify(payload.items));
         state.current.portfolios = payload.items;
       }
       renderPortfolios();
