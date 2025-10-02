@@ -25,6 +25,26 @@ class DummyAlertsClient:
             "risk": payload.get("risk", "info"),
             "acknowledged": payload.get("acknowledged", False),
             "created_at": payload.get("created_at", "2024-04-02T12:00:00Z"),
+            "rule": payload.get(
+                "rule",
+                {
+                    "symbol": "BTCUSDT",
+                    "timeframe": "1h",
+                    "conditions": {
+                        "pnl": {"enabled": True, "operator": "below", "value": -100},
+                        "drawdown": {"enabled": False, "operator": "above", "value": None},
+                        "indicators": [],
+                    },
+                },
+            ),
+            "channels": payload.get(
+                "channels",
+                [
+                    {"type": "email", "target": "ops@example.com", "enabled": True},
+                    {"type": "webhook", "target": "https://example.com/hook", "enabled": False},
+                ],
+            ),
+            "throttle_seconds": payload.get("throttle_seconds", 0),
         }
 
     def update_alert(self, alert_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -36,6 +56,23 @@ class DummyAlertsClient:
             "risk": payload.get("risk", "info"),
             "acknowledged": payload.get("acknowledged", False),
             "created_at": payload.get("created_at", "2024-04-02T12:00:00Z"),
+            "rule": payload.get(
+                "rule",
+                {
+                    "symbol": "BTCUSDT",
+                    "timeframe": None,
+                    "conditions": {
+                        "pnl": {"enabled": False, "operator": "below", "value": None},
+                        "drawdown": {"enabled": False, "operator": "above", "value": None},
+                        "indicators": [],
+                    },
+                },
+            ),
+            "channels": payload.get(
+                "channels",
+                [{"type": "email", "target": "ops@example.com", "enabled": True}],
+            ),
+            "throttle_seconds": payload.get("throttle_seconds", 0),
         }
         return base
 
@@ -71,6 +108,21 @@ def test_create_alert_delegates_to_engine(dashboard_module, auth_headers):
             "title": "Nouvelle alerte",
             "detail": "Supervision de la marge",
             "risk": "critical",
+            "acknowledged": False,
+            "rule": {
+                "symbol": "ETHUSDT",
+                "timeframe": "1h",
+                "conditions": {
+                    "pnl": {"enabled": True, "operator": "below", "value": -200},
+                    "drawdown": {"enabled": True, "operator": "above", "value": 5},
+                    "indicators": [],
+                },
+            },
+            "channels": [
+                {"type": "email", "target": "risk@example.com", "enabled": True},
+                {"type": "push", "target": "desk-1", "enabled": False},
+            ],
+            "throttle_seconds": 600,
         },
         headers=auth_headers,
     )
@@ -79,6 +131,8 @@ def test_create_alert_delegates_to_engine(dashboard_module, auth_headers):
     payload = response.json()
     assert payload["title"] == "Nouvelle alerte"
     assert payload["risk"] == "critical"
+    assert payload["rule"]["symbol"] == "ETHUSDT"
+    assert payload["channels"]
     assert dummy.created and dummy.created[0]["title"] == "Nouvelle alerte"
 
 
@@ -89,7 +143,21 @@ def test_update_alert_returns_payload_from_engine(dashboard_module, auth_headers
 
     response = client.put(
         "/alerts/alert-1",
-        json={"detail": "Mise à jour effectuée", "acknowledged": True},
+        json={
+            "detail": "Mise à jour effectuée",
+            "acknowledged": True,
+            "rule": {
+                "symbol": "BTCUSDT",
+                "timeframe": "4h",
+                "conditions": {
+                    "pnl": {"enabled": True, "operator": "below", "value": -50},
+                    "drawdown": {"enabled": False, "operator": "above", "value": None},
+                    "indicators": [],
+                },
+            },
+            "channels": [{"type": "email", "target": "ops@example.com", "enabled": True}],
+            "throttle_seconds": 300,
+        },
         headers=auth_headers,
     )
 
@@ -98,7 +166,26 @@ def test_update_alert_returns_payload_from_engine(dashboard_module, auth_headers
     assert payload["id"] == "alert-1"
     assert payload["detail"] == "Mise à jour effectuée"
     assert payload["acknowledged"] is True
-    assert dummy.updated == [("alert-1", {"detail": "Mise à jour effectuée", "acknowledged": True})]
+    assert dummy.updated == [
+        (
+            "alert-1",
+            {
+                "detail": "Mise à jour effectuée",
+                "acknowledged": True,
+                "rule": {
+                    "symbol": "BTCUSDT",
+                    "timeframe": "4h",
+                    "conditions": {
+                        "pnl": {"enabled": True, "operator": "below", "value": -50},
+                        "drawdown": {"enabled": False, "operator": "above", "value": None},
+                        "indicators": [],
+                    },
+                },
+                "channels": [{"type": "email", "target": "ops@example.com", "enabled": True}],
+                "throttle_seconds": 300,
+            },
+        )
+    ]
 
 
 def test_delete_alert_requires_engine_call(dashboard_module, auth_headers):

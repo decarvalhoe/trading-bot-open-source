@@ -52,6 +52,7 @@ class AlertEventRepository:
         notification_id: int | None = None,
         notification_channel: str | None = None,
         notification_target: str | None = None,
+        notification_type: str | None = None,
     ) -> AlertEvent:
         """Persist an alert event and return the SQLAlchemy instance."""
 
@@ -69,6 +70,7 @@ class AlertEventRepository:
             notification_id=notification_id,
             notification_channel=notification_channel,
             notification_target=notification_target,
+            notification_type=notification_type,
         )
         session.add(event)
         session.commit()

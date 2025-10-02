@@ -25,7 +25,7 @@ rester compatible avec l'API `/strategies/import` de l'algo-engine.
 | Bloc du dashboard | Source | Détails |
 | --- | --- | --- |
 | Portefeuilles, transactions | `order-router` (`GET /orders/log`) via `services/web-dashboard/app/order_router_client.py` | L'historique d'ordres est agrégé pour reconstituer les positions et transactions par portefeuille. En cas d'échec réseau, le service retombe sur un instantané statique et expose cette information via le champ `data_sources`. |
-| Alertes | `alert-engine` (`GET /alerts`) | Les alertes actives sont récupérées côté moteur et mises en cache en mémoire avec une liste de secours si l'appel échoue. |
+| Alertes | `alert-engine` (`GET /alerts/triggers`) | Les déclenchements récents sont récupérés côté moteur et mises en cache en mémoire avec une liste de secours si l'appel échoue. |
 | Métriques de performance | `reports-service` (`GET /reports/daily`) | Agrégation quotidienne retournant P\&L, drawdown et incidents. Le dashboard normalise les rendements à partir du champ d'exposition (`exposure`, `notional_exposure`, etc.) lorsqu'il est fourni afin de calculer un rendement composé et un ratio de Sharpe annualisé. |
 | Setups InPlay | `services/inplay` (`GET /inplay/watchlists/{id}` + WebSocket `/inplay/ws`) | Les setups incluent un champ `session` (`london`, `new_york`, `asia`). Le dashboard expose un sélecteur pour filtrer l'affichage par session et peut recharger un instantané via `?session=`. |
 

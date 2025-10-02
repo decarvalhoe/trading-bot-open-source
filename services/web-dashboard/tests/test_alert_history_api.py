@@ -43,6 +43,8 @@ def seed_events(module, count=5):
                 triggered_at=base_time - timedelta(minutes=index),
                 context={"index": index},
                 delivery_status="received",
+                notification_channel="email" if index % 2 == 0 else "webhook",
+                notification_type="trigger" if index % 2 == 0 else "throttled",
             )
     finally:
         session.close()

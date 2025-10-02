@@ -6,7 +6,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List
 
-from pydantic import BaseModel, Field, ConfigDict
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RiskLevel(str, Enum):
@@ -86,6 +88,45 @@ class Transaction(BaseModel):
     portfolio: str = Field(..., description="Portfolio affected by the transaction")
 
 
+class NotificationChannelType(str, Enum):
+    EMAIL = "email"
+    PUSH = "push"
+    WEBHOOK = "webhook"
+
+
+class NotificationChannel(BaseModel):
+    type: NotificationChannelType
+    target: str | None = Field(default=None, max_length=255)
+    enabled: bool = Field(default=True)
+
+
+class PerformanceCondition(BaseModel):
+    enabled: bool = Field(default=False)
+    operator: str = Field(default="below")
+    value: float | None = Field(default=None)
+
+
+class IndicatorCondition(BaseModel):
+    id: str
+    name: str
+    operator: str = Field(default="above")
+    value: float
+    lookback: int | None = Field(default=None, ge=1)
+    enabled: bool = Field(default=True)
+
+
+class RuleConditions(BaseModel):
+    pnl: PerformanceCondition = Field(default_factory=PerformanceCondition)
+    drawdown: PerformanceCondition = Field(default_factory=PerformanceCondition)
+    indicators: list[IndicatorCondition] = Field(default_factory=list)
+
+
+class AlertRuleDefinition(BaseModel):
+    symbol: str
+    timeframe: str | None = None
+    conditions: RuleConditions = Field(default_factory=RuleConditions)
+
+
 class Alert(BaseModel):
     """Describe a signal that requires user attention."""
 
@@ -95,6 +136,9 @@ class Alert(BaseModel):
     risk: RiskLevel = Field(default=RiskLevel.info)
     created_at: datetime
     acknowledged: bool = Field(False, description="Whether the alert has been acknowledged")
+    rule: AlertRuleDefinition
+    channels: list[NotificationChannel] = Field(default_factory=list)
+    throttle_seconds: int = Field(default=0, ge=0)
 
 
 class AlertCreateRequest(BaseModel):
@@ -104,6 +148,9 @@ class AlertCreateRequest(BaseModel):
     detail: str
     risk: RiskLevel = Field(default=RiskLevel.info)
     acknowledged: bool = Field(default=False)
+    rule: AlertRuleDefinition
+    channels: list[NotificationChannel] = Field(default_factory=list)
+    throttle_seconds: int = Field(default=0, ge=0)
 
 
 class AlertUpdateRequest(BaseModel):
@@ -115,6 +162,9 @@ class AlertUpdateRequest(BaseModel):
     detail: str | None = None
     risk: RiskLevel | None = None
     acknowledged: bool | None = None
+    rule: AlertRuleDefinition | None = None
+    channels: list[NotificationChannel] | None = None
+    throttle_seconds: int | None = Field(default=None, ge=0)
 
 
 class PerformanceMetrics(BaseModel):

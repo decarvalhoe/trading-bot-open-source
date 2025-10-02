@@ -144,7 +144,12 @@ def test_rule_triggered_on_event(
     session: Session,
     repository: AlertRuleRepository,
 ) -> None:
-    rule = AlertRule(name="Price spike", symbol="BTC", expression="price > moving_average")
+    rule = AlertRule(
+        name="Price spike",
+        detail="Trigger when price exceeds moving average",
+        symbol="BTC",
+        expression="price > moving_average",
+    )
 
     async def _run() -> None:
         await repository.add_rule(session, rule)
@@ -173,7 +178,12 @@ def test_rule_not_triggered_when_condition_false(
     session: Session,
     repository: AlertRuleRepository,
 ) -> None:
-    rule = AlertRule(name="Price drop", symbol="BTC", expression="price < moving_average")
+    rule = AlertRule(
+        name="Price drop",
+        detail="Trigger when price drops below average",
+        symbol="BTC",
+        expression="price < moving_average",
+    )
 
     async def _run() -> None:
         await repository.add_rule(session, rule)
@@ -221,7 +231,12 @@ def test_periodic_evaluation_creates_triggers(
         try:
             await repository.add_rule(
                 session,
-                AlertRule(name="Snapshot", symbol="ETH", expression="price > moving_average"),
+                AlertRule(
+                    name="Snapshot",
+                    detail="Periodic evaluation rule",
+                    symbol="ETH",
+                    expression="price > moving_average",
+                ),
             )
         finally:
             session.close()
@@ -233,3 +248,85 @@ def test_periodic_evaluation_creates_triggers(
     asyncio.run(_run())
 
     assert len(publisher.published_payloads) >= 1
+
+
+def test_api_creates_rules_and_applies_throttle(
+    in_memory_session_factory: sessionmaker[Session],
+) -> None:
+    market_client = FakeMarketDataClient({"pnl": -250.0, "drawdown": 6.0, "price": 101.0})
+    reports_client = FakeReportsClient({"performance": {"pnl": -250.0, "drawdown": 6.0}})
+    publisher = DummyPublisher()
+
+    app = create_app(
+        settings=AlertEngineSettings(evaluation_interval_seconds=0.1),
+        session_factory=in_memory_session_factory,
+        market_client=market_client,
+        reports_client=reports_client,
+        stream_client=NullStreamClient(),
+        publisher=publisher,
+        start_background_tasks=False,
+    )
+
+    async def _run() -> None:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            create_response = await client.post(
+                "/alerts",
+                json={
+                    "title": "Drawdown limit breached",
+                    "detail": "Trigger when losses exceed tolerance.",
+                    "risk": "critical",
+                    "rule": {
+                        "symbol": "BTC",
+                        "timeframe": "1h",
+                        "conditions": {
+                            "pnl": {"enabled": True, "operator": "below", "value": -100.0},
+                            "drawdown": {"enabled": True, "operator": "above", "value": 5.0},
+                            "indicators": [],
+                        },
+                    },
+                    "channels": [
+                        {"type": "email", "target": "risk@example.com", "enabled": True},
+                        {"type": "webhook", "target": "https://alerts.test/webhook", "enabled": True},
+                    ],
+                    "throttle_seconds": 600,
+                },
+            )
+            assert create_response.status_code == 201
+            created = create_response.json()
+            assert created["rule"]["symbol"] == "BTC"
+            rule_id = created["id"]
+
+            first_event = await client.post("/events", json={"symbol": "BTC", "price": 99.0})
+            assert first_event.status_code == 200
+            first_payload = first_event.json()
+            assert first_payload["triggered"] is True
+            assert len(first_payload["triggers"]) == 1
+
+            second_event = await client.post("/events", json={"symbol": "BTC", "price": 98.0})
+            assert second_event.status_code == 200
+            second_payload = second_event.json()
+            assert second_payload["triggered"] is False
+
+            update_response = await client.put(
+                f"/alerts/{rule_id}",
+                json={"throttle_seconds": 0},
+            )
+            assert update_response.status_code == 200
+
+            third_event = await client.post("/events", json={"symbol": "BTC", "price": 97.0})
+            assert third_event.status_code == 200
+            third_payload = third_event.json()
+            assert third_payload["triggered"] is True
+
+            list_response = await client.get("/alerts")
+            assert list_response.status_code == 200
+            rules = list_response.json()
+            assert any(rule["id"] == rule_id for rule in rules)
+
+    asyncio.run(_run())
+
+    assert len(publisher.published_payloads) >= 2
+    first_notification = publisher.published_payloads[0]
+    assert first_notification["channels"]
+    assert first_notification["rule_name"] == "Drawdown limit breached"
