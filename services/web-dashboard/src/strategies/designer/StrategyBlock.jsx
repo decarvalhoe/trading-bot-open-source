@@ -473,13 +473,22 @@ function renderFields(node, onChange) {
 export default function StrategyBlock({
   node,
   section,
+  layout,
+  selection,
+  clipboardAvailable,
   onDrop,
   onConfigChange,
   onRemove,
+  onSelect,
+  onCopy,
+  onPaste,
+  onDuplicate,
   depth = 0,
 }) {
   const definition = BLOCK_DEFINITIONS[node.type] || { accepts: [] };
   const acceptsChildren = Array.isArray(definition.accepts) && definition.accepts.length > 0;
+  const layoutInfo = layout?.[node.id] || {};
+  const isSelected = selection?.section === section && selection?.nodeId === node.id;
 
   const handleDrop = (event) => {
     event.preventDefault();
@@ -505,18 +514,83 @@ export default function StrategyBlock({
     onRemove({ section, nodeId: node.id });
   };
 
+  const handleSelect = (event) => {
+    event.stopPropagation();
+    onSelect?.({ section, nodeId: node.id });
+  };
+
+  const handleContextMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onCopy?.({ section, nodeId: node.id });
+  };
+
+  const handleCopyClick = (event) => {
+    event.stopPropagation();
+    onCopy?.({ section, nodeId: node.id });
+  };
+
+  const handlePasteClick = (event) => {
+    event.stopPropagation();
+    onPaste?.({ section, nodeId: node.id });
+  };
+
+  const handleDuplicateClick = (event) => {
+    event.stopPropagation();
+    onDuplicate?.({ section, nodeId: node.id });
+  };
+
   return (
-    <article className="designer-block" data-node-id={node.id} data-node-type={node.type} data-depth={depth}>
+    <article
+      className={`designer-block${isSelected ? " designer-block--selected" : ""}`}
+      data-node-id={node.id}
+      data-node-type={node.type}
+      data-depth={depth}
+      data-layout-column={layoutInfo.column ?? depth}
+      data-layout-row={layoutInfo.row ?? 0}
+      tabIndex={0}
+      onClick={handleSelect}
+      onFocus={handleSelect}
+      onContextMenu={handleContextMenu}
+      style={{ "--layout-column": layoutInfo.column ?? depth, "--layout-row": layoutInfo.row ?? 0 }}
+    >
       <header className="designer-block__header">
         <span className="designer-block__title heading heading--sm">{definition.label || node.type}</span>
-        <button
-          type="button"
-          className="button button--ghost designer-block__remove"
-          onClick={handleRemoveClick}
-          aria-label={`Supprimer le bloc ${definition.label || node.type}`}
-        >
-          Retirer
-        </button>
+        <div className="designer-block__actions" aria-label="Actions du bloc">
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={handleCopyClick}
+            aria-label="Copier le bloc"
+          >
+            Copier
+          </button>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={handleDuplicateClick}
+            aria-label="Dupliquer le bloc"
+          >
+            Dupliquer
+          </button>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={handlePasteClick}
+            aria-label="Coller un bloc enfant"
+            disabled={!clipboardAvailable}
+          >
+            Coller
+          </button>
+          <button
+            type="button"
+            className="button button--ghost designer-block__remove"
+            onClick={handleRemoveClick}
+            aria-label={`Supprimer le bloc ${definition.label || node.type}`}
+          >
+            Retirer
+          </button>
+        </div>
       </header>
       <div className="designer-block__body">{renderFields(node, handleConfigUpdate)}</div>
       {acceptsChildren ? (
@@ -526,9 +600,16 @@ export default function StrategyBlock({
               key={child.id}
               node={child}
               section={section}
+              layout={layout}
+              selection={selection}
+              clipboardAvailable={clipboardAvailable}
               onDrop={onDrop}
               onConfigChange={onConfigChange}
               onRemove={onRemove}
+              onSelect={onSelect}
+              onCopy={onCopy}
+              onPaste={onPaste}
+              onDuplicate={onDuplicate}
               depth={depth + 1}
             />
           ))}

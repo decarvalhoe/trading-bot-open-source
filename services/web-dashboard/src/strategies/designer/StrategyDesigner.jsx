@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import BlockPalette from "./BlockPalette.jsx";
 import DesignerCanvas from "./DesignerCanvas.jsx";
 import { BLOCK_DEFINITIONS, cloneDefaultConfig } from "./designerConstants.js";
@@ -383,6 +383,29 @@ function createNode(type, idRef) {
   };
 }
 
+function serializeNode(node) {
+  return {
+    type: node.type,
+    config: node.config,
+    children: Array.isArray(node.children)
+      ? node.children.map((child) => serializeNode(child))
+      : [],
+  };
+}
+
+function hydrateNode(serialized, idRef) {
+  const definition = BLOCK_DEFINITIONS[serialized.type];
+  return {
+    id: `node-${idRef.current++}`,
+    type: serialized.type,
+    label: definition ? definition.label : serialized.type,
+    config: serialized.config ? { ...serialized.config } : cloneDefaultConfig(serialized.type),
+    children: Array.isArray(serialized.children)
+      ? serialized.children.map((child) => hydrateNode(child, idRef))
+      : [],
+  };
+}
+
 function findNode(nodes, nodeId) {
   for (const node of nodes) {
     if (node.id === nodeId) {
@@ -459,6 +482,189 @@ function removeNode(nodes, nodeId) {
   return changed ? filtered : nodes;
 }
 
+function insertAfter(nodes, nodeId, newNode) {
+  const index = nodes.findIndex((node) => node.id === nodeId);
+  if (index !== -1) {
+    const next = nodes.slice();
+    next.splice(index + 1, 0, newNode);
+    return next;
+  }
+
+  let changed = false;
+  const mapped = nodes.map((node) => {
+    if (node.children && node.children.length) {
+      const updatedChildren = insertAfter(node.children, nodeId, newNode);
+      if (updatedChildren !== node.children) {
+        changed = true;
+        return { ...node, children: updatedChildren };
+      }
+    }
+    return node;
+  });
+  return changed ? mapped : nodes;
+}
+
+function computeLayout(nodes, depth = 0, startRow = 1, map = {}) {
+  let row = startRow;
+  nodes.forEach((node) => {
+    map[node.id] = { row, column: depth };
+    row += 1;
+    if (node.children && node.children.length) {
+      const childLayout = computeLayout(node.children, depth + 1, row, map);
+      row = childLayout.nextRow;
+    }
+  });
+  return { map, nextRow: row };
+}
+
+function normalizeSelection(state, selection) {
+  if (!selection) {
+    return null;
+  }
+  const nodes = state[selection.section];
+  if (!nodes) {
+    return null;
+  }
+  if (!selection.nodeId) {
+    return selection;
+  }
+  return findNode(nodes, selection.nodeId) ? selection : null;
+}
+
+function historyPush(history, nextPresent) {
+  const presentString = JSON.stringify(history.present);
+  const nextString = JSON.stringify(nextPresent);
+  if (presentString === nextString) {
+    return history;
+  }
+  return {
+    past: [...history.past, history.present],
+    present: nextPresent,
+    future: [],
+  };
+}
+
+function historyUndo(history) {
+  if (!history.past.length) {
+    return history;
+  }
+  const previous = history.past[history.past.length - 1];
+  return {
+    past: history.past.slice(0, -1),
+    present: previous,
+    future: [history.present, ...history.future],
+  };
+}
+
+function historyRedo(history) {
+  if (!history.future.length) {
+    return history;
+  }
+  const [next, ...rest] = history.future;
+  return {
+    past: [...history.past, history.present],
+    present: next,
+    future: rest,
+  };
+}
+
+const initialHistory = {
+  past: [],
+  present: { conditions: [], actions: [] },
+  future: [],
+};
+
+function designerReducer(state, action) {
+  switch (action.type) {
+    case "APPLY": {
+      const nextPresent = action.updater(state.history.present);
+      const nextHistory = historyPush(state.history, nextPresent);
+      if (nextHistory === state.history) {
+        return state;
+      }
+      return {
+        ...state,
+        history: nextHistory,
+        selection: normalizeSelection(nextHistory.present, state.selection),
+      };
+    }
+    case "SET_PRESENT": {
+      const nextHistory = {
+        past: action.resetHistory ? [] : state.history.past,
+        present: action.present,
+        future: [],
+      };
+      return {
+        ...state,
+        history: nextHistory,
+        selection: normalizeSelection(action.present, state.selection),
+      };
+    }
+    case "UNDO": {
+      const history = historyUndo(state.history);
+      if (history === state.history) {
+        return state;
+      }
+      return {
+        ...state,
+        history,
+        selection: normalizeSelection(history.present, state.selection),
+      };
+    }
+    case "REDO": {
+      const history = historyRedo(state.history);
+      if (history === state.history) {
+        return state;
+      }
+      return {
+        ...state,
+        history,
+        selection: normalizeSelection(history.present, state.selection),
+      };
+    }
+    case "SELECT": {
+      return {
+        ...state,
+        selection: action.selection,
+      };
+    }
+    case "CLEAR_SELECTION": {
+      return {
+        ...state,
+        selection: null,
+      };
+    }
+    case "COPY": {
+      if (!state.selection?.nodeId) {
+        return state;
+      }
+      const nodes = state.history.present[state.selection.section];
+      const node = findNode(nodes, state.selection.nodeId);
+      if (!node) {
+        return state;
+      }
+      return {
+        ...state,
+        clipboard: JSON.stringify(serializeNode(node)),
+      };
+    }
+    case "CLEAR_CLIPBOARD": {
+      return {
+        ...state,
+        clipboard: null,
+      };
+    }
+    case "SET_CLIPBOARD": {
+      return {
+        ...state,
+        clipboard: action.clipboard,
+      };
+    }
+    default:
+      return state;
+  }
+}
+
 function PresetPalette({ presets, onApply }) {
   if (!Array.isArray(presets) || presets.length === 0) {
     return null;
@@ -511,10 +717,16 @@ export default function StrategyDesigner({
   const idRef = useRef(1);
   const [name, setName] = useState(defaultName);
   const [format, setFormat] = useState(defaultFormat === "python" ? "python" : "yaml");
-  const [conditions, setConditions] = useState([]);
-  const [actions, setActions] = useState([]);
   const [status, setStatus] = useState({ type: "idle", message: null });
   const [lastResponse, setLastResponse] = useState(null);
+  const [state, dispatch] = useReducer(designerReducer, {
+    history: initialHistory,
+    selection: null,
+    clipboard: null,
+  });
+
+  const { conditions, actions } = state.history.present;
+  const { selection, clipboard } = state;
 
   const exports = useMemo(
     () => buildExports(name, conditions, actions),
@@ -532,42 +744,87 @@ export default function StrategyDesigner({
 
   const createNodeId = () => `node-${idRef.current++}`;
 
-  const applyHydrationResult = (result, successMessage, fallbackName = "") => {
-    const hasErrors = !result || (Array.isArray(result.errors) && result.errors.length > 0);
-    if (hasErrors) {
-      const message = result?.errors?.length
-        ? result.errors.join(" ")
-        : "Impossible d'importer la stratégie fournie.";
-      setStatus({ type: "error", message });
-      return false;
-    }
+  const applyChange = useCallback(
+    (mutator) => {
+      dispatch({
+        type: "APPLY",
+        updater: (present) => {
+          const next = mutator(present);
+          if (!next) {
+            return present;
+          }
+          const nextConditions = Array.isArray(next.conditions)
+            ? next.conditions
+            : present.conditions;
+          const nextActions = Array.isArray(next.actions) ? next.actions : present.actions;
+          if (nextConditions === present.conditions && nextActions === present.actions) {
+            return present;
+          }
+          return { conditions: nextConditions, actions: nextActions };
+        },
+      });
+    },
+    [dispatch]
+  );
 
-    setConditions(Array.isArray(result.conditions) ? result.conditions : []);
-    setActions(Array.isArray(result.actions) ? result.actions : []);
-    setFormat(result.format === "python" ? "python" : "yaml");
-    const resolvedName = (result.name || "").trim() || (fallbackName || "").trim();
-    if (resolvedName) {
-      setName(resolvedName);
-    }
-    setLastResponse(null);
-    setStatus({ type: "success", message: successMessage });
-    return true;
-  };
+  const setPresent = useCallback(
+    (present, { resetHistory = false } = {}) => {
+      dispatch({ type: "SET_PRESENT", present, resetHistory });
+    },
+    [dispatch]
+  );
 
-  const handlePresetApply = (presetId) => {
-    const preset =
-      presetList.find((item) => item.id === presetId) || findPresetById(presetId);
-    if (!preset) {
-      setStatus({ type: "error", message: "Modèle introuvable." });
-      return;
-    }
-    const result = deserializeStrategy({
-      code: preset.content,
-      format: preset.format,
-      createId: createNodeId,
-    });
-    applyHydrationResult(result, `Modèle « ${preset.label} » chargé.`, preset.label);
-  };
+  const clearTransientState = useCallback(() => {
+    dispatch({ type: "CLEAR_SELECTION" });
+    dispatch({ type: "CLEAR_CLIPBOARD" });
+  }, [dispatch]);
+
+  const applyHydrationResult = useCallback(
+    (result, successMessage, fallbackName = "") => {
+      const hasErrors = !result || (Array.isArray(result.errors) && result.errors.length > 0);
+      if (hasErrors) {
+        const message = result?.errors?.length
+          ? result.errors.join(" ")
+          : "Impossible d'importer la stratégie fournie.";
+        setStatus({ type: "error", message });
+        return false;
+      }
+
+      const nextPresent = {
+        conditions: Array.isArray(result.conditions) ? result.conditions : [],
+        actions: Array.isArray(result.actions) ? result.actions : [],
+      };
+      setPresent(nextPresent, { resetHistory: true });
+      setFormat(result.format === "python" ? "python" : "yaml");
+      const resolvedName = (result.name || "").trim() || (fallbackName || "").trim();
+      if (resolvedName) {
+        setName(resolvedName);
+      }
+      setLastResponse(null);
+      setStatus({ type: "success", message: successMessage });
+      clearTransientState();
+      return true;
+    },
+    [clearTransientState, setPresent]
+  );
+
+  const handlePresetApply = useCallback(
+    (presetId) => {
+      const preset =
+        presetList.find((item) => item.id === presetId) || findPresetById(presetId);
+      if (!preset) {
+        setStatus({ type: "error", message: "Modèle introuvable." });
+        return;
+      }
+      const result = deserializeStrategy({
+        code: preset.content,
+        format: preset.format,
+        createId: createNodeId,
+      });
+      applyHydrationResult(result, `Modèle « ${preset.label} » chargé.`, preset.label);
+    },
+    [applyHydrationResult, presetList]
+  );
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -609,71 +866,305 @@ export default function StrategyDesigner({
     }
   };
 
-  const handleDrop = ({ section, targetId, type }) => {
-    const definition = BLOCK_DEFINITIONS[type];
-    if (!definition) {
-      setStatus({ type: "error", message: "Type de bloc inconnu." });
-      return;
-    }
-    if (section === "conditions" && definition.category !== "conditions") {
-      setStatus({ type: "error", message: "Ce bloc ne peut pas être utilisé dans les conditions." });
-      return;
-    }
-    if (section === "actions" && definition.category !== "actions") {
-      setStatus({ type: "error", message: "Ce bloc ne peut pas être utilisé dans les actions." });
-      return;
-    }
+  const handleSelect = useCallback(
+    (nextSelection) => {
+      if (!nextSelection) {
+        dispatch({ type: "CLEAR_SELECTION" });
+      } else {
+        dispatch({ type: "SELECT", selection: nextSelection });
+      }
+    },
+    [dispatch]
+  );
 
-    const collection = section === "conditions" ? conditions : actions;
-    const parent = targetId ? findNode(collection, targetId) : null;
-    if (targetId && (!parent || !BLOCK_DEFINITIONS[parent.type]?.accepts?.includes(type))) {
-      setStatus({
-        type: "error",
-        message: "La cible ne peut pas contenir ce type de bloc.",
-      });
-      return;
-    }
+  const handleDrop = useCallback(
+    ({ section, targetId, type }) => {
+      const definition = BLOCK_DEFINITIONS[type];
+      if (!definition) {
+        setStatus({ type: "error", message: "Type de bloc inconnu." });
+        return;
+      }
+      if (section === "conditions" && definition.category !== "conditions") {
+        setStatus({ type: "error", message: "Ce bloc ne peut pas être utilisé dans les conditions." });
+        return;
+      }
+      if (section === "actions" && definition.category !== "actions") {
+        setStatus({ type: "error", message: "Ce bloc ne peut pas être utilisé dans les actions." });
+        return;
+      }
 
-    const node = createNode(type, idRef);
-    if (section === "conditions") {
-      setConditions((prev) => appendNode(prev, targetId, node));
-    } else {
-      setActions((prev) => appendNode(prev, targetId, node));
-    }
-    setStatus({ type: "success", message: `${definition.label} ajouté.` });
-  };
+      const collection = section === "conditions" ? conditions : actions;
+      const parent = targetId ? findNode(collection, targetId) : null;
+      if (
+        targetId &&
+        (!parent || !BLOCK_DEFINITIONS[parent.type]?.accepts?.includes(type))
+      ) {
+        setStatus({
+          type: "error",
+          message: "La cible ne peut pas contenir ce type de bloc.",
+        });
+        return;
+      }
 
-  const handleAdd = ({ type, section }) => {
+      const item = createNode(type, idRef);
+      applyChange((present) => ({
+        ...present,
+        [section]: appendNode(present[section], targetId, item),
+      }));
+      handleSelect({ section, nodeId: item.id });
+      setStatus({ type: "idle", message: null });
+    },
+    [actions, applyChange, conditions, handleSelect]
+  );
+
+  const handleAdd = ({ section, type }) => {
     handleDrop({ section, targetId: null, type });
   };
 
-  const handleConfigChange = ({ section, nodeId, config }) => {
-    if (section === "conditions") {
-      setConditions((prev) => updateNode(prev, nodeId, (node) => ({ ...node, config })));
-    } else {
-      setActions((prev) => updateNode(prev, nodeId, (node) => ({ ...node, config })));
-    }
-  };
+  const handleConfigChange = useCallback(
+    ({ section, nodeId, config }) => {
+      applyChange((present) => ({
+        ...present,
+        [section]: updateNode(present[section], nodeId, (node) => ({
+          ...node,
+          config,
+        })),
+      }));
+      setStatus({ type: "idle", message: null });
+    },
+    [applyChange]
+  );
 
-  const handleRemove = ({ section, nodeId }) => {
-    if (section === "conditions") {
-      setConditions((prev) => removeNode(prev, nodeId));
-    } else {
-      setActions((prev) => removeNode(prev, nodeId));
+  const handleRemove = useCallback(
+    ({ section, nodeId }) => {
+      applyChange((present) => ({
+        ...present,
+        [section]: removeNode(present[section], nodeId),
+      }));
+      setStatus({ type: "idle", message: null });
+    },
+    [applyChange]
+  );
+
+  const copySelection = useCallback(
+    (target) => {
+      if (target) {
+        handleSelect(target);
+      }
+      const current = target || selection;
+      if (current?.nodeId) {
+        dispatch({ type: "COPY" });
+        setStatus({ type: "idle", message: null });
+      }
+    },
+    [dispatch, handleSelect, selection]
+  );
+
+  const parseClipboard = useCallback(() => {
+    if (!clipboard) {
+      return null;
     }
-    setStatus({ type: "info", message: "Bloc supprimé." });
-  };
+    try {
+      return JSON.parse(clipboard);
+    } catch (error) {
+      return null;
+    }
+  }, [clipboard]);
+
+  const handlePaste = useCallback(
+    ({ section, nodeId } = {}) => {
+      const payload = parseClipboard();
+      if (!payload) {
+        setStatus({ type: "error", message: "Presse-papiers vide ou invalide." });
+        return;
+      }
+      const target = section
+        ? { section, nodeId }
+        : selection || { section: "conditions", nodeId: null };
+      const targetSection = target.section || "conditions";
+      const definition = BLOCK_DEFINITIONS[payload.type];
+      if (!definition) {
+        setStatus({ type: "error", message: "Bloc inconnu dans le presse-papiers." });
+        return;
+      }
+      if (targetSection === "conditions" && definition.category !== "conditions") {
+        setStatus({ type: "error", message: "Ce bloc ne peut pas être collé dans les conditions." });
+        return;
+      }
+      if (targetSection === "actions" && definition.category !== "actions") {
+        setStatus({ type: "error", message: "Ce bloc ne peut pas être collé dans les actions." });
+        return;
+      }
+
+      let created = null;
+      let inserted = false;
+      const createClone = () => {
+        if (!created) {
+          created = hydrateNode(payload, idRef);
+        }
+        return created;
+      };
+
+      applyChange((present) => {
+        const source = present[targetSection] || [];
+        if (target.nodeId) {
+          const parent = findNode(source, target.nodeId);
+          const accepts = BLOCK_DEFINITIONS[parent?.type]?.accepts || [];
+          if (parent && accepts.includes(payload.type)) {
+            inserted = true;
+            const clone = createClone();
+            return {
+              ...present,
+              [targetSection]: appendNode(source, target.nodeId, clone),
+            };
+          }
+        }
+        inserted = true;
+        const clone = createClone();
+        return {
+          ...present,
+          [targetSection]: [...source, clone],
+        };
+      });
+
+      if (created && inserted) {
+        handleSelect({ section: targetSection, nodeId: created.id });
+        setStatus({ type: "idle", message: null });
+      } else if (!inserted) {
+        setStatus({ type: "error", message: "Impossible de coller le bloc ici." });
+      }
+    },
+    [applyChange, handleSelect, parseClipboard, selection]
+  );
+
+  const handleDuplicate = useCallback(
+    ({ section, nodeId }) => {
+      const pool = section === "actions" ? actions : conditions;
+      const original = findNode(pool, nodeId);
+      if (!original) {
+        return;
+      }
+      const serialized = serializeNode(original);
+      let created = null;
+      let inserted = false;
+      applyChange((present) => {
+        const source = present[section] || [];
+        const clone = hydrateNode(serialized, idRef);
+        created = clone;
+        const next = insertAfter(source, nodeId, clone);
+        if (next !== source) {
+          inserted = true;
+          return {
+            ...present,
+            [section]: next,
+          };
+        }
+        inserted = true;
+        return {
+          ...present,
+          [section]: [...source, clone],
+        };
+      });
+      if (created && inserted) {
+        handleSelect({ section, nodeId: created.id });
+        dispatch({ type: "SET_CLIPBOARD", clipboard: JSON.stringify(serialized) });
+        setStatus({ type: "idle", message: null });
+      }
+    },
+    [actions, applyChange, conditions, dispatch, handleSelect]
+  );
+
+  const handleSectionFocus = useCallback(
+    (section) => {
+      handleSelect({ section, nodeId: null });
+    },
+    [handleSelect]
+  );
+
+  const handleClearSelection = useCallback(() => {
+    dispatch({ type: "CLEAR_SELECTION" });
+  }, [dispatch]);
+
+  const canUndo = state.history.past.length > 0;
+  const canRedo = state.history.future.length > 0;
+  const hasClipboard = Boolean(clipboard);
+
+  const handleUndo = useCallback(() => {
+    if (canUndo) {
+      dispatch({ type: "UNDO" });
+    }
+  }, [canUndo, dispatch]);
+
+  const handleRedo = useCallback(() => {
+    if (canRedo) {
+      dispatch({ type: "REDO" });
+    }
+  }, [canRedo, dispatch]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      const isMod = event.metaKey || event.ctrlKey;
+      if (!isMod) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
+      }
+      if (key === "y") {
+        event.preventDefault();
+        handleRedo();
+        return;
+      }
+      if (key === "c") {
+        if (selection?.nodeId) {
+          event.preventDefault();
+          copySelection();
+        }
+        return;
+      }
+      if (key === "v") {
+        if (hasClipboard) {
+          event.preventDefault();
+          handlePaste();
+        }
+        return;
+      }
+      if (key === "d") {
+        if (selection?.nodeId) {
+          event.preventDefault();
+          handleDuplicate(selection);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [copySelection, handleDuplicate, handlePaste, handleRedo, handleUndo, hasClipboard, selection]);
+
+  const layoutMap = useMemo(() => {
+    const base = computeLayout(conditions);
+    const combined = computeLayout(actions, 0, base.nextRow, base.map);
+    return combined.map;
+  }, [actions, conditions]);
+
+  const validationState = validation.errors.length
+    ? "error"
+    : validation.warnings.length
+    ? "warning"
+    : "success";
 
   const handleSave = async (event) => {
     event.preventDefault();
-    if (!name.trim()) {
-      setStatus({ type: "error", message: "Le nom de la stratégie est obligatoire." });
-      return;
-    }
-    if (validation.errors.length) {
+    if (!validation.isValid) {
       setStatus({
         type: "error",
-        message: "Corrigez les erreurs de configuration avant de sauvegarder.",
+        message: "Corrigez la configuration avant d'enregistrer.",
       });
       return;
     }
@@ -729,12 +1220,6 @@ export default function StrategyDesigner({
     }
   };
 
-  const validationState = validation.errors.length
-    ? "error"
-    : validation.warnings.length
-    ? "warning"
-    : "success";
-
   return (
     <form className="strategy-designer" onSubmit={handleSave} aria-labelledby="designer-title">
       <header className="strategy-designer__header">
@@ -779,6 +1264,33 @@ export default function StrategyDesigner({
             onChange={handleFileSelected}
             data-testid="designer-file-input"
           />
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={handleUndo}
+            disabled={!canUndo}
+            data-testid="designer-undo-button"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={handleRedo}
+            disabled={!canRedo}
+            data-testid="designer-redo-button"
+          >
+            Rétablir
+          </button>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => handlePaste()}
+            disabled={!hasClipboard}
+            data-testid="designer-paste-button"
+          >
+            Coller
+          </button>
           <button type="submit" className="button button--primary">
             Enregistrer la stratégie
           </button>
@@ -803,9 +1315,18 @@ export default function StrategyDesigner({
         <DesignerCanvas
           conditions={conditions}
           actions={actions}
+          layout={layoutMap}
+          selection={selection}
+          clipboardAvailable={hasClipboard}
           onDrop={handleDrop}
           onConfigChange={handleConfigChange}
           onRemove={handleRemove}
+          onSelect={handleSelect}
+          onSectionFocus={handleSectionFocus}
+          onCopy={copySelection}
+          onPaste={handlePaste}
+          onDuplicate={handleDuplicate}
+          onClearSelection={handleClearSelection}
         />
         <section
           className="designer-panel designer-panel--validation"

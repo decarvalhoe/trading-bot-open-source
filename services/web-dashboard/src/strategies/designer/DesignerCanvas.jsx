@@ -8,9 +8,18 @@ function Section({
   emptyMessage,
   nodes,
   section,
+  layout,
+  selection,
+  clipboardAvailable,
   onDrop,
   onConfigChange,
   onRemove,
+  onSelect,
+  onSectionFocus,
+  onCopy,
+  onPaste,
+  onDuplicate,
+  onClearSelection,
   dropTestId,
 }) {
   const handleDrop = (event) => {
@@ -27,6 +36,30 @@ function Section({
     event.dataTransfer.dropEffect = "copy";
   };
 
+  const isSectionSelected = selection?.section === section && !selection?.nodeId;
+  const maxColumn = Math.max(
+    0,
+    ...Object.values(layout || {}).map((entry) =>
+      typeof entry.column === "number" ? entry.column : 0
+    )
+  );
+
+  const handleCanvasClick = (event) => {
+    if (event.target === event.currentTarget) {
+      onSectionFocus?.(section);
+    }
+  };
+
+  const handleCanvasFocus = () => {
+    onSectionFocus?.(section);
+  };
+
+  const handleCanvasBlur = (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      onClearSelection?.();
+    }
+  };
+
   return (
     <section className="designer-panel designer-panel--canvas" aria-labelledby={`${dropTestId}-title`}>
       <div className="designer-panel__header">
@@ -36,10 +69,16 @@ function Section({
         <p className="text text--muted">{description}</p>
       </div>
       <div
-        className="designer-canvas"
+        className={`designer-canvas${isSectionSelected ? " designer-canvas--active" : ""}`}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
+        onClick={handleCanvasClick}
+        onFocus={handleCanvasFocus}
+        onBlur={handleCanvasBlur}
         data-testid={dropTestId}
+        tabIndex={0}
+        aria-selected={isSectionSelected}
+        style={{ "--layout-columns": maxColumn + 1 }}
       >
         {nodes.length ? (
           nodes.map((node) => (
@@ -47,9 +86,16 @@ function Section({
               key={node.id}
               node={node}
               section={section}
+              layout={layout}
+              selection={selection}
+              clipboardAvailable={clipboardAvailable}
               onDrop={onDrop}
               onConfigChange={onConfigChange}
               onRemove={onRemove}
+              onSelect={onSelect}
+              onCopy={onCopy}
+              onPaste={onPaste}
+              onDuplicate={onDuplicate}
             />
           ))
         ) : (
@@ -63,21 +109,43 @@ function Section({
 export default function DesignerCanvas({
   conditions,
   actions,
+  layout,
+  selection,
+  clipboardAvailable,
   onDrop,
   onConfigChange,
   onRemove,
+  onSelect,
+  onSectionFocus,
+  onCopy,
+  onPaste,
+  onDuplicate,
+  onClearSelection,
 }) {
   return (
-    <div className="designer-canvas-grid">
+    <div className="designer-canvas-grid" onClick={(event) => {
+      if (event.target === event.currentTarget) {
+        onClearSelection?.();
+      }
+    }}>
       <Section
         title="Conditions"
         description="Construisez l'arbre logique déclenchant la stratégie."
         emptyMessage="Glissez une condition, un opérateur logique ou un indicateur pour démarrer."
         nodes={conditions}
         section="conditions"
+        layout={layout}
+        selection={selection}
+        clipboardAvailable={clipboardAvailable}
         onDrop={onDrop}
         onConfigChange={onConfigChange}
         onRemove={onRemove}
+        onSelect={onSelect}
+        onSectionFocus={onSectionFocus}
+        onCopy={onCopy}
+        onPaste={onPaste}
+        onDuplicate={onDuplicate}
+        onClearSelection={onClearSelection}
         dropTestId="designer-conditions-dropzone"
       />
       <Section
@@ -86,9 +154,18 @@ export default function DesignerCanvas({
         emptyMessage="Ajoutez une action d'exécution ou une temporisation."
         nodes={actions}
         section="actions"
+        layout={layout}
+        selection={selection}
+        clipboardAvailable={clipboardAvailable}
         onDrop={onDrop}
         onConfigChange={onConfigChange}
         onRemove={onRemove}
+        onSelect={onSelect}
+        onSectionFocus={onSectionFocus}
+        onCopy={onCopy}
+        onPaste={onPaste}
+        onDuplicate={onDuplicate}
+        onClearSelection={onClearSelection}
         dropTestId="designer-actions-dropzone"
       />
     </div>
