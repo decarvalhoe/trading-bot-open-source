@@ -40,6 +40,7 @@ app = main.app  # type: ignore[attr-defined]
 Base = main.Base  # type: ignore[attr-defined]
 User = main.User  # type: ignore[attr-defined]
 UserPreferences = main.UserPreferences  # type: ignore[attr-defined]
+OnboardingProgress = main.OnboardingProgress  # type: ignore[attr-defined]
 JWT_SECRET = main.JWT_SECRET  # type: ignore[attr-defined]
 JWT_ALG = main.JWT_ALG  # type: ignore[attr-defined]
 get_db = importlib.import_module("libs.db.db").get_db
@@ -78,7 +79,7 @@ def client(session_factory):
 
 def _auth_header(user_id: int):
     now = int(datetime.now(timezone.utc).timestamp())
-    token = jwt.encode({"sub": user_id, "iat": now}, JWT_SECRET, algorithm=JWT_ALG)
+    token = jwt.encode({"sub": str(user_id), "iat": now}, JWT_SECRET, algorithm=JWT_ALG)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -221,6 +222,76 @@ def test_list_users_pagination(client, session_factory):
     ]
 
     app.dependency_overrides.pop(main.get_entitlements, None)
+
+
+def test_onboarding_progress_lifecycle(client, session_factory):
+    email = "onboarding@example.com"
+    register_resp = client.post(
+        "/users/register",
+        json={
+            "email": email,
+            "first_name": "On",
+            "last_name": "Boarding",
+            "phone": None,
+        },
+        headers=_service_auth_header(),
+    )
+    assert register_resp.status_code == 201
+    user_id = register_resp.json()["id"]
+
+    headers = _auth_header(user_id)
+
+    get_resp = client.get("/users/me/onboarding", headers=headers)
+    assert get_resp.status_code == 200
+    payload = get_resp.json()
+    assert payload["current_step"] == "connect-broker"
+    assert payload["completed_steps"] == []
+    assert payload["is_complete"] is False
+    assert len(payload["steps"]) == 3
+
+    complete_resp = client.post(
+        "/users/me/onboarding/steps/connect-broker",
+        headers=headers,
+    )
+    assert complete_resp.status_code == 200
+    after_first = complete_resp.json()
+    assert after_first["completed_steps"] == ["connect-broker"]
+    assert after_first["current_step"] == "create-strategy"
+
+    second_resp = client.post(
+        "/users/me/onboarding/steps/create-strategy",
+        headers=headers,
+    )
+    assert second_resp.status_code == 200
+    assert second_resp.json()["current_step"] == "run-first-test"
+
+    final_resp = client.post(
+        "/users/me/onboarding/steps/run-first-test",
+        headers=headers,
+    )
+    assert final_resp.status_code == 200
+    final_payload = final_resp.json()
+    assert final_payload["completed_steps"] == [
+        "connect-broker",
+        "create-strategy",
+        "run-first-test",
+    ]
+    assert final_payload["current_step"] is None
+    assert final_payload["is_complete"] is True
+
+    reset_resp = client.post("/users/me/onboarding/reset", headers=headers)
+    assert reset_resp.status_code == 200
+    reset_payload = reset_resp.json()
+    assert reset_payload["completed_steps"] == []
+    assert reset_payload["current_step"] == "connect-broker"
+    assert reset_payload["restarted_at"] is not None
+
+    with session_factory() as session:
+        row = session.get(OnboardingProgress, user_id)
+        assert row is not None
+        assert row.current_step == "connect-broker"
+        assert row.completed_steps == []
+        assert row.restarted_at is not None
 
 
 def test_register_requires_token(client):

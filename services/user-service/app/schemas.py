@@ -73,7 +73,29 @@ class UserList(BaseModel):
     pagination: UserListPagination
 
 
+class OnboardingStep(BaseModel):
+    """Definition of an onboarding step exposed to the UI."""
+
+    id: str = Field(min_length=1)
+    title: str
+    description: str
+
+
+class OnboardingProgressResponse(BaseModel):
+    """Payload describing the onboarding state for a user."""
+
+    user_id: int
+    current_step: Optional[str] = None
+    completed_steps: List[str] = Field(default_factory=list)
+    steps: List[OnboardingStep] = Field(default_factory=list)
+    is_complete: bool = False
+    updated_at: Optional[datetime] = None
+    restarted_at: Optional[datetime] = None
+
+
 __all__ = [
+    "OnboardingProgressResponse",
+    "OnboardingStep",
     "PreferencesResponse",
     "PreferencesUpdate",
     "UserCreate",

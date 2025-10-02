@@ -58,6 +58,27 @@
       </p>
     </header>
     <main class="layout__main">
+      <section class="card card--onboarding" aria-labelledby="onboarding-title">
+        <div class="card__header">
+          <h2 id="onboarding-title" class="heading heading--lg">Parcours d'onboarding</h2>
+          <p class="text text--muted">
+            Connectez votre broker, définissez votre stratégie et testez-la avant le go-live.
+          </p>
+        </div>
+        <div class="card__body">
+          <div
+            id="onboarding-root"
+            class="onboarding"
+            data-progress-endpoint="{{ onboarding_api.progress_endpoint }}"
+            data-step-template="{{ onboarding_api.step_template }}"
+            data-reset-endpoint="{{ onboarding_api.reset_endpoint }}"
+            data-user-id="{{ onboarding_api.user_id }}"
+            aria-live="polite"
+          >
+            <noscript>Activez JavaScript pour suivre votre parcours d'onboarding.</noscript>
+          </div>
+        </div>
+      </section>
       {% if context.metrics %}
       <section class="card card--metrics" aria-labelledby="metrics-title">
         <div class="card__header">

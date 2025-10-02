@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Iterable, List
 
 from fastapi import (
     Depends,
@@ -37,6 +37,7 @@ from libs.observability.metrics import setup_metrics
 from libs.secrets import get_secret
 
 from .schemas import (
+    OnboardingProgressResponse,
     PreferencesResponse,
     PreferencesUpdate,
     UserCreate,
@@ -112,6 +113,55 @@ setup_metrics(app, service_name="user-service")
 
 SENSITIVE_FIELDS = {"email", "phone", "marketing_opt_in"}
 
+ONBOARDING_STEP_DEFINITIONS: List[dict[str, str]] = [
+    {
+        "id": "connect-broker",
+        "title": "Connexion broker",
+        "description": "Renseignez les clés API de votre broker pour synchroniser les comptes.",
+    },
+    {
+        "id": "create-strategy",
+        "title": "Créer une stratégie",
+        "description": "Assemblez les conditions d'entrée, de sortie et le money management.",
+    },
+    {
+        "id": "run-first-test",
+        "title": "Premier backtest",
+        "description": "Lancez un backtest pour valider la robustesse avant passage en live.",
+    },
+]
+
+ONBOARDING_STEP_IDS = [step["id"] for step in ONBOARDING_STEP_DEFINITIONS]
+_ONBOARDING_STEP_SET = set(ONBOARDING_STEP_IDS)
+
+
+class OnboardingProgress(Base):
+    """Persist onboarding progression for each user."""
+
+    __tablename__ = "onboarding_progress"
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    current_step: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_steps: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, server_default=text("'[]'"), default=list
+    )
+    restarted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        server_onupdate=text("CURRENT_TIMESTAMP"),
+    )
+
 
 def require_auth(authorization: str = Header(default=None)) -> dict:
     """Validate the bearer token and return its payload."""
@@ -151,9 +201,10 @@ def get_authenticated_actor(
     """Validate that the JWT payload matches the optional actor header."""
 
     sub = payload.get("sub")
-    if not isinstance(sub, int):
+    try:
+        user_id = int(sub)
+    except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
-    user_id = sub
     actor_header = request.headers.get("x-customer-id") or request.headers.get("x-user-id")
     if not actor_header:
         if os.getenv("ENTITLEMENTS_BYPASS", "0") == "1":
@@ -171,6 +222,63 @@ def get_authenticated_actor(
 def _fetch_preferences(db: Session, user_id: int) -> Dict[str, object]:
     row = db.get(UserPreferences, user_id)
     return row.preferences if row else {}
+
+
+def _normalise_completed_steps(values: Iterable[str]) -> list[str]:
+    """Ensure step identifiers are unique and valid, preserving order."""
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for step_id in values or []:
+        if not isinstance(step_id, str):
+            continue
+        cleaned = step_id.strip()
+        if cleaned in seen or cleaned not in _ONBOARDING_STEP_SET:
+            continue
+        ordered.append(cleaned)
+        seen.add(cleaned)
+    return ordered
+
+
+def _resolve_next_step(completed: Iterable[str]) -> str | None:
+    completed_set = set(completed)
+    for step_id in ONBOARDING_STEP_IDS:
+        if step_id not in completed_set:
+            return step_id
+    return None
+
+
+def _load_or_create_progress(db: Session, user_id: int) -> OnboardingProgress:
+    progress = db.get(OnboardingProgress, user_id)
+    if progress is None:
+        progress = OnboardingProgress(
+            user_id=user_id,
+            completed_steps=[],
+            current_step=_resolve_next_step([]),
+        )
+        db.add(progress)
+        db.flush()
+    else:
+        progress.completed_steps = _normalise_completed_steps(progress.completed_steps or [])
+        next_step = _resolve_next_step(progress.completed_steps)
+        if progress.current_step != next_step:
+            progress.current_step = next_step
+    return progress
+
+
+def _serialise_progress(progress: OnboardingProgress) -> OnboardingProgressResponse:
+    completed = _normalise_completed_steps(progress.completed_steps or [])
+    next_step = _resolve_next_step(completed)
+    is_complete = next_step is None and len(completed) == len(ONBOARDING_STEP_IDS)
+    return OnboardingProgressResponse(
+        user_id=progress.user_id,
+        current_step=next_step,
+        completed_steps=completed,
+        steps=list(ONBOARDING_STEP_DEFINITIONS),
+        is_complete=is_complete,
+        updated_at=progress.updated_at,
+        restarted_at=progress.restarted_at,
+    )
 
 
 def _get_user_or_404(db: Session, user_id: int) -> User:
@@ -440,6 +548,66 @@ def delete_user(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.get("/users/me/onboarding", response_model=OnboardingProgressResponse)
+def get_my_onboarding_progress(
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> OnboardingProgressResponse:
+    """Return the onboarding progression for the authenticated user."""
+
+    _get_user_or_404(db, actor_id)
+    progress = _load_or_create_progress(db, actor_id)
+    db.commit()
+    db.refresh(progress)
+    return _serialise_progress(progress)
+
+
+@app.post("/users/me/onboarding/steps/{step_id}", response_model=OnboardingProgressResponse)
+def complete_onboarding_step(
+    step_id: str,
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> OnboardingProgressResponse:
+    """Mark the given onboarding step as completed for the authenticated user."""
+
+    cleaned_id = (step_id or "").strip()
+    if cleaned_id not in _ONBOARDING_STEP_SET:
+        raise HTTPException(status_code=400, detail="Unknown onboarding step")
+
+    _get_user_or_404(db, actor_id)
+    progress = _load_or_create_progress(db, actor_id)
+    completed = set(progress.completed_steps or [])
+    completed.add(cleaned_id)
+    progress.completed_steps = [
+        step for step in ONBOARDING_STEP_IDS if step in completed
+    ]
+    next_step = _resolve_next_step(progress.completed_steps)
+    progress.current_step = next_step
+    progress.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(progress)
+    return _serialise_progress(progress)
+
+
+@app.post("/users/me/onboarding/reset", response_model=OnboardingProgressResponse)
+def reset_onboarding_progress(
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> OnboardingProgressResponse:
+    """Reset the onboarding progression for the authenticated user."""
+
+    _get_user_or_404(db, actor_id)
+    progress = _load_or_create_progress(db, actor_id)
+    progress.completed_steps = []
+    progress.current_step = _resolve_next_step([])
+    now = datetime.now(timezone.utc)
+    progress.restarted_at = now
+    progress.updated_at = now
+    db.commit()
+    db.refresh(progress)
+    return _serialise_progress(progress)
+
+
 @app.put("/users/me/preferences", response_model=PreferencesResponse)
 def update_preferences(
     payload: PreferencesUpdate,
@@ -464,6 +632,7 @@ __all__ = [
     "Base",
     "User",
     "UserPreferences",
+    "OnboardingProgress",
     "require_auth",
     "get_entitlements",
 ]
