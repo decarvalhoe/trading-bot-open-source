@@ -115,6 +115,9 @@ def generate_report_job(report_id: str, payload: dict[str, object]) -> str | Non
     storage_dir = Path(settings.reports_storage_path)
     storage_dir.mkdir(parents=True, exist_ok=True)
 
+    failure: Exception | None = None
+    result_path: str | None = None
+
     with session_scope() as session:
         job = session.get(ReportJob, report_id)
         if job is None:
@@ -143,11 +146,16 @@ def generate_report_job(report_id: str, payload: dict[str, object]) -> str | Non
             job.parameters = options or None
             job.file_path = str(output_path.resolve())
             job.status = ReportJobStatus.SUCCESS
-            return job.file_path
-        except Exception:
+            result_path = job.file_path
+        except Exception as exc:
             job.status = ReportJobStatus.FAILURE
             job.file_path = None
-            raise
+            failure = exc
+
+    if failure is not None:
+        raise failure
+
+    return result_path
 
 
 __all__ = ["celery_app", "refresh_reports", "generate_report_job"]
