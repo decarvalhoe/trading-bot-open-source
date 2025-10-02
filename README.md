@@ -58,7 +58,7 @@ The command builds the additional FastAPI services, applies Alembic migrations a
 Redis/PostgreSQL before exposing the following ports:
 
 - `8013` — `order-router` (execution plans and simulated brokers)
-- `8014` — `algo-engine` (strategy catalogue and backtesting)
+- `8014` — `algo-engine` (strategy catalogue and backtesting – optional AI assistant on `/strategies/generate`, install `services/algo-engine/requirements.txt` and keep `AI_ASSISTANT_ENABLED=1`)
 - `8015` — `market_data` (spot quotes, orderbooks and TradingView webhooks)
 - `8016` — `reports` (risk reports and PDF generation)
 - `8017` — `alert_engine` (rule evaluation with streaming ingestion)

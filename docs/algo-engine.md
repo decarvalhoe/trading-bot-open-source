@@ -37,6 +37,18 @@ class MyStrategy(StrategyBase):
 | GET | `/state` | Etat de l'orchestrateur (mode paper/live, limites) |
 | PUT | `/state` | Mise à jour des limites et du mode |
 
+### Assistant de stratégie IA (optionnel)
+
+L'endpoint `/strategies/generate` repose sur le microservice `ai-strategy-assistant`
+et ses dépendances (`langchain`, `langchain-openai`, `openai`, ...). Ces paquets
+sont maintenant déclarés dans `services/algo-engine/requirements.txt` afin que
+`pip install -r services/algo-engine/requirements.txt` prépare l'environnement.
+
+Le service reste néanmoins fonctionnel sans ces dépendances. Pour désactiver
+explicitement l'assistant, définissez `AI_ASSISTANT_ENABLED=0` avant de lancer
+`uvicorn app.main:app`. Dans ce cas, `/strategies/generate` renverra un HTTP 503
+indiquant que la fonctionnalité est désactivée.
+
 Le middleware d'entitlements vérifie la capacité `can.manage_strategies` et expose la limite de stratégies actives (`max_active_strategies`). L'orchestrateur interne applique les limites journalières.
 
 ## Exemple d'utilisation
