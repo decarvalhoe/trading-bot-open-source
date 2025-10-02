@@ -27,7 +27,8 @@ Le module `risk_rules.py` expose :
 | GET | `/brokers` | Liste des brokers disponibles |
 | POST | `/orders` | Routage d'un ordre après validation du risque |
 | POST | `/orders/{broker}/cancel` | Annulation d'un ordre |
-| GET | `/orders/log` | Journal des ordres soumis |
+| GET | `/orders/log` | Journal des ordres soumis (filtres par compte, symbole, date, tag, stratégie) |
+| POST | `/orders/{id}/notes` | Ajout d'une note et de tags manuels sur un ordre |
 | GET | `/executions` | Exécutions agrégées |
 | GET | `/state` | Etat (mode paper/live, consommation de notionnel) |
 | PUT | `/state` | Mise à jour du mode et de la limite journalière |

@@ -1518,6 +1518,97 @@ body {
   margin-bottom: 0.4rem;
 }
 
+.annotation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.annotation-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.annotation-form__field {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.annotation-form__field--full {
+  flex-basis: 100%;
+}
+
+.annotation-form__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.annotation-form__input,
+.annotation-form__textarea {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--color-surface-elevated);
+  color: var(--color-text-primary);
+  font: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.annotation-form__input:focus,
+.annotation-form__textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.annotation-form__textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.annotation-form__hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.annotation-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.annotation-form__feedback {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+
+.annotation-form__feedback--success {
+  color: var(--color-success);
+}
+
+.annotation-form__feedback--error {
+  color: var(--color-critical);
+}
+
+@media (max-width: 768px) {
+  .annotation-form__row {
+    flex-direction: column;
+  }
+
+  .annotation-form__field,
+  .annotation-form__field--full {
+    flex-basis: 100%;
+  }
+}
+
 @media (max-width: 1024px) {
   .strategy-designer__layout {
     grid-template-columns: 1fr;

@@ -97,6 +97,8 @@ class ExecutionRecord(BaseModel):
     liquidity: str | None = None
     executed_at: datetime
     created_at: datetime
+    notes: str | None = None
+    tags: List[str] = Field(default_factory=list)
 
     @field_validator("quantity", "price", "fees", mode="before")
     @classmethod
@@ -126,7 +128,8 @@ class OrderRecord(BaseModel):
     time_in_force: str | None = None
     submitted_at: datetime | None = None
     expires_at: datetime | None = None
-    notes: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
+    tags: List[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     executions: List[ExecutionRecord] = Field(default_factory=list)
@@ -158,6 +161,8 @@ class OrdersLogMetadata(PaginationMetadata):
     symbol: str | None = None
     start: datetime | None = None
     end: datetime | None = None
+    tag: str | None = None
+    strategy: str | None = None
 
 
 class ExecutionsMetadata(PaginationMetadata):
@@ -173,6 +178,28 @@ class PaginatedOrders(BaseModel):
     metadata: OrdersLogMetadata
 
 
+class OrderAnnotationPayload(BaseModel):
+    notes: str | None = Field(default=None, min_length=1, max_length=2000)
+    tags: List[str] = Field(default_factory=list)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _normalise_tags(cls, value: List[str]) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split(",") if part.strip()]
+            return parts
+        cleaned: List[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            stripped = item.strip()
+            if stripped:
+                cleaned.append(stripped)
+        return cleaned
+
+
 class PaginatedExecutions(BaseModel):
     items: List[ExecutionRecord]
     metadata: ExecutionsMetadata
@@ -183,6 +210,7 @@ __all__ = [
     "ExecutionReport",
     "ExecutionRecord",
     "OrderRecord",
+    "OrderAnnotationPayload",
     "RiskOverrides",
     "PaginationMetadata",
     "OrdersLogMetadata",

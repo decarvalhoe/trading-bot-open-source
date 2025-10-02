@@ -12,12 +12,12 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -49,6 +49,7 @@ from schemas.order_router import (
     ExecutionRecord,
     ExecutionReport,
     ExecutionsMetadata,
+    OrderAnnotationPayload,
     OrderRecord,
     OrdersLogMetadata,
     PaginatedExecutions,
@@ -645,6 +646,7 @@ class OrderRouter:
             ",".join(order.tags) if order.tags else None,
             f"status={report.status.value}",
         )
+        tags = self._merge_tags(order.tags, report.tags)
         try:
             with session.begin():
                 order_model = OrderModel(
@@ -663,11 +665,12 @@ class OrderRouter:
                     time_in_force=order.time_in_force.value,
                     submitted_at=report.submitted_at,
                     notes=notes,
+                    tags=tags,
                 )
                 session.add(order_model)
                 session.flush()
                 for execution in self._build_execution_models(
-                    order_model, report, account_id
+                    order_model, report, account_id, tags
                 ):
                     session.add(execution)
         except SQLAlchemyError as exc:
@@ -717,6 +720,8 @@ class OrderRouter:
                     ",".join(report.tags) if report.tags else None,
                 )
                 order_model.notes = cancellation_note
+                order_model.tags = self._merge_tags(order_model.tags or [], report.tags)
+                cancellation_tags = list(order_model.tags or [])
                 cancellation_execution = ExecutionModel(
                     order=order_model,
                     external_execution_id=cancel_identifier,
@@ -727,6 +732,8 @@ class OrderRouter:
                     price=self._to_decimal(report.avg_price) or Decimal("0"),
                     liquidity="cancelled",
                     executed_at=report.submitted_at,
+                    notes=cancellation_note,
+                    tags=cancellation_tags,
                 )
                 session.add(cancellation_execution)
         except SQLAlchemyError as exc:
@@ -743,8 +750,10 @@ class OrderRouter:
         order_model: OrderModel,
         report: ExecutionReport,
         account_id: str,
+        tags: Sequence[str] | None = None,
     ) -> List[ExecutionModel]:
         executions: List[ExecutionModel] = []
+        execution_tags = self._merge_tags(tags, report.tags)
         for index, fill in enumerate(report.fills):
             executions.append(
                 ExecutionModel(
@@ -756,6 +765,7 @@ class OrderRouter:
                     quantity=self._to_decimal(fill.quantity) or Decimal("0"),
                     price=self._to_decimal(fill.price) or Decimal("0"),
                     executed_at=fill.timestamp,
+                    tags=execution_tags,
                 )
             )
         return executions
@@ -775,6 +785,68 @@ class OrderRouter:
             return value
         return Decimal(str(value))
 
+    @staticmethod
+    def _merge_tags(*groups: Sequence[str] | None) -> List[str]:
+        merged: List[str] = []
+        seen: set[str] = set()
+        for group in groups:
+            if not group:
+                continue
+            for raw in group:
+                if raw is None:
+                    continue
+                tag = str(raw).strip()
+                if not tag:
+                    continue
+                lower = tag.lower()
+                if lower in seen:
+                    continue
+                merged.append(tag)
+                seen.add(lower)
+        return merged
+
+    @staticmethod
+    def _append_manual_note(existing: Optional[str], new_note: Optional[str]) -> Optional[str]:
+        if new_note is None:
+            return existing
+        trimmed = new_note.strip()
+        if not trimmed:
+            return existing
+        if not existing:
+            return trimmed
+        if trimmed in existing.splitlines():
+            return existing
+        return f"{existing}\n{trimmed}"[:2000]
+
+    @staticmethod
+    def _build_tag_filter(column, value: str):
+        term = (value or "").strip().lower()
+        if not term:
+            return None
+        pattern = f'%"{term}"%'
+        return func.lower(cast(column, String)).like(pattern)
+
+    @staticmethod
+    def _strategy_search_terms(value: str) -> List[str]:
+        if value is None:
+            return []
+        trimmed = value.strip()
+        if not trimmed:
+            return []
+        lowered = trimmed.lower()
+        terms: set[str] = {trimmed, lowered}
+        if ":" in trimmed:
+            suffix = trimmed.split(":", 1)[1].strip()
+            if suffix:
+                terms.add(suffix)
+                terms.add(suffix.lower())
+                terms.add(f"strategy:{suffix}")
+                terms.add(f"strategy:{suffix.lower()}")
+        else:
+            terms.add(f"strategy:{trimmed}")
+            terms.add(f"strategy:{lowered}")
+        return [term for term in terms if term]
+
     def orders_log(
         self,
         *,
@@ -785,6 +857,8 @@ class OrderRouter:
         symbol: Optional[str] = None,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
+        tag: Optional[str] = None,
+        strategy: Optional[str] = None,
     ) -> Tuple[List[OrderModel], int]:
         limit = max(1, min(limit, 500))
         offset = max(0, offset)
@@ -804,6 +878,18 @@ class OrderRouter:
             filters.append(ordering >= start)
         if end:
             filters.append(ordering <= end)
+        if tag:
+            tag_filter = self._build_tag_filter(OrderModel.tags, tag)
+            if tag_filter is not None:
+                filters.append(tag_filter)
+        if strategy:
+            strategy_terms = self._strategy_search_terms(strategy)
+            strategy_filters = [
+                self._build_tag_filter(OrderModel.tags, term) for term in strategy_terms
+            ]
+            strategy_filters = [item for item in strategy_filters if item is not None]
+            if strategy_filters:
+                filters.append(or_(*strategy_filters))
         if filters:
             statement = statement.where(*filters)
             count_stmt = count_stmt.where(*filters)
@@ -824,6 +910,8 @@ class OrderRouter:
         symbol: Optional[str] = None,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
+        tag: Optional[str] = None,
+        strategy: Optional[str] = None,
     ) -> Tuple[List[ExecutionModel], int]:
         limit = max(1, min(limit, 500))
         offset = max(0, offset)
@@ -842,6 +930,19 @@ class OrderRouter:
             filters.append(ExecutionModel.executed_at >= start)
         if end:
             filters.append(ExecutionModel.executed_at <= end)
+        if tag:
+            tag_filter = self._build_tag_filter(ExecutionModel.tags, tag)
+            if tag_filter is not None:
+                filters.append(tag_filter)
+        if strategy:
+            strategy_terms = self._strategy_search_terms(strategy)
+            strategy_filters = [
+                self._build_tag_filter(ExecutionModel.tags, term)
+                for term in strategy_terms
+            ]
+            strategy_filters = [item for item in strategy_filters if item is not None]
+            if strategy_filters:
+                filters.append(or_(*strategy_filters))
         if filters:
             statement = statement.where(*filters)
             count_stmt = count_stmt.where(*filters)
@@ -890,7 +991,7 @@ class OrderRouter:
             avg_price=avg_price,
             submitted_at=submitted_at,
             fills=fills,
-            tags=[],
+            tags=list(order.tags or []),
         )
 
     def _record_alerts(self, alerts: List[RiskSignal]) -> None:
@@ -1114,6 +1215,14 @@ def get_orders_log(
         default=None,
         description="Return orders submitted or created before or at this ISO 8601 timestamp.",
     ),
+    tag: Optional[str] = Query(
+        default=None,
+        description="Return only orders tagged with the provided label.",
+    ),
+    strategy: Optional[str] = Query(
+        default=None,
+        description="Return only orders annotated for the provided strategy identifier.",
+    ),
     session: Session = Depends(get_session),
 ) -> PaginatedOrders:
     orders, total = router.orders_log(
@@ -1124,6 +1233,8 @@ def get_orders_log(
         symbol=symbol,
         start=start,
         end=end,
+        tag=tag,
+        strategy=strategy,
     )
     return PaginatedOrders(
         items=[OrderRecord.model_validate(order, from_attributes=True) for order in orders],
@@ -1135,8 +1246,54 @@ def get_orders_log(
             symbol=symbol,
             start=start,
             end=end,
+            tag=tag,
+            strategy=strategy,
         ),
     )
+
+
+@app.post("/orders/{order_id}/notes", response_model=OrderRecord)
+def annotate_order(
+    order_id: int,
+    payload: OrderAnnotationPayload,
+    session: Session = Depends(get_session),
+) -> OrderRecord:
+    order = (
+        session.execute(
+            select(OrderModel)
+            .options(selectinload(OrderModel.executions))
+            .where(OrderModel.id == order_id)
+        )
+        .scalars()
+        .first()
+    )
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    new_note = payload.notes.strip() if payload.notes else None
+    new_tags = OrderRouter._merge_tags(order.tags or [], payload.tags)
+
+    try:
+        if new_note:
+            order.notes = OrderRouter._append_manual_note(order.notes, new_note)
+        if new_tags:
+            order.tags = new_tags
+        for execution in order.executions:
+            if new_note:
+                execution.notes = OrderRouter._append_manual_note(execution.notes, new_note)
+            if new_tags:
+                execution.tags = OrderRouter._merge_tags(execution.tags or [], new_tags)
+        session.commit()
+    except SQLAlchemyError as exc:
+        session.rollback()
+        logger.exception("Failed to annotate order %s", order_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to persist order annotation.",
+        ) from exc
+
+    session.refresh(order)
+    return OrderRecord.model_validate(order, from_attributes=True)
 
 
 @app.get("/executions", response_model=PaginatedExecutions)
@@ -1175,6 +1332,14 @@ def get_executions(
         default=None,
         description="Return executions that occurred before or at this ISO 8601 timestamp.",
     ),
+    tag: Optional[str] = Query(
+        default=None,
+        description="Return only executions tagged with the provided label.",
+    ),
+    strategy: Optional[str] = Query(
+        default=None,
+        description="Return only executions linked to the provided strategy identifier.",
+    ),
     session: Session = Depends(get_session),
 ) -> PaginatedExecutions:
     executions, total = router.executions(
@@ -1186,6 +1351,8 @@ def get_executions(
         symbol=symbol,
         start=start,
         end=end,
+        tag=tag,
+        strategy=strategy,
     )
     return PaginatedExecutions(
         items=[

@@ -104,6 +104,58 @@ def test_order_persistence_and_filters(client, db_session):
 
 
 @pytest.mark.usefixtures("clean_database")
+def test_order_annotation_updates_notes_and_tags(client, db_session):
+    report = _submit_order(
+        client,
+        account_id="acct-notes",
+        tags=["strategy:momentum", "priority"],
+    )
+
+    order_row = (
+        db_session.query(OrderModel)
+        .filter(OrderModel.external_order_id == report["order_id"])
+        .one()
+    )
+
+    annotation = client.post(
+        f"/orders/{order_row.id}/notes",
+        json={"notes": "Revue manuelle", "tags": ["follow-up", "Momentum"]},
+    )
+    assert annotation.status_code == 200, annotation.text
+    payload = annotation.json()
+    assert "Revue manuelle" in payload["notes"]
+    assert any(tag.lower() == "follow-up" for tag in payload["tags"])
+    assert any(tag.lower() == "strategy:momentum" for tag in payload["tags"])
+
+    db_session.expire_all()
+    stored_order = db_session.get(OrderModel, order_row.id)
+    assert stored_order is not None
+    assert stored_order.notes and "Revue manuelle" in stored_order.notes
+    assert any(tag.lower() == "follow-up" for tag in (stored_order.tags or []))
+
+    execution = (
+        db_session.query(ExecutionModel)
+        .filter(ExecutionModel.order_id == stored_order.id)
+        .first()
+    )
+    assert execution is not None
+    assert execution.notes and "Revue manuelle" in execution.notes
+    assert any(tag.lower() == "follow-up" for tag in (execution.tags or []))
+
+    tagged_orders = client.get("/orders/log", params={"tag": "follow-up"})
+    assert tagged_orders.status_code == 200
+    assert tagged_orders.json()["metadata"]["total"] == 1
+
+    strategy_orders = client.get("/orders/log", params={"strategy": "momentum"})
+    assert strategy_orders.status_code == 200
+    assert strategy_orders.json()["metadata"]["total"] >= 1
+
+    tagged_executions = client.get("/executions", params={"tag": "follow-up"})
+    assert tagged_executions.status_code == 200
+    assert tagged_executions.json()["metadata"]["total"] >= 1
+
+
+@pytest.mark.usefixtures("clean_database")
 def test_cancel_order_records_cancellation(client, db_session):
     report = _submit_order(client, account_id="acct-cancel")
     cancel_response = client.post(
