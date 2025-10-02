@@ -50,12 +50,58 @@
             data-save-endpoint="{{ save_endpoint }}"
             data-default-name="Nouvelle stratégie"
             data-default-format="yaml"
+            data-presets='{{ presets | tojson }}'
           >
             <noscript>
               <p class="text text--muted">
                 Activez JavaScript pour utiliser le designer de stratégies.
               </p>
             </noscript>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card--import" aria-labelledby="import-card-title">
+        <div class="card__header">
+          <h2 id="import-card-title" class="heading heading--lg">Importer un fichier</h2>
+          <p class="text text--muted">
+            Téléversez un fichier YAML ou Python existant pour l'envoyer directement vers l'algo-engine.
+          </p>
+        </div>
+        <div class="card__body">
+          <form
+            class="import-form"
+            action="{{ upload_endpoint }}"
+            method="post"
+            enctype="multipart/form-data"
+          >
+            <div class="import-form__fields">
+              <label class="designer-field">
+                <span class="designer-field__label text text--muted">Nom (optionnel)</span>
+                <input type="text" name="name" placeholder="Ma stratégie existante" />
+              </label>
+              <label class="designer-field">
+                <span class="designer-field__label text text--muted">Fichier YAML/Python</span>
+                <input
+                  type="file"
+                  name="file"
+                  required
+                  accept=".yaml,.yml,.py,.json,.txt"
+                />
+              </label>
+            </div>
+            <button type="submit" class="button button--primary">Importer dans l'algo-engine</button>
+          </form>
+          <div class="import-presets" role="region" aria-labelledby="preset-catalog-title">
+            <h3 id="preset-catalog-title" class="heading heading--md">Modèles disponibles</h3>
+            <ul>
+              {% for preset in preset_summaries %}
+              <li>
+                <strong>{{ preset.label }}</strong>
+                <span class="text text--muted"> — {{ preset.description }}</span>
+              </li>
+              {% endfor %}
+            </ul>
           </div>
         </div>
       </section>

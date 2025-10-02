@@ -5,7 +5,7 @@ import AlertManager from "./alerts/AlertManager.jsx";
 import AlertHistory from "./alerts/AlertHistory.jsx";
 import ReportsList from "./reports/ReportsList.jsx";
 import { AIStrategyAssistant } from "./strategies/assistant/index.js";
-import { StrategyDesigner } from "./strategies/designer/index.js";
+import { StrategyDesigner, STRATEGY_PRESETS } from "./strategies/designer/index.js";
 
 function loadBootstrapData() {
   const bootstrapNode = document.getElementById("dashboard-bootstrap");
@@ -150,6 +150,17 @@ if (strategyDesignerRoot) {
   if (initialFormat !== "python") {
     initialFormat = "yaml";
   }
+  let presetCatalog = STRATEGY_PRESETS;
+  if (dataset.presets) {
+    try {
+      const parsed = JSON.parse(dataset.presets);
+      if (Array.isArray(parsed) && parsed.length) {
+        presetCatalog = parsed;
+      }
+    } catch (error) {
+      console.error("Impossible de parser les modèles de stratégies", error);
+    }
+  }
   const root = createRoot(strategyDesignerRoot);
   root.render(
     <StrictMode>
@@ -157,6 +168,7 @@ if (strategyDesignerRoot) {
         saveEndpoint={saveEndpoint}
         defaultName={defaultName}
         defaultFormat={initialFormat}
+        presets={presetCatalog}
       />
     </StrictMode>
   );
