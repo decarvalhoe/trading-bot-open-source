@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from datetime import datetime
 
@@ -13,6 +13,8 @@ from schemas.market import (
     ExecutionReport as MarketExecutionReport,
     OrderRequest,
 )
+
+from providers import normalize_binance_symbol, normalize_ibkr_symbol
 
 
 class RiskOverrides(BaseModel):
@@ -29,6 +31,17 @@ class ExecutionIntent(OrderRequest):
 
     account_id: str | None = Field(default=None, min_length=1, max_length=64)
     risk: RiskOverrides | None = None
+
+    @model_validator(mode="after")
+    def _normalise_symbol(self) -> "ExecutionIntent":
+        if self.venue.value.startswith("binance"):
+            symbol = normalize_binance_symbol(self.symbol)
+        elif self.venue.value.startswith("ibkr"):
+            symbol = normalize_ibkr_symbol(self.symbol)
+        else:
+            symbol = self.symbol.upper()
+        object.__setattr__(self, "symbol", symbol)
+        return self
 
 
 class ExecutionReport(MarketExecutionReport):

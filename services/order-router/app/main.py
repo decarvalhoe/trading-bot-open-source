@@ -12,11 +12,13 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings
 
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -36,6 +38,8 @@ from libs.portfolio import (
 from infra.trading_models import Execution as ExecutionModel
 from infra.trading_models import Order as OrderModel
 from infra.trading_models import SimulatedExecution as SimulatedExecutionModel
+from providers.binance import BinanceClient, BinanceConfig
+from providers.ibkr import IBKRClient, IBKRConfig
 from providers.limits import build_plan, get_pair_limit, iter_supported_pairs
 from schemas.market import (
     ExecutionFill,
@@ -83,6 +87,34 @@ from .risk_rules import (
 
 logger = logging.getLogger("order-router.risk")
 streaming_logger = logging.getLogger("order-router.streaming")
+
+
+class Settings(BaseSettings):
+    """Runtime configuration sourced from environment variables."""
+
+    binance_api_key: str | None = Field(default=None, alias="BINANCE_API_KEY")
+    binance_api_secret: str | None = Field(default=None, alias="BINANCE_API_SECRET")
+    binance_api_url: str = Field(default="https://api.binance.com", alias="BINANCE_API_URL")
+    binance_recv_window: int = Field(default=5_000, alias="BINANCE_RECV_WINDOW")
+    binance_requests_per_minute: int = Field(
+        default=1_200, alias="BINANCE_REQUESTS_PER_MINUTE"
+    )
+    binance_rate_interval_seconds: float = Field(
+        default=60.0, alias="BINANCE_RATE_INTERVAL_SECONDS"
+    )
+    binance_timeout: float = Field(default=10.0, alias="BINANCE_TIMEOUT")
+    ibkr_api_key: str | None = Field(default=None, alias="IBKR_API_KEY")
+    ibkr_api_secret: str | None = Field(default=None, alias="IBKR_API_SECRET")
+    ibkr_api_url: str = Field(default="https://localhost:5000", alias="IBKR_API_URL")
+    ibkr_account_id: str | None = Field(default=None, alias="IBKR_ACCOUNT_ID")
+    ibkr_requests_per_minute: int = Field(default=60, alias="IBKR_REQUESTS_PER_MINUTE")
+    ibkr_rate_interval_seconds: float = Field(default=60.0, alias="IBKR_RATE_INTERVAL_SECONDS")
+    ibkr_timeout: float = Field(default=10.0, alias="IBKR_TIMEOUT")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
 
 @dataclass
@@ -1215,6 +1247,34 @@ class OrderRouter:
         self._limit_store.set_stop_loss(account_id, threshold)
 
 
+settings = get_settings()
+
+_BINANCE_CLIENT: BinanceClient | None = None
+if settings.binance_api_key and settings.binance_api_secret:
+    binance_config = BinanceConfig(
+        api_key=settings.binance_api_key,
+        api_secret=settings.binance_api_secret,
+        base_url=settings.binance_api_url,
+        recv_window=settings.binance_recv_window,
+        timeout=settings.binance_timeout,
+        request_rate=settings.binance_requests_per_minute,
+        request_interval=settings.binance_rate_interval_seconds,
+    )
+    _BINANCE_CLIENT = BinanceClient(binance_config)
+
+_IBKR_CLIENT: IBKRClient | None = None
+if settings.ibkr_api_key and settings.ibkr_api_secret:
+    ibkr_config = IBKRConfig(
+        api_key=settings.ibkr_api_key,
+        api_secret=settings.ibkr_api_secret,
+        base_url=settings.ibkr_api_url,
+        account_id=settings.ibkr_account_id,
+        timeout=settings.ibkr_timeout,
+        request_rate=settings.ibkr_requests_per_minute,
+        request_interval=settings.ibkr_rate_interval_seconds,
+    )
+    _IBKR_CLIENT = IBKRClient(ibkr_config)
+
 _supported_limits = list(iter_supported_pairs())
 _symbol_limits = {
     limit.symbol: SymbolLimit(max_position=limit.max_position, max_notional=limit.notional_limit())
@@ -1229,7 +1289,7 @@ _streaming_client = StreamingIngestClient(_streaming_config)
 _events_publisher = StreamingOrderEventsPublisher(_streaming_client)
 
 router = OrderRouter(
-    adapters=[BinanceAdapter(), IBKRAdapter()],
+    adapters=[BinanceAdapter(client=_BINANCE_CLIENT), IBKRAdapter(client=_IBKR_CLIENT)],
     risk_engine=RiskEngine(
         [
             DynamicLimitRule(_limit_store),
@@ -1280,6 +1340,10 @@ async def _configure_streaming_client() -> None:
 @app.on_event("shutdown")
 async def _shutdown_streaming_client() -> None:
     await _streaming_client.aclose()
+    if _BINANCE_CLIENT is not None:
+        _BINANCE_CLIENT.close()
+    if _IBKR_CLIENT is not None:
+        _IBKR_CLIENT.close()
 
 
 class ExecutionPlanResponse(BaseModel):
