@@ -22,6 +22,7 @@ from libs.portfolio import encode_portfolio_key, encode_position_key
 from .order_router_client import OrderRouterClient, OrderRouterError
 from .schemas import (
     Alert,
+    AlertRuleDefinition,
     DashboardContext,
     FollowerCopySnapshot,
     FollowerDashboardContext,
@@ -397,6 +398,7 @@ def _fallback_alerts() -> List[Alert]:
             detail="Portfolio Growth is at 82% of the allowed maintenance margin.",
             risk=RiskLevel.warning,
             created_at=base_time - timedelta(minutes=35),
+            rule=AlertRuleDefinition(symbol="Growth", timeframe="1h"),
         ),
         Alert(
             id="drawdown",
@@ -404,6 +406,7 @@ def _fallback_alerts() -> List[Alert]:
             detail="Income portfolio dropped 6% over the last trading session.",
             risk=RiskLevel.critical,
             created_at=base_time - timedelta(hours=7),
+            rule=AlertRuleDefinition(symbol="Income", timeframe="1d"),
         ),
         Alert(
             id="news",
@@ -412,6 +415,7 @@ def _fallback_alerts() -> List[Alert]:
             risk=RiskLevel.info,
             created_at=base_time - timedelta(hours=1, minutes=10),
             acknowledged=True,
+            rule=AlertRuleDefinition(symbol="AAPL", timeframe="1h"),
         ),
     ]
 
