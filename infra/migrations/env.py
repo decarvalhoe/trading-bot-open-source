@@ -28,8 +28,9 @@ config = context.config
 if config.config_file_name is not None:
     try:
         fileConfig(config.config_file_name)
-    except Exception:  # pragma: no cover - logging configuration is optional
-        pass
+    except Exception as e:  # pragma: no cover - logging configuration is optional
+        import logging
+        logging.warning(f"Error configuring logging: {e}")
 
 
 def _resolve_database_url() -> str:

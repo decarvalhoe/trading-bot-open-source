@@ -17,7 +17,7 @@ import httpx
 
 from schemas.market import ExecutionVenue, OrderSide, OrderType
 from schemas.order_router import ExecutionIntent, ExecutionReport, RiskOverrides
-from services.algo-engine.app.order_router_client import OrderRouterClient
+from services.algo_engine.app.order_router_client import OrderRouterClient
 from services.web-dashboard.app.alerts_client import AlertsEngineClient
 
 

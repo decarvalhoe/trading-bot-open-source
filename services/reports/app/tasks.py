@@ -150,10 +150,8 @@ def generate_report_job(report_id: str, payload: dict[str, object]) -> str | Non
         except Exception as exc:
             job.status = ReportJobStatus.FAILURE
             job.file_path = None
-        codex/confirm-ticket-resolution-and-create-task-list
+
             session.flush()
-       
-        main
             failure = exc
 
     if failure is not None:

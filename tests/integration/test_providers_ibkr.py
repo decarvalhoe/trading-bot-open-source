@@ -115,13 +115,21 @@ async def test_ibkr_provider_latency_and_reconnect(
             json={"ticks": [{"last": 101.0, "time": "2024-01-01T00:00:00Z"}]},
         )
 
-    sandbox_respx.get(f"{_IBKR_BASE_URL}/historical").mock(side_effect=_historical_handler)
-    sandbox_respx.get(f"{_IBKR_BASE_URL}/stream").mock(side_effect=_stream_handler)
+    sandbox_respx.get(f"{_IBKR_BASE_URL}/historical").mock(
+        side_effect=_historical_handler
+    )
+    sandbox_respx.get(f"{_IBKR_BASE_URL}/stream").mock(
+        side_effect=_stream_handler
+    )
 
     start = time.perf_counter()
-    bars_first = await connector.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
+    bars_first = await connector.fetch_ohlcv(
+        "ES", end="", duration="1 D", bar_size="1 min"
+    )
     middle = time.perf_counter()
-    bars_second = await connector.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
+    bars_second = await connector.fetch_ohlcv(
+        "ES", end="", duration="1 D", bar_size="1 min"
+    )
     end = time.perf_counter()
 
     assert bars_first and bars_second
