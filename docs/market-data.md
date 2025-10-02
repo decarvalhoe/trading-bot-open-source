@@ -56,6 +56,9 @@ The FastAPI app exposes:
 | `MARKET_DATA_DATABASE_URL` | PostgreSQL/TimescaleDB connection string. |
 | `BINANCE_API_KEY` / `BINANCE_API_SECRET` | Optional API credentials used by the Binance adapter. |
 | `IBKR_HOST` / `IBKR_PORT` / `IBKR_CLIENT_ID` | Connection parameters for the IBKR gateway. |
+| `PROVIDERS_SANDBOX_MODE` | Controls the integration tests: keep `sandbox` (default) for mocked APIs or set to `official` to hit the real exchanges. |
+| `BINANCE_API_BASE_URL` | Optional override for the Binance REST base URL used by integration tests. |
+| `IBKR_HTTP_SANDBOX_URL` | Optional override for the mock IBKR HTTP gateway used by integration tests. |
 
 TimescaleDB must be available with the `timescaledb` extension enabled. Apply
 migrations using Alembic from the `infra/` package before starting the service:
@@ -79,3 +82,8 @@ WebSocket clients. Execute the suite from the project root:
 ```
 pytest services/market_data/tests
 ```
+
+Integration scenarios that exercise the real exchange clients live in
+`tests/integration`. They rely on `respx` to emulate the Binance and IBKR
+APIs by default and can be pointed to the official endpoints by exporting
+`PROVIDERS_SANDBOX_MODE=official` along with the corresponding credentials.
