@@ -181,13 +181,14 @@ def test_streaming_events_emitted_on_order_creation(client):
     route = respx.post("http://streaming.test/ingest/reports").mock(
         return_value=httpx.Response(202, json={"status": "queued"})
     )
+    initial_calls = route.call_count
     report = _submit_order(
         client,
         account_id="acct-stream",
         tags=["strategy:alpha"],
     )
 
-    _wait_for_calls(route, 2)
+    _wait_for_calls(route, initial_calls + 3)
 
     assert route.calls, "No streaming payload captured"
     first_request = route.calls[0].request
@@ -197,6 +198,7 @@ def test_streaming_events_emitted_on_order_creation(client):
     resources = [payload["payload"]["resource"] for payload in payloads]
     assert "transactions" in resources
     assert "logs" in resources
+    assert "portfolios" in resources
 
     transaction_payload = next(
         payload for payload in payloads if payload["payload"]["resource"] == "transactions"
