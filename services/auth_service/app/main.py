@@ -39,6 +39,23 @@ from libs.observability.metrics import setup_metrics
 configure_logging("auth-service")
 
 
+def _normalise_root_path(path: str | None) -> str:
+    """Ensure the configured root path is well-formed for FastAPI."""
+
+    if not path:
+        return ""
+
+    normalised = path.strip()
+    if not normalised:
+        return ""
+
+    normalised = normalised.strip("/")
+    if not normalised:
+        return "/"
+
+    return f"/{normalised}"
+
+
 def _auth_path(*segments: str) -> str:
     """Join one or more path segments onto the "/auth" prefix."""
 
@@ -93,7 +110,7 @@ def _get_enable_docs() -> bool:
 
 
 ENABLE_DOCS = _get_enable_docs()
-ROOT_PATH = os.getenv("ROOT_PATH", "")
+ROOT_PATH = _normalise_root_path(os.getenv("ROOT_PATH"))
 docs_url = "/docs" if ENABLE_DOCS else None
 redoc_url = "/redoc" if ENABLE_DOCS else None
 openapi_url = "/openapi.json" if ENABLE_DOCS else None
