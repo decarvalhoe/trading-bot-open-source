@@ -42,6 +42,13 @@
           {{ _('Aide &amp; formation')|safe }}
         </a>
         <a
+          href="{{ request.url_for('render_status_page') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'status' else '' }}"
+          aria-current="{{ 'page' if active_page == 'status' else 'false' }}"
+        >
+          {{ _('Statut services') }}
+        </a>
+        <a
           href="{{ request.url_for('render_account') }}"
           class="app-nav__link {{ 'app-nav__link--active' if active_page == 'account' else '' }}"
           aria-current="{{ 'page' if active_page == 'account' else 'false' }}"
