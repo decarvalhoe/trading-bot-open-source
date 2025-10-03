@@ -66,6 +66,18 @@ you use `make demo-up` the compose file seeds the following defaults:
 Adjust these variables in your environment or override them in `docker-compose.override.yml` when
 pointing the dashboard at remote services.
 
+With the stack running you can seed demo credentials, entitlements and sample alerts directly from
+the compose network:
+
+```bash
+make demo-bootstrap
+```
+
+The target now injects container-scoped URLs such as `http://auth_service:8000` and
+`http://user_service:8000` so the helper talks to every service over the internal Docker network.
+If you need to point the bootstrap script somewhere else, either pass the `--*-url` flags or export
+`BOOTSTRAP_*` environment variables before invoking the command.
+
 ## 3. Walk through the demo
 
 1. **Create an account via the dashboard.** Visit http://localhost:8022/account/register once the
