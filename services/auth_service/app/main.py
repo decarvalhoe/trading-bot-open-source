@@ -101,6 +101,10 @@ openapi_url = "/openapi.json" if ENABLE_DOCS else None
 
 root_path = _normalise_root_path(_first_env("AUTH_SERVICE_ROOT_PATH", "ROOT_PATH"))
 
+default_session_same_site = (os.getenv("AUTH_COOKIE_SAMESITE") or "none").strip().lower()
+if default_session_same_site not in {"lax", "strict", "none"}:
+    default_session_same_site = "none"
+
 
 app = FastAPI(
     title="Auth Service",
@@ -121,7 +125,7 @@ setup_metrics(app, service_name="auth-service")
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "dev-secret"),
-    same_site=os.getenv("AUTH_COOKIE_SAMESITE", "None"),
+    same_site=default_session_same_site,
     https_only=os.getenv("AUTH_COOKIE_SECURE", "true").lower() == "true",
 )
 
