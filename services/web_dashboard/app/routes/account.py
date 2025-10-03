@@ -10,6 +10,8 @@ from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from ..config import default_service_url
+
 router = APIRouter(tags=["Account"])
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
@@ -18,7 +20,9 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 AUTH_BASE_URL = (
     os.getenv("AUTH_BASE_URL")
     or os.getenv("AUTH_SERVICE_URL")
-    or "http://auth_service:8000"
+    or default_service_url(
+        "http://auth_service:8000", native_port=8011, trailing_slash=False
+    )
 )
 AUTH_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AUTH_SERVICE_TIMEOUT", "10.0"))
 

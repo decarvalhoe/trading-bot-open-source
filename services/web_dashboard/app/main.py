@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from libs.alert_events import AlertEventBase, AlertEventRepository
 
+from .config import default_service_url
 from .data import (
     MARKETPLACE_BASE_URL,
     MARKETPLACE_TIMEOUT_SECONDS,
@@ -92,12 +93,20 @@ def _template_context(request: Request, extra: dict[str, object] | None = None) 
         context.update(extra)
     return context
 
-STREAMING_BASE_URL = os.getenv("WEB_DASHBOARD_STREAMING_BASE_URL", "http://localhost:8001/")
+STREAMING_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_STREAMING_BASE_URL", "http://localhost:8001/"
+)
 STREAMING_ROOM_ID = os.getenv("WEB_DASHBOARD_STREAMING_ROOM_ID", "public-room")
 STREAMING_VIEWER_ID = os.getenv("WEB_DASHBOARD_STREAMING_VIEWER_ID", "demo-viewer")
-ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert_engine:8000/")
+ALERT_ENGINE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_ALERT_ENGINE_URL",
+    default_service_url("http://alert_engine:8000/", native_port=8017),
+)
 ALERT_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
-ALGO_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALGO_ENGINE_URL", "http://algo_engine:8000/")
+ALGO_ENGINE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_ALGO_ENGINE_URL",
+    default_service_url("http://algo_engine:8000/", native_port=8014),
+)
 ALGO_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALGO_ENGINE_TIMEOUT", "5.0"))
 AI_ASSISTANT_BASE_URL = os.getenv(
     "WEB_DASHBOARD_AI_ASSISTANT_URL",
@@ -107,7 +116,10 @@ AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10
 DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
 USER_SERVICE_BASE_URL = os.getenv(
     "WEB_DASHBOARD_USER_SERVICE_URL",
-    os.getenv("USER_SERVICE_URL", "http://user_service:8000/"),
+    os.getenv(
+        "USER_SERVICE_URL",
+        default_service_url("http://user_service:8000/", native_port=8012),
+    ),
 )
 USER_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_USER_SERVICE_TIMEOUT", "5.0"))
 USER_SERVICE_JWT_SECRET = os.getenv(
@@ -129,7 +141,9 @@ def _env_bool(value: str | None, default: bool) -> bool:
     return default
 
 
-AUTH_SERVICE_DEFAULT_BASE_URL = "http://auth_service:8000/"
+AUTH_SERVICE_DEFAULT_BASE_URL = default_service_url(
+    "http://auth_service:8000/", native_port=8011
+)
 AUTH_SERVICE_BASE_URL = (
     os.getenv("WEB_DASHBOARD_AUTH_SERVICE_URL")
     or os.getenv("AUTH_SERVICE_URL")
