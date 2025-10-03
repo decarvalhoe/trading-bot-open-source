@@ -12,12 +12,16 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
     Header,
     HTTPException,
     Query,
     Request,
     status,
 )
+from fastapi.encoders import jsonable_encoder
+from fastapi.websockets import WebSocketState
 
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
@@ -160,6 +164,9 @@ async def tradingview_webhook(
 
 T = TypeVar("T")
 
+_STREAM_RETRY_INITIAL_DELAY = 0.5
+_STREAM_RETRY_MAX_DELAY = 8.0
+
 
 async def _call_with_retries(
     operation: Callable[[], Awaitable[T]], *, attempts: int = 2, delay: float = 0.1
@@ -205,6 +212,58 @@ async def list_symbols(
 
     symbols = [MarketSymbol(**record) for record in records[:limit]]
     return SymbolListResponse(venue=venue, symbols=symbols)
+
+
+async def _aclose_stream(stream: Any) -> None:
+    """Best-effort close helper for async generators returned by connectors."""
+
+    aclose = getattr(stream, "aclose", None)
+    if aclose is None:
+        return
+
+    try:
+        result = aclose()
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception:  # noqa: BLE001
+        logger.debug("Failed to close trade stream cleanly", exc_info=True)
+
+
+async def _forward_trade_stream(
+    websocket: WebSocket,
+    connector: BinanceMarketConnector | IBKRMarketConnector,
+    stream_symbol: str,
+) -> None:
+    delay = _STREAM_RETRY_INITIAL_DELAY
+    while True:
+        stream = connector.stream_trades(stream_symbol)
+        try:
+            async for trade in stream:
+                payload = jsonable_encoder(trade)
+                await websocket.send_json(payload)
+                delay = _STREAM_RETRY_INITIAL_DELAY
+        except RuntimeError as exc:
+            if websocket.application_state != WebSocketState.CONNECTED:
+                raise WebSocketDisconnect(code=1006) from exc
+            raise
+        except (asyncio.CancelledError, WebSocketDisconnect):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Trade stream bridge error for %s: %s", stream_symbol, exc
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _STREAM_RETRY_MAX_DELAY)
+        finally:
+            await _aclose_stream(stream)
+
+
+async def _drain_websocket(websocket: WebSocket) -> None:
+    try:
+        while True:
+            await websocket.receive()
+    except WebSocketDisconnect:
+        return
 
 
 @app.get(
@@ -324,78 +383,48 @@ async def get_history(
     )
 
 
-def _extract_error_detail(response: httpx.Response) -> str:
+@app.websocket("/market-data/stream")
+async def stream_market_data(
+    websocket: WebSocket,
+    symbol: str,
+    venue: ExecutionVenue = Query(
+        ExecutionVenue.BINANCE_SPOT, description="Market data venue"
+    ),
+    binance: BinanceMarketConnector = Depends(get_binance_adapter),
+    ibkr: IBKRMarketConnector = Depends(get_ibkr_adapter),
+) -> None:
+    await websocket.accept()
+
+    connector = _resolve_connector(venue, binance=binance, ibkr=ibkr)
+    stream_symbol = symbol.upper() if venue == ExecutionVenue.BINANCE_SPOT else symbol
+
+    forward_task = asyncio.create_task(
+        _forward_trade_stream(websocket, connector, stream_symbol)
+    )
+    listener_task = asyncio.create_task(_drain_websocket(websocket))
+    tasks = {forward_task, listener_task}
+
     try:
-        payload = response.json()
-    except Exception:  # noqa: BLE001
-        return response.text or "Upstream error"
-    if isinstance(payload, dict):
-        return payload.get("detail") or payload.get("message") or response.text
-    return response.text or "Upstream error"
+        done, pending = await asyncio.wait(
+            tasks, return_when=asyncio.FIRST_COMPLETED
+        )
+
+        for task in pending:
+            task.cancel()
+
+        if forward_task in done:
+            exc = forward_task.exception()
+            if exc and not isinstance(exc, (WebSocketDisconnect, asyncio.CancelledError)):
+                logger.exception(
+                    "Market data stream failed for %s on %s", symbol, venue
+                )
+                if websocket.application_state == WebSocketState.CONNECTED:
+                    await websocket.close(code=1011)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
-@app.get(
-    "/market-data/topstep/accounts/{account_id}/metrics",
-    tags=["topstep"],
-)
-async def topstep_account_metrics(
-    account_id: str,
-    adapter: TopStepAdapter = Depends(get_topstep_adapter),
-) -> dict[str, Any]:
-    try:
-        metrics = await adapter.get_account_metrics(account_id)
-    except httpx.HTTPStatusError as exc:
-        detail = _extract_error_detail(exc.response)
-        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
-    except httpx.HTTPError as exc:
-        logger.exception("TopStep metrics fetch failed for %s", account_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
-    return {"account_id": account_id, "metrics": metrics}
-
-
-@app.get(
-    "/market-data/topstep/accounts/{account_id}/performance",
-    tags=["topstep"],
-)
-async def topstep_performance_history(
-    account_id: str,
-    start: str | None = Query(None, description="Optional ISO start date"),
-    end: str | None = Query(None, description="Optional ISO end date"),
-    adapter: TopStepAdapter = Depends(get_topstep_adapter),
-) -> dict[str, Any]:
-    try:
-        history = await adapter.get_performance_history(account_id, start=start, end=end)
-    except httpx.HTTPStatusError as exc:
-        detail = _extract_error_detail(exc.response)
-        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
-    except httpx.HTTPError as exc:
-        logger.exception("TopStep performance fetch failed for %s", account_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
-    return {"account_id": account_id, "performance": history, "start": start, "end": end}
-
-
-@app.get(
-    "/market-data/topstep/accounts/{account_id}/risk-rules",
-    tags=["topstep"],
-)
-async def topstep_risk_rules(
-    account_id: str,
-    adapter: TopStepAdapter = Depends(get_topstep_adapter),
-) -> dict[str, Any]:
-    try:
-        rules = await adapter.get_risk_rules(account_id)
-    except httpx.HTTPStatusError as exc:
-        detail = _extract_error_detail(exc.response)
-        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
-    except httpx.HTTPError as exc:
-        logger.exception("TopStep risk rules fetch failed for %s", account_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
-    return {"account_id": account_id, "risk_rules": rules}
-
-
-__all__ = [
-    "app",
-    "get_binance_adapter",
-    "get_ibkr_adapter",
-    "get_topstep_adapter",
-]
+__all__ = ["app", "get_binance_adapter", "get_ibkr_adapter"]
