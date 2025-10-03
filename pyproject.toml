@@ -25,4 +25,5 @@ pythonpath = ["services/config-service"]
 markers = [
     "asyncio: Tests asynchrones nécessitant une boucle d'événements",
     "integration: Tests nécessitant la stack docker complète",
+    "end_to_end: Scénarios bout en bout couvrant plusieurs services",
 ]
