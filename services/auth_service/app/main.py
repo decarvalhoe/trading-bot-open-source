@@ -1,7 +1,9 @@
+import os
 import urllib.parse
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Header, status
+from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -37,6 +39,50 @@ app = FastAPI(title="Auth Service", version="0.1.0")
 install_entitlements_middleware(app, required_capabilities=["can.use_auth"], required_quotas={"quota.active_algos": 1})
 app.add_middleware(RequestContextMiddleware, service_name="auth-service")
 setup_metrics(app, service_name="auth-service")
+
+
+def _parse_env_list(value: str | None, default: list[str]) -> list[str]:
+    if value is None:
+        return default
+    parsed = [item.strip() for item in value.split(",") if item.strip()]
+    return parsed or default
+
+
+def _parse_env_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    lowered = value.strip().lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+cors_allow_origins = _parse_env_list(
+    os.getenv("AUTH_SERVICE_ALLOWED_ORIGINS"),
+    ["http://localhost:3000", "http://localhost:8022"],
+)
+cors_allow_methods = _parse_env_list(
+    os.getenv("AUTH_SERVICE_ALLOWED_METHODS"),
+    ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+)
+cors_allow_headers = _parse_env_list(
+    os.getenv("AUTH_SERVICE_ALLOWED_HEADERS"),
+    ["Authorization", "Content-Type"],
+)
+cors_allow_credentials = _parse_env_bool(
+    os.getenv("AUTH_SERVICE_ALLOW_CREDENTIALS"),
+    True,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_allow_origins,
+    allow_methods=cors_allow_methods,
+    allow_headers=cors_allow_headers,
+    allow_credentials=cors_allow_credentials,
+)
 
 
 @app.get("/health")
