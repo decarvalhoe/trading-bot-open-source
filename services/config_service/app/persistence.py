@@ -7,6 +7,7 @@ CONFIG_FILES: Dict[str, str] = {
     "dev": os.path.join(DATA_DIR, "config.dev.json"),
     "test": os.path.join(DATA_DIR, "config.test.json"),
     "prod": os.path.join(DATA_DIR, "config.prod.json"),
+    "native": os.path.join(DATA_DIR, "config.native.json"),
 }
 
 

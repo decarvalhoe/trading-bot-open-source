@@ -1,9 +1,12 @@
-﻿import os
+"""Database helpers shared across services."""
+from __future__ import annotations
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://trading:trading@postgres:5432/trading")
+from libs.env import get_database_url
+
+DB_URL = get_database_url()
 
 engine = create_engine(DB_URL, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)

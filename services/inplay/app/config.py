@@ -6,6 +6,12 @@ from typing import Dict, List
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from libs.env import get_redis_url
+
+
+def _default_redis_url() -> str:
+    return get_redis_url(env_var="INPLAY_REDIS_URL")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -14,7 +20,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    redis_url: str = Field("redis://redis:6379/0", alias="INPLAY_REDIS_URL")
+    redis_url: str = Field(default_factory=_default_redis_url, alias="INPLAY_REDIS_URL")
     watchlists: Dict[str, List[str]] = Field(
         default_factory=lambda: {
             "momentum": ["AAPL", "MSFT", "TSLA"],
