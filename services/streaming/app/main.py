@@ -49,6 +49,12 @@ def create_app() -> FastAPI:
     app.include_router(ingest.router)
     app.include_router(moderation.router)
 
+    @app.get("/health", tags=["system"])
+    async def health() -> dict[str, str]:
+        """Expose a readiness probe for liveness checks."""
+
+        return {"status": "ok"}
+
     @app.websocket("/ws/rooms/{room_id}")
     async def websocket_room(websocket: WebSocket, room_id: str):
         authorizer: WebsocketAuthorizer = app.state.websocket_authorizer

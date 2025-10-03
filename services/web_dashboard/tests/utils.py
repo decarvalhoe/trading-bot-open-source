@@ -15,6 +15,10 @@ USER_SERVICE_MODULE_PATH = (
     Path(__file__).resolve().parents[2] / "user_service" / "app" / "main.py"
 )
 USER_SERVICE_PACKAGE_NAME = "user_service_dashboard_proxy"
+AUTH_SERVICE_MODULE_PATH = (
+    Path(__file__).resolve().parents[2] / "auth_service" / "app" / "main.py"
+)
+AUTH_SERVICE_PACKAGE_NAME = "auth_service_dashboard_proxy"
 
 
 @lru_cache(maxsize=1)
@@ -77,5 +81,40 @@ def load_user_service_app():
     return load_user_service_module().app
 
 
-__all__ = ["load_dashboard_app", "load_user_service_app", "load_user_service_module"]
+@lru_cache(maxsize=1)
+def load_auth_service_module():
+    """Load the auth-service module for dashboard integration tests."""
+
+    package = types.ModuleType(AUTH_SERVICE_PACKAGE_NAME)
+    package.__path__ = [str(AUTH_SERVICE_MODULE_PATH.parents[1])]
+    sys.modules.setdefault(AUTH_SERVICE_PACKAGE_NAME, package)
+
+    spec = importlib.util.spec_from_file_location(
+        f"{AUTH_SERVICE_PACKAGE_NAME}.main",
+        AUTH_SERVICE_MODULE_PATH,
+        submodule_search_locations=[str(AUTH_SERVICE_MODULE_PATH.parent)],
+    )
+    if spec is None or spec.loader is None:  # pragma: no cover - defensive guard
+        raise RuntimeError("Unable to load auth-service application module")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_auth_service_app():
+    """Return the ASGI application exposed by the auth-service."""
+
+    return load_auth_service_module().app
+
+
+__all__ = [
+    "load_dashboard_app",
+    "load_user_service_app",
+    "load_user_service_module",
+    "load_auth_service_app",
+    "load_auth_service_module",
+    "AUTH_SERVICE_PACKAGE_NAME",
+]
 

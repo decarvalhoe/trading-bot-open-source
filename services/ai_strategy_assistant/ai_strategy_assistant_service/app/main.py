@@ -18,6 +18,13 @@ app = FastAPI(title="AI Strategy Assistant", version="0.1.0")
 assistant = AIStrategyAssistant()
 
 
+@app.get("/health", tags=["system"])
+async def health() -> dict[str, str]:
+    """Expose a simple readiness probe for orchestration and monitoring."""
+
+    return {"status": "ok"}
+
+
 @app.post("/generate", response_model=StrategyGenerationResponse)
 async def generate_strategy(payload: StrategyGenerationRequest) -> StrategyGenerationResponse:
     """Generate a draft strategy from a natural language description."""
