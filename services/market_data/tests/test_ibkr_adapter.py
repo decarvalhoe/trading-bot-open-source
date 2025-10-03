@@ -30,6 +30,7 @@ class FakeIB:
         self.pendingTickersEvent = FakeEvent()
         self.reqMktData_calls = 0
         self.reqHistoricalData_calls: list[dict[str, Any]] = []
+        self.reqMatchingSymbols_calls: list[str] = []
 
     async def connectAsync(self, host: str, port: int, clientId: int) -> None:  # noqa: N802
         self.connected = True
@@ -42,7 +43,22 @@ class FakeIB:
 
     async def reqHistoricalDataAsync(self, contract: Any, **kwargs: Any) -> list[str]:
         self.reqHistoricalData_calls.append({"contract": contract, **kwargs})
-        return ["bar"]
+        return [
+            type(
+                "BarData",
+                (),
+                {
+                    "date": "20240101 00:00:00",
+                    "open": 10.0,
+                    "high": 11.0,
+                    "low": 9.5,
+                    "close": 10.5,
+                    "volume": 3.0,
+                    "barCount": 4,
+                    "average": 10.2,
+                },
+            )
+        ]
 
     def reqMktData(self, contract: Any, *args: Any, **kwargs: Any) -> None:  # noqa: N802
         self.reqMktData_calls += 1
@@ -61,6 +77,29 @@ class FakeIB:
     def cancelMktData(self, contract: Any) -> None:  # noqa: N802
         return None
 
+    async def reqMatchingSymbolsAsync(self, pattern: str) -> list[Any]:  # noqa: N802
+        self.reqMatchingSymbols_calls.append(pattern)
+        contract = type(
+            "ContractSummary",
+            (),
+            {
+                "symbol": "ES",
+                "description": "E-mini S&P 500",
+                "currency": "USD",
+                "exchange": "CME",
+                "secType": "FUT",
+            },
+        )
+        return [type("ContractDescription", (), {"contract": contract})]
+
+    async def reqMktDataAsync(self, contract: Any, *args: Any) -> Any:  # noqa: N802
+        self.reqMktData_calls += 1
+        return type(
+            "Ticker",
+            (),
+            {"bid": 100.0, "bidSize": 1.0, "ask": 101.0, "askSize": 2.0},
+        )
+
 
 def test_ibkr_fetch_uses_rate_limit() -> None:
     async def run() -> None:
@@ -78,6 +117,8 @@ def test_ibkr_fetch_uses_rate_limit() -> None:
         await adapter.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
 
         assert len(fake_ib.reqHistoricalData_calls) == 2
+        first = await adapter.fetch_ohlcv("ES", end="", duration="1 D", bar_size="1 min")
+        assert first[0]["open"] == 10.0
 
     asyncio.run(run())
 
@@ -107,5 +148,20 @@ def test_ibkr_stream_reconnects() -> None:
 
         assert fake_ib.reqMktData_calls == 2
         assert items[0].last == 10.0
+
+    asyncio.run(run())
+
+
+def test_ibkr_symbol_lookup_and_order_book() -> None:
+    async def run() -> None:
+        fake_ib = FakeIB()
+        adapter = IBKRMarketConnector(host="127.0.0.1", port=4001, client_id=1, ib=fake_ib)
+
+        symbols = await adapter.list_symbols(pattern="ES", limit=1)
+        assert symbols[0]["symbol"] == "ES"
+
+        book = await adapter.fetch_order_book("ES")
+        assert book["bids"][0]["price"] == 100.0
+        assert fake_ib.reqMatchingSymbols_calls[0] == "ES"
 
     asyncio.run(run())

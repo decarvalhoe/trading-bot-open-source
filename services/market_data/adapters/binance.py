@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterator, Callable, Dict, Iterable
+from datetime import datetime, timezone
+from typing import Any, AsyncIterator, Callable, Dict, Iterable, List
 
 from binance.spot import Spot
 from binance.websocket.websocket_client import BinanceWebsocketClient
@@ -38,6 +39,78 @@ class BinanceMarketConnector(MarketConnector):
         self._reconnect_delay = reconnect_delay
         self._stream_url = stream_url
 
+    async def list_symbols(
+        self, *, search: str | None = None, limit: int | None = None
+    ) -> List[Dict[str, Any]]:
+        """Return the tradeable symbols available on Binance spot."""
+
+        await self._rate_limiter.acquire()
+        loop = asyncio.get_running_loop()
+        exchange_info = await loop.run_in_executor(None, self._rest_client.exchange_info)
+
+        symbols: list[dict[str, Any]] = []
+        for entry in exchange_info.get("symbols", []):
+            symbol = entry.get("symbol", "")
+            if search and search.lower() not in symbol.lower():
+                continue
+
+            tick_size: float | None = None
+            lot_size: float | None = None
+            for filt in entry.get("filters", []):
+                filter_type = filt.get("filterType")
+                if filter_type == "PRICE_FILTER":
+                    try:
+                        tick_size = float(filt.get("tickSize", 0))
+                    except (TypeError, ValueError):  # pragma: no cover - defensive
+                        tick_size = None
+                elif filter_type == "LOT_SIZE":
+                    try:
+                        lot_size = float(filt.get("stepSize", 0))
+                    except (TypeError, ValueError):  # pragma: no cover - defensive
+                        lot_size = None
+
+            symbols.append(
+                {
+                    "symbol": symbol,
+                    "base_asset": entry.get("baseAsset"),
+                    "quote_asset": entry.get("quoteAsset"),
+                    "status": entry.get("status"),
+                    "tick_size": tick_size,
+                    "lot_size": lot_size,
+                }
+            )
+
+        if limit is not None:
+            symbols = symbols[:limit]
+        return symbols
+
+    async def fetch_order_book(
+        self, symbol: str, *, depth: int = 50
+    ) -> Dict[str, Any]:
+        """Fetch the top levels of the Binance order book for a symbol."""
+
+        await self._rate_limiter.acquire()
+        loop = asyncio.get_running_loop()
+        payload = await loop.run_in_executor(
+            None, lambda: self._rest_client.depth(symbol=symbol, limit=min(depth, 500))
+        )
+
+        bids = [
+            {"price": float(price), "size": float(size)}
+            for price, size in payload.get("bids", [])
+        ]
+        asks = [
+            {"price": float(price), "size": float(size)}
+            for price, size in payload.get("asks", [])
+        ]
+
+        return {
+            "bids": bids,
+            "asks": asks,
+            "last_update_id": payload.get("lastUpdateId"),
+            "timestamp": datetime.now(timezone.utc),
+        }
+
     async def fetch_ohlcv(
         self, symbol: str, interval: str, *, limit: int = 500
     ) -> Iterable[Dict[str, Any]]:
@@ -48,13 +121,13 @@ class BinanceMarketConnector(MarketConnector):
         )
         return [
             {
-                "open_time": bar[0],
+                "open_time": datetime.fromtimestamp(bar[0] / 1000, tz=timezone.utc),
                 "open": float(bar[1]),
                 "high": float(bar[2]),
                 "low": float(bar[3]),
                 "close": float(bar[4]),
                 "volume": float(bar[5]),
-                "close_time": bar[6],
+                "close_time": datetime.fromtimestamp(bar[6] / 1000, tz=timezone.utc),
                 "quote_asset_volume": float(bar[7]),
                 "number_of_trades": int(bar[8]),
             }

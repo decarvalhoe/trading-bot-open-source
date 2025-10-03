@@ -17,6 +17,38 @@ class FakeSpotClient:
         self.calls.append({"symbol": symbol, "interval": interval, "limit": limit})
         return [[1_000, "1", "2", "0.5", "1.5", "10", 1_060, "100", 5]]
 
+    def exchange_info(self) -> dict[str, Any]:
+        self.calls.append({"method": "exchange_info"})
+        return {
+            "symbols": [
+                {
+                    "symbol": "BTCUSDT",
+                    "baseAsset": "BTC",
+                    "quoteAsset": "USDT",
+                    "status": "TRADING",
+                    "filters": [
+                        {"filterType": "PRICE_FILTER", "tickSize": "0.1"},
+                        {"filterType": "LOT_SIZE", "stepSize": "0.001"},
+                    ],
+                },
+                {
+                    "symbol": "ETHUSDT",
+                    "baseAsset": "ETH",
+                    "quoteAsset": "USDT",
+                    "status": "TRADING",
+                    "filters": [],
+                },
+            ]
+        }
+
+    def depth(self, *, symbol: str, limit: int) -> dict[str, Any]:
+        self.calls.append({"method": "depth", "symbol": symbol, "limit": limit})
+        return {
+            "lastUpdateId": 123,
+            "bids": [["100", "2"]],
+            "asks": [["101", "1"]],
+        }
+
 
 class FakeWebsocketClient:
     def __init__(
@@ -104,5 +136,29 @@ def test_binance_stream_reconnects() -> None:
         await stream.aclose()
 
         assert [item["p"] for item in items] == ["42000", "42001"]
+
+    asyncio.run(run())
+
+
+def test_binance_list_symbols_filters() -> None:
+    fake = FakeSpotClient()
+    adapter: BinanceMarketConnector = BinanceMarketConnector(rest_client=fake)
+
+    async def run() -> None:
+        symbols = await adapter.list_symbols(search="btc", limit=1)
+        assert len(symbols) == 1
+        assert symbols[0]["symbol"] == "BTCUSDT"
+
+    asyncio.run(run())
+
+
+def test_binance_order_book_normalised() -> None:
+    fake = FakeSpotClient()
+    adapter: BinanceMarketConnector = BinanceMarketConnector(rest_client=fake)
+
+    async def run() -> None:
+        book = await adapter.fetch_order_book("BTCUSDT", depth=10)
+        assert book["bids"][0]["price"] == 100.0
+        assert book["asks"][0]["size"] == 1.0
 
     asyncio.run(run())
