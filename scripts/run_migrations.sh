@@ -7,11 +7,7 @@ cd "${REPO_ROOT}"
 
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 
-if [[ "${ENVIRONMENT}" == "native" ]]; then
-  DEFAULT_DB_URL="postgresql+psycopg2://trading:trading@localhost:5432/trading"
-else
-  DEFAULT_DB_URL="postgresql+psycopg2://trading:trading@postgres:5432/trading"
-fi
+DEFAULT_DB_URL="postgresql+psycopg2://trading:trading@localhost:5432/trading"
 
 DB_URL="${ALEMBIC_DATABASE_URL:-${DATABASE_URL:-${POSTGRES_DSN:-${DEFAULT_DB_URL}}}}"
 

@@ -15,7 +15,6 @@ def upgrade() -> None:
 
     op.create_table(
         "market_data_ohlcv",
-        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("exchange", sa.String(length=32), nullable=False),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("interval", sa.String(length=16), nullable=False),
@@ -28,7 +27,9 @@ def upgrade() -> None:
         sa.Column("quote_volume", sa.Float, nullable=True),
         sa.Column("trades", sa.Integer, nullable=True),
         sa.Column("extra", postgresql.JSONB, nullable=True),
-        sa.UniqueConstraint("exchange", "symbol", "interval", "timestamp", name="uq_ohlcv_bar"),
+        sa.PrimaryKeyConstraint(
+            "exchange", "symbol", "interval", "timestamp", name="pk_market_data_ohlcv"
+        ),
     )
     op.execute(
         "SELECT create_hypertable('market_data_ohlcv', 'timestamp', if_not_exists => TRUE, migrate_data => TRUE);"
@@ -36,7 +37,6 @@ def upgrade() -> None:
 
     op.create_table(
         "market_data_ticks",
-        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("exchange", sa.String(length=32), nullable=False),
         sa.Column("symbol", sa.String(length=64), nullable=False),
         sa.Column("source", sa.String(length=32), nullable=False),
@@ -45,7 +45,9 @@ def upgrade() -> None:
         sa.Column("size", sa.Float, nullable=True),
         sa.Column("side", sa.String(length=8), nullable=True),
         sa.Column("extra", postgresql.JSONB, nullable=True),
-        sa.UniqueConstraint("exchange", "symbol", "timestamp", "source", name="uq_tick"),
+        sa.PrimaryKeyConstraint(
+            "exchange", "symbol", "source", "timestamp", name="pk_market_data_ticks"
+        ),
     )
     op.execute(
         "SELECT create_hypertable('market_data_ticks', 'timestamp', if_not_exists => TRUE, migrate_data => TRUE);"

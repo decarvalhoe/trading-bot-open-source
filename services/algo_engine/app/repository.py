@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, Iterable, List, MutableMapping, Tuple
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.orm import Session
 
 from infra.strategy_models import (
@@ -74,8 +74,26 @@ class StrategyRepository:
     def _ensure_schema(self) -> None:
         with self._session_factory() as session:
             bind = session.get_bind()
-            if bind is not None:
-                StrategyBase.metadata.create_all(bind=bind)  # pragma: no cover - schema bootstrap
+            if bind is None:
+                return
+            inspector = inspect(bind)
+            expected_tables = {
+                Strategy.__tablename__,
+                StrategyVersion.__tablename__,
+                StrategyExecution.__tablename__,
+                StrategyBacktest.__tablename__,
+            }
+            existing_tables = set(inspector.get_table_names())
+            missing_tables = expected_tables - existing_tables
+            if not missing_tables:
+                return
+            if bind.dialect.name == "sqlite":
+                StrategyBase.metadata.create_all(bind=bind)
+                return
+            tables = ", ".join(sorted(missing_tables))
+            raise RuntimeError(
+                f"Missing strategy tables: {tables}. Run database migrations before starting the service."
+            )
 
     def _refresh_cache(self) -> None:
         with self._session_factory() as session:

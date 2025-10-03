@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 
 from fastapi import (
     BackgroundTasks,
@@ -27,7 +27,9 @@ from libs.observability.logging import RequestContextMiddleware, configure_loggi
 from libs.observability.metrics import setup_metrics
 from schemas.market import ExecutionVenue
 
-from ..adapters import BinanceMarketConnector, IBKRMarketConnector
+import httpx
+
+from ..adapters import BinanceMarketConnector, IBKRMarketConnector, TopStepAdapter
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
@@ -63,6 +65,27 @@ def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketCo
         port=settings.ibkr_port,
         client_id=settings.ibkr_client_id,
     )
+
+
+async def get_topstep_adapter(
+    settings: Settings = Depends(get_settings),
+) -> AsyncIterator[TopStepAdapter]:
+    if not settings.topstep_client_id or not settings.topstep_client_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TopStep credentials are not configured",
+        )
+
+    adapter = TopStepAdapter(
+        base_url=settings.topstep_base_url,
+        client_id=settings.topstep_client_id,
+        client_secret=settings.topstep_client_secret,
+    )
+
+    try:
+        yield adapter
+    finally:
+        await adapter.aclose()
 
 
 @app.get("/health", tags=["system"])

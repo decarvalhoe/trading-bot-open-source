@@ -33,7 +33,7 @@ def persist_ohlcv(session: Session, rows: Iterable[Mapping[str, object]]) -> Non
             for row in payload
         ]
     ).on_conflict_do_update(
-        constraint="uq_ohlcv_bar",
+        constraint="pk_market_data_ohlcv",
         set_={
             "open": insert_stmt.excluded.open,
             "high": insert_stmt.excluded.high,
@@ -53,5 +53,9 @@ def persist_ticks(session: Session, rows: Iterable[Mapping[str, object]]) -> Non
     if not payload:
         return
 
-    stmt = insert(MarketDataTick).values(payload).on_conflict_do_nothing(constraint="uq_tick")
+    stmt = (
+        insert(MarketDataTick)
+        .values(payload)
+        .on_conflict_do_nothing(constraint="pk_market_data_ticks")
+    )
     session.execute(stmt)

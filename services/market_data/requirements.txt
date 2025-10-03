@@ -7,3 +7,4 @@ ib-async>=2.0.1
 pydantic>=1.10,<3
 pydantic-settings>=2.2
 prometheus-client>=0.20
+httpx>=0.24
