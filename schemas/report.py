@@ -25,13 +25,21 @@ class TradeOutcome(str, Enum):
 class StrategyMetrics(BaseModel):
     strategy: StrategyName
     probability: float = Field(..., ge=0.0, le=1.0)
-    target: float
-    stop: float
+    target: float | None = None
+    stop: float | None = None
     expectancy: float
     sample_size: int = Field(..., ge=0)
 
-    @validator("target", "stop", "expectancy")
-    def validate_numeric(cls, value: float) -> float:  # noqa: N805
+    @validator("target", "stop", pre=True)
+    def validate_optional_numeric(cls, value: float | None) -> float | None:  # noqa: N805
+        if value is None:
+            return None
+        if not isinstance(value, (int, float)):
+            raise TypeError("numeric field expected")
+        return float(value)
+
+    @validator("expectancy", pre=True)
+    def validate_expectancy(cls, value: float) -> float:  # noqa: N805
         if not isinstance(value, (int, float)):
             raise TypeError("numeric field expected")
         return float(value)

@@ -89,13 +89,11 @@ class ReportCalculator:
         sample_size = max(row.trades, len(returns)) or 1
         expectancy = mean(returns) if returns else row.total_return * row.initial_balance
         probability = len(wins) / len(returns) if returns else 0.0
-        target = mean(wins) if wins else 0.0
-        stop = abs(mean(losses)) if losses else 0.0
         return StrategyMetrics(
             strategy=strategy,
             probability=probability,
-            target=target,
-            stop=stop,
+            target=None,
+            stop=None,
             expectancy=expectancy,
             sample_size=sample_size,
         )
@@ -109,10 +107,21 @@ class ReportCalculator:
         def _weighted(a: float, b: float) -> float:
             return (a * first.sample_size + b * second.sample_size) / total_samples
 
+        def _merge_level(
+            first_value: float | None, second_value: float | None
+        ) -> float | None:
+            if first_value is None and second_value is None:
+                return None
+            if first_value is None:
+                return second_value
+            if second_value is None:
+                return first_value
+            return _weighted(first_value, second_value)
+
         probability = _weighted(first.probability, second.probability)
         expectancy = _weighted(first.expectancy, second.expectancy)
-        target = _weighted(first.target, second.target)
-        stop = _weighted(first.stop, second.stop)
+        target = _merge_level(first.target, second.target)
+        stop = _merge_level(first.stop, second.stop)
 
         return StrategyMetrics(
             strategy=first.strategy,
@@ -186,6 +195,8 @@ class ReportCalculator:
         sections = [section for section in (report.daily, report.intraday) if section]
         for section in sections:
             for metrics in section.strategies:
+                if metrics.target is None or metrics.stop is None:
+                    continue
                 snapshot = ReportSnapshot(
                     symbol=symbol,
                     timeframe=section.timeframe,
