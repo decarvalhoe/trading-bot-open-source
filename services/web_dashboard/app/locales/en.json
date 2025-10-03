@@ -125,5 +125,21 @@
   "{rating} / 5": "{rating} / 5",
   "{value} / 5": "{value} / 5",
   "Aucun avis pour le moment.": "No reviews yet.",
-  "Aucune stratégie ne correspond à vos filtres.": "No strategies match your filters."
+  "Aucune stratégie ne correspond à vos filtres.": "No strategies match your filters.",
+  "Activez JavaScript pour gérer votre session.": "Enable JavaScript to manage your session.",
+  "Connexion": "Sign in",
+  "Authentifiez-vous pour débloquer les fonctions de sauvegarde et d'orchestration.": "Sign in to unlock orchestration and persistence features.",
+  "Adresse e-mail": "Email address",
+  "Mot de passe": "Password",
+  "Se connecter": "Log in",
+  "Clés API exchanges": "Exchange API keys",
+  "Stockez vos identifiants chiffrés. Ils seront synchronisés avec l'orchestrateur lors des déploiements.": "Store your credentials securely. They will sync with the orchestrator during deployments.",
+  "Sélectionnez un exchange": "Select an exchange",
+  "Exchange": "Exchange",
+  "Binance": "Binance",
+  "Coinbase Pro": "Coinbase Pro",
+  "Kraken": "Kraken",
+  "Clé publique": "Public key",
+  "Clé secrète": "Secret key",
+  "Associer la clé": "Link API key"
 }
