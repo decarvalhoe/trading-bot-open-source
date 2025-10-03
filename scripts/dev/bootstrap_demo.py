@@ -361,7 +361,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--price", type=float, default=None, help="Limit price when using limit orders"
     )
     parser.add_argument("--email", default="demo.trader@example.com", help="Demo account email")
-    parser.add_argument("--password", default="Passw0rd!", help="Demo account password")
+    parser.add_argument(
+        "--password", default="BootstrapPassw0rd!", help="Demo account password"
+    )
     parser.add_argument(
         "--auth-url",
         default=os.getenv("BOOTSTRAP_AUTH_URL", "http://127.0.0.1:8011"),
