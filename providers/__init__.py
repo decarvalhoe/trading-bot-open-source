@@ -1,19 +1,12 @@
 """External market data providers and sandbox configuration helpers."""
+
 from __future__ import annotations
 
-from .binance import (
-    BinanceClient,
-    BinanceConfig,
-    BinanceError,
-    normalize_symbol as normalize_binance_symbol,
-)
+from .binance import BinanceClient, BinanceConfig, BinanceError
+from .binance import normalize_symbol as normalize_binance_symbol
 from .fmp import FinancialModelingPrepClient, FinancialModelingPrepError
-from .ibkr import (
-    IBKRClient,
-    IBKRConfig,
-    IBKRError,
-    normalize_symbol as normalize_ibkr_symbol,
-)
+from .ibkr import IBKRClient, IBKRConfig, IBKRError
+from .ibkr import normalize_symbol as normalize_ibkr_symbol
 from .limits import (
     PairLimit,
     build_orderbook,

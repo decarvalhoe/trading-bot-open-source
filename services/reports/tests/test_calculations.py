@@ -1,7 +1,6 @@
 import pytest
 
 from schemas.report import StrategyMetrics, StrategyName
-
 from services.reports.app.calculations import ReportCalculator
 
 

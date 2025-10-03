@@ -10,9 +10,14 @@ from libs.observability.metrics import setup_metrics
 
 from .config import Settings, get_settings
 from .dependencies import WebsocketAuthorizer, get_bridge
-from .pipeline import InMemoryPublisher, NatsJetStreamPublisher, RedisStreamPublisher, StreamingBridge
+from .pipeline import (
+    InMemoryPublisher,
+    NatsJetStreamPublisher,
+    RedisStreamPublisher,
+    StreamingBridge,
+)
 from .repositories import RoomStore, SessionStore
-from .routers import ingest, rooms, sessions, moderation
+from .routers import ingest, moderation, rooms, sessions
 
 
 @asynccontextmanager

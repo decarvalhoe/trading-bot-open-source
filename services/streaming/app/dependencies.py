@@ -45,7 +45,9 @@ class WebsocketAuthorizer:
         self._settings = settings
         self._bypass = os.getenv("ENTITLEMENTS_BYPASS", "0") == "1"
         base_url = os.getenv("ENTITLEMENTS_SERVICE_URL", "http://entitlements-service:8000")
-        api_key = get_secret("ENTITLEMENTS_SERVICE_API_KEY", default=os.getenv("ENTITLEMENTS_SERVICE_API_KEY"))
+        api_key = get_secret(
+            "ENTITLEMENTS_SERVICE_API_KEY", default=os.getenv("ENTITLEMENTS_SERVICE_API_KEY")
+        )
         self._client = EntitlementsClient(base_url, api_key=api_key)
 
     async def authorize(self, websocket) -> str:
@@ -73,7 +75,9 @@ class WebsocketAuthorizer:
         if self._bypass:
             return customer_id
         try:
-            await self._client.require(customer_id, capabilities=[self._settings.entitlements_capability])
+            await self._client.require(
+                customer_id, capabilities=[self._settings.entitlements_capability]
+            )
         except EntitlementsError as exc:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         return customer_id

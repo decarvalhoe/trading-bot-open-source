@@ -9,18 +9,19 @@ from sqlalchemy.orm import Session
 from infra import AuditLog, Listing, ListingVersion, MarketplaceSubscription
 from libs.db.db import SessionLocal
 from libs.entitlements.client import Entitlements
-
 from services.marketplace.app.dependencies import get_entitlements
 from services.marketplace.app.main import app
 from services.marketplace.app.service import ListingSortOption
 
 client = TestClient(app)
 
+
 @pytest.fixture(scope="module", autouse=True)
 def disable_entitlements_middleware() -> None:
-    app.user_middleware = [mw for mw in app.user_middleware if mw.cls.__name__ != "EntitlementsMiddleware"]
+    app.user_middleware = [
+        mw for mw in app.user_middleware if mw.cls.__name__ != "EntitlementsMiddleware"
+    ]
     app.middleware_stack = app.build_middleware_stack()
-
 
 
 def _clear_marketplace_tables(db: Session) -> None:
@@ -64,7 +65,9 @@ def test_publish_listing_requires_capability():
         "currency": "EUR",
         "connect_account_id": "acct_123",
     }
-    response = client.post("/marketplace/listings", json=payload, headers={"x-user-id": "creator-1"})
+    response = client.post(
+        "/marketplace/listings", json=payload, headers={"x-user-id": "creator-1"}
+    )
     assert response.status_code == 403
 
 
@@ -82,7 +85,9 @@ def test_publish_and_copy_flow(entitlements_state):
         "connect_account_id": "acct_creator",
         "initial_version": {"version": "1.0.0", "configuration": {"risk": 2}},
     }
-    response = client.post("/marketplace/listings", json=payload, headers={"x-user-id": "creator-1"})
+    response = client.post(
+        "/marketplace/listings", json=payload, headers={"x-user-id": "creator-1"}
+    )
     assert response.status_code == 201, response.text
     listing_id = response.json()["id"]
     assert response.json()["versions"][0]["version"] == "1.0.0"
@@ -135,7 +140,9 @@ def test_publish_and_copy_flow(entitlements_state):
         assert versions, "Expected at least one stored version"
         audit_actions = db.scalars(select(AuditLog.action)).all()
         assert {"listing.created", "listing.copied"}.issubset(set(audit_actions))
-        subscription_row = db.scalar(select(MarketplaceSubscription).where(MarketplaceSubscription.listing_id == listing_id))
+        subscription_row = db.scalar(
+            select(MarketplaceSubscription).where(MarketplaceSubscription.listing_id == listing_id)
+        )
         assert subscription_row is not None
         assert subscription_row.leverage == pytest.approx(1.5)
         assert subscription_row.allocated_capital == pytest.approx(2500.0)
@@ -155,7 +162,9 @@ def test_only_owner_can_publish_new_version(entitlements_state):
         "currency": "USD",
         "connect_account_id": "acct_1",
     }
-    resp = client.post("/marketplace/listings", json=listing_payload, headers={"x-user-id": "creator-1"})
+    resp = client.post(
+        "/marketplace/listings", json=listing_payload, headers={"x-user-id": "creator-1"}
+    )
     listing_id = resp.json()["id"]
 
     entitlements_state["value"] = Entitlements(
@@ -197,7 +206,9 @@ def test_listing_rejected_when_automated_checks_fail(entitlements_state):
         "currency": "USD",
         "connect_account_id": "not_connect",
     }
-    response = client.post("/marketplace/listings", json=payload, headers={"x-user-id": "creator-2"})
+    response = client.post(
+        "/marketplace/listings", json=payload, headers={"x-user-id": "creator-2"}
+    )
     assert response.status_code == 201
     data = response.json()
     assert data["status"] == "rejected"

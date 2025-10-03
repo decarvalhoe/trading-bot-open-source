@@ -4,8 +4,8 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
-from sqlalchemy import create_engine
 import sqlalchemy
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.alert_engine.app.cache import AlertContextCache
@@ -82,7 +82,9 @@ def test_stream_processing_triggers_alert(stream_session_factory: sessionmaker[S
     )
 
     stream_client = InMemoryStreamClient()
-    processor = StreamProcessor(stream_client=stream_client, engine=engine, session_factory=stream_session_factory)
+    processor = StreamProcessor(
+        stream_client=stream_client, engine=engine, session_factory=stream_session_factory
+    )
 
     rule = AlertRule(name="Spike", symbol="BTC", expression="price > moving_average")
 

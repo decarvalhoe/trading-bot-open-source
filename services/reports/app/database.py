@@ -55,7 +55,6 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
-
 def reset_engine() -> None:
     global _engine, _SessionLocal
     if _engine is not None:

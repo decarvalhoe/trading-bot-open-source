@@ -13,11 +13,7 @@ from libs.observability.metrics import setup_metrics
 
 from .config import Settings, get_settings
 from .deps import get_broker
-from .security import (
-    verify_github_signature,
-    verify_stripe_signature,
-    verify_tradingview_signature,
-)
+from .security import verify_github_signature, verify_stripe_signature, verify_tradingview_signature
 
 configure_logging("codex-gateway")
 

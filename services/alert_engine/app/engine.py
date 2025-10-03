@@ -12,8 +12,8 @@ from libs.db.db import SessionLocal
 
 from .cache import AlertContextCache
 from .clients import NotificationPublisher
-from .event_recorder import AlertEventRecorder
 from .evaluator import RuleEvaluator
+from .event_recorder import AlertEventRecorder
 from .models import AlertRule, AlertTrigger
 from .repository import AlertRuleRepository
 from .schemas import MarketEvent
@@ -60,7 +60,9 @@ class AlertEngine:
                     notification_type="trigger",
                 )
                 await self._publisher.publish(
-                    self._serialize_trigger(trigger, event_id=event.id, channels=rule.channels or [])
+                    self._serialize_trigger(
+                        trigger, event_id=event.id, channels=rule.channels or []
+                    )
                 )
                 triggers.append(trigger)
         return triggers
@@ -107,12 +109,16 @@ class AlertEngine:
                     notification_type="trigger",
                 )
                 await self._publisher.publish(
-                    self._serialize_trigger(trigger, event_id=event.id, channels=rule.channels or [])
+                    self._serialize_trigger(
+                        trigger, event_id=event.id, channels=rule.channels or []
+                    )
                 )
                 triggers.append(trigger)
         return triggers
 
-    async def _evaluate_rule(self, session: Session, rule: AlertRule, context: dict[str, Any]) -> bool:
+    async def _evaluate_rule(
+        self, session: Session, rule: AlertRule, context: dict[str, Any]
+    ) -> bool:
         try:
             return self._evaluator.evaluate(rule.expression, context)
         except Exception:

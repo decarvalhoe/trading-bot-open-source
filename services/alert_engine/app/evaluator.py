@@ -80,7 +80,9 @@ class RuleEvaluator:
                 return -operand
             raise UnsafeExpressionError("Unsupported unary operator")
         if isinstance(node, ast.IfExp):
-            return self._eval_node(node.body if self._eval_node(node.test, context) else node.orelse, context)
+            return self._eval_node(
+                node.body if self._eval_node(node.test, context) else node.orelse, context
+            )
         if isinstance(node, ast.Compare):
             left = self._eval_node(node.left, context)
             result = True

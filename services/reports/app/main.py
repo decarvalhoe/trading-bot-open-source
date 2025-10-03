@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import importlib
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import Response
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.orm import Session
 
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
-from sqlalchemy.orm import Session
-
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from pydantic import BaseModel, Field, model_validator
-
 from schemas.report import DailyRiskReport, PortfolioPerformance, ReportResponse
 
 from .calculations import DailyRiskCalculator, ReportCalculator, load_report_from_snapshots
@@ -263,7 +261,9 @@ async def symbol_summary(
 async def daily_risk_report(
     account: str | None = Query(default=None, description="Filter by account identifier"),
     limit: int = Query(default=30, ge=1, le=365, description="Maximum number of rows to return"),
-    export: str | None = Query(default=None, pattern="^(csv)$", description="Return the payload as CSV when set to 'csv'"),
+    export: str | None = Query(
+        default=None, pattern="^(csv)$", description="Return the payload as CSV when set to 'csv'"
+    ),
     session: Session = Depends(get_session),
 ):
     calculator = DailyRiskCalculator(session)

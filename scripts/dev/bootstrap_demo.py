@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hmac
 import json
 import os
 import sys
@@ -11,14 +12,13 @@ import time
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Iterable, Mapping
-import hmac
 
 import httpx
 
 from schemas.market import ExecutionVenue, OrderSide, OrderType
 from schemas.order_router import ExecutionIntent, ExecutionReport, RiskOverrides
-from services.algo-engine.app.order_router_client import OrderRouterClient
-from services.web-dashboard.app.alerts_client import AlertsEngineClient
+from services.algo_engine.app.order_router_client import OrderRouterClient
+from services.web_dashboard.app.alerts_client import AlertsEngineClient
 
 
 @dataclass
@@ -36,7 +36,9 @@ class ServiceError(RuntimeError):
 class BillingClient:
     """Helper wrapping the billing service API to manage plans and subscriptions."""
 
-    def __init__(self, base_url: str, *, timeout: float = 5.0, webhook_secret: str = "whsec_test") -> None:
+    def __init__(
+        self, base_url: str, *, timeout: float = 5.0, webhook_secret: str = "whsec_test"
+    ) -> None:
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout)
         self._webhook_secret = webhook_secret
 
@@ -97,7 +99,9 @@ class BillingClient:
         body = json.dumps(event, separators=(",", ":"))
         timestamp = str(int(time.time()))
         signed_payload = f"{timestamp}.{body}".encode()
-        signature = hmac.new(self._webhook_secret.encode(), msg=signed_payload, digestmod=sha256).hexdigest()
+        signature = hmac.new(
+            self._webhook_secret.encode(), msg=signed_payload, digestmod=sha256
+        ).hexdigest()
         headers = {"stripe-signature": f"t={timestamp},v1={signature}"}
         response = self._client.post("/webhooks/stripe", content=body, headers=headers)
         if response.status_code >= 400:
@@ -129,7 +133,9 @@ class AuthServiceClient:
         if response.status_code >= 400:
             raise ServiceError(f"Auth login failed: {response.text}")
         payload = response.json()
-        return AuthTokens(access_token=payload["access_token"], refresh_token=payload["refresh_token"])
+        return AuthTokens(
+            access_token=payload["access_token"], refresh_token=payload["refresh_token"]
+        )
 
     def me(self, *, access_token: str) -> dict[str, Any]:
         response = self._client.get("/auth/me", headers={"Authorization": f"Bearer {access_token}"})
@@ -141,7 +147,9 @@ class AuthServiceClient:
 class UserServiceClient:
     """Client targeting the user-service REST API."""
 
-    def __init__(self, base_url: str, *, timeout: float = 5.0, access_token: str, customer_id: int) -> None:
+    def __init__(
+        self, base_url: str, *, timeout: float = 5.0, access_token: str, customer_id: int
+    ) -> None:
         headers = {
             "Authorization": f"Bearer {access_token}",
             "x-customer-id": str(customer_id),
@@ -227,7 +235,9 @@ class ReportsServiceClient:
 class DashboardClient:
     """Client used to manage alerts through the dashboard facade."""
 
-    def __init__(self, base_url: str, *, timeout: float = 5.0, alerts_token: str | None = None) -> None:
+    def __init__(
+        self, base_url: str, *, timeout: float = 5.0, alerts_token: str | None = None
+    ) -> None:
         self._client = AlertsEngineClient(base_url=base_url.rstrip("/"), timeout=timeout)
         if alerts_token:
             self._client._client.headers.update({"Authorization": f"Bearer {alerts_token}"})
@@ -269,7 +279,9 @@ class DashboardClient:
 class StreamingClient:
     """Client pushing events to the streaming ingest endpoint."""
 
-    def __init__(self, base_url: str, *, timeout: float = 5.0, service_token: str | None = None) -> None:
+    def __init__(
+        self, base_url: str, *, timeout: float = 5.0, service_token: str | None = None
+    ) -> None:
         headers: dict[str, str] = {}
         if service_token:
             headers["X-Service-Token"] = service_token
@@ -324,7 +336,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Bootstrap the end-to-end demo flow")
     parser.add_argument("symbol", help="Trading symbol to route")
     parser.add_argument("quantity", type=float, help="Order quantity")
-    parser.add_argument("--broker", default="binance", help="Broker identifier for the order router")
+    parser.add_argument(
+        "--broker", default="binance", help="Broker identifier for the order router"
+    )
     parser.add_argument(
         "--venue",
         default=ExecutionVenue.BINANCE_SPOT.value,
@@ -343,7 +357,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=[order_type.value for order_type in OrderType],
         help="Order type",
     )
-    parser.add_argument("--price", type=float, default=None, help="Limit price when using limit orders")
+    parser.add_argument(
+        "--price", type=float, default=None, help="Limit price when using limit orders"
+    )
     parser.add_argument("--email", default="demo.trader@example.com", help="Demo account email")
     parser.add_argument("--password", default="Passw0rd!", help="Demo account password")
     parser.add_argument(
@@ -449,7 +465,9 @@ def run(argv: list[str] | None = None) -> dict[str, Any]:
                 ],
                 quotas={"quota.active_algos": 5},
             )
-            billing_client.ensure_subscription(plan_code=args.plan_code, customer_id=args.service_customer_id)
+            billing_client.ensure_subscription(
+                plan_code=args.plan_code, customer_id=args.service_customer_id
+            )
         elif billing_client is None:
             billing_client = BillingClient(args.billing_url, webhook_secret=args.webhook_secret)
 

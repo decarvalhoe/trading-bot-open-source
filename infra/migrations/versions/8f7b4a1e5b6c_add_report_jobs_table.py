@@ -1,9 +1,9 @@
 """Add report jobs table"""
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "8f7b4a1e5b6c"
 down_revision = "6efde1f16e9f"

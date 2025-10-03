@@ -4,7 +4,9 @@ from datetime import date, datetime
 from enum import Enum
 from uuid import uuid4
 
-from sqlalchemy import Date, DateTime, Enum as SAEnum, Float, Integer, JSON, String
+from sqlalchemy import JSON, Date, DateTime
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy import Float, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from schemas.report import StrategyName, Timeframe, TradeOutcome

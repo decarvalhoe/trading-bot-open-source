@@ -1,4 +1,5 @@
 """Common types for secret management providers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

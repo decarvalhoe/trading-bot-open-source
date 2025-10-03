@@ -1,4 +1,5 @@
 """Integration tests for market connectors using docker-style fixtures."""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,4 +1,5 @@
 """Common connector interfaces for market data and execution clients."""
+
 from __future__ import annotations
 
 import abc

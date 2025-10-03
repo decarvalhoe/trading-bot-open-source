@@ -1,4 +1,5 @@
 """Client for publishing backtest results to the reports service."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,6 @@ import os
 from typing import Any, Mapping
 
 import httpx
-
 
 logger = logging.getLogger(__name__)
 

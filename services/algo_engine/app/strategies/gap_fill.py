@@ -1,4 +1,5 @@
 """Gap fill strategy implementation."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -23,7 +24,10 @@ class GapFillStrategy(StrategyBase):
 
         gap = ((open_price - prev_close) / prev_close) * 100
         signals: List[Dict[str, Any]] = []
-        if abs(gap) >= gap_threshold and abs(((last_price - open_price) / open_price) * 100) <= fade_pct:
+        if (
+            abs(gap) >= gap_threshold
+            and abs(((last_price - open_price) / open_price) * 100) <= fade_pct
+        ):
             direction = "sell" if gap > 0 else "buy"
             signals.append({"action": direction, "confidence": 0.6})
         return signals

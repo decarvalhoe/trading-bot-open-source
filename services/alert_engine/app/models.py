@@ -24,7 +24,9 @@ class AlertRule(Base):
     throttle_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
     triggers: Mapped[list["AlertTrigger"]] = relationship(
         "AlertTrigger", back_populates="rule", cascade="all, delete-orphan"
@@ -36,7 +38,9 @@ class AlertTrigger(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     rule_id: Mapped[int] = mapped_column(ForeignKey("alert_rules.id", ondelete="CASCADE"))
-    triggered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    triggered_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
     context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     rule: Mapped[AlertRule] = relationship("AlertRule", back_populates="triggers")

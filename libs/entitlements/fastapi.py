@@ -1,4 +1,5 @@
 """FastAPI integration helpers for the entitlements client."""
+
 from __future__ import annotations
 
 import os
@@ -29,9 +30,7 @@ class EntitlementsMiddleware(BaseHTTPMiddleware):
         self._required_capabilities = list(required_capabilities or [])
         self._required_quotas = dict(required_quotas or {})
         self._bypass = os.getenv("ENTITLEMENTS_BYPASS", "0") == "1"
-        self._skip_paths: Set[str] = {
-            _normalise_path(path) for path in (skip_paths or [])
-        }
+        self._skip_paths: Set[str] = {_normalise_path(path) for path in (skip_paths or [])}
 
     async def dispatch(self, request: Request, call_next):
         customer_id = request.headers.get("x-customer-id") or request.headers.get("x-user-id")
@@ -47,9 +46,13 @@ class EntitlementsMiddleware(BaseHTTPMiddleware):
 
         if not customer_id:
             if self._bypass:
-                request.state.entitlements = Entitlements(customer_id="anonymous", features={}, quotas={})
+                request.state.entitlements = Entitlements(
+                    customer_id="anonymous", features={}, quotas={}
+                )
                 return await call_next(request)
-            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Missing x-customer-id header")
+            raise HTTPException(
+                status_code=HTTP_401_UNAUTHORIZED, detail="Missing x-customer-id header"
+            )
 
         try:
             entitlements = await self._client.require(

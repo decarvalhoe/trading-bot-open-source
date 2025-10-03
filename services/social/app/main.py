@@ -1,4 +1,5 @@
 """FastAPI application exposing social features."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query

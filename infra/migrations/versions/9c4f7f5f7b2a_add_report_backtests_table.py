@@ -1,9 +1,9 @@
 """Add report backtests table"""
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "9c4f7f5f7b2a"
 down_revision = "8f7b4a1e5b6c"

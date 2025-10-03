@@ -11,8 +11,7 @@ from .schemas import TickPayload
 
 
 class TickStream(Protocol):
-    async def listen(self) -> AsyncIterator[TickPayload]:
-        ...
+    async def listen(self) -> AsyncIterator[TickPayload]: ...
 
 
 class RedisTickStream:

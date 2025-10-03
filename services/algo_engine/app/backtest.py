@@ -1,4 +1,5 @@
 """Simple backtesting utilities for the algo engine."""
+
 from __future__ import annotations
 
 import json

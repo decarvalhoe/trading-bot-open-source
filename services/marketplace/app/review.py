@@ -1,4 +1,5 @@
 """Automated review workflow for marketplace listings."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

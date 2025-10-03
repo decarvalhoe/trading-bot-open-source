@@ -87,7 +87,9 @@ class CodexWorker:
         elif command == "pr":
             await self._execute_pr(repository, pull_number, payload)
 
-    async def _execute_plan(self, repository: str, pull_number: int, payload: dict[str, Any]) -> None:
+    async def _execute_plan(
+        self, repository: str, pull_number: int, payload: dict[str, Any]
+    ) -> None:
         head_sha = payload.get("issue", {}).get("pull_request", {}).get("head", {}).get("sha")
         if not head_sha:
             LOGGER.warning("Unable to determine head SHA for PR #%s", pull_number)

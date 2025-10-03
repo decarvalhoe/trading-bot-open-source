@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hmac
 import importlib.util
-import hmac
-import importlib.util
 import json
 import os
 import sys
@@ -35,7 +33,9 @@ if BILLING_PACKAGE not in sys.modules:
     app_package.__path__ = [str(BILLING_DIR / "app")]
     sys.modules[f"{BILLING_PACKAGE}.app"] = app_package
 
-spec = importlib.util.spec_from_file_location(f"{BILLING_PACKAGE}.app.main", BILLING_DIR / "app" / "main.py")
+spec = importlib.util.spec_from_file_location(
+    f"{BILLING_PACKAGE}.app.main", BILLING_DIR / "app" / "main.py"
+)
 billing_module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = billing_module
 spec.loader.exec_module(billing_module)
@@ -110,7 +110,9 @@ def marketplace_client():
         return ent
 
     fake_client = FakeStripeClient()
-    fake_gateway = StripeConnectGateway(settings=StripeSettings(api_key="sk_test_123"), client=fake_client)
+    fake_gateway = StripeConnectGateway(
+        settings=StripeSettings(api_key="sk_test_123"), client=fake_client
+    )
 
     marketplace_app.dependency_overrides[get_entitlements] = override_entitlements
     marketplace_app.dependency_overrides[get_payments_gateway] = lambda: fake_gateway
@@ -138,7 +140,9 @@ def sign(payload: bytes, secret: str) -> str:
     return f"t={timestamp},v1={signature}"
 
 
-def test_end_to_end_listing_and_subscription(marketplace_client: TestClient, billing_client: TestClient):
+def test_end_to_end_listing_and_subscription(
+    marketplace_client: TestClient, billing_client: TestClient
+):
     entitlements_state = marketplace_client.entitlements_state  # type: ignore[attr-defined]
     fake_client = marketplace_client.fake_gateway_client  # type: ignore[attr-defined]
     assert isinstance(fake_client, FakeStripeClient)

@@ -22,7 +22,9 @@ async def ingest_from_reports(
 ):
     settings = get_settings()
     await authorize_service(request, [settings.service_token_reports])
-    await bridge.publish(StreamEvent(room_id=payload.room_id, payload=payload.payload, source="reports"))
+    await bridge.publish(
+        StreamEvent(room_id=payload.room_id, payload=payload.payload, source="reports")
+    )
     return {"status": "queued"}
 
 
@@ -34,7 +36,9 @@ async def ingest_from_inplay(
 ):
     settings = get_settings()
     await authorize_service(request, [settings.service_token_inplay])
-    await bridge.publish(StreamEvent(room_id=payload.room_id, payload=payload.payload, source="inplay"))
+    await bridge.publish(
+        StreamEvent(room_id=payload.room_id, payload=payload.payload, source="inplay")
+    )
     return {"status": "queued"}
 
 

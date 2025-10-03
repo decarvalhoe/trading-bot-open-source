@@ -64,6 +64,8 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         extra_params={"response_type": "code"},
     ),
 }
+
+
 @router.get("/{provider}/start")
 async def oauth_start(
     provider: str,
@@ -74,7 +76,9 @@ async def oauth_start(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported provider")
     client_id = getattr(settings, f"{provider}_client_id", "")
     if not client_id:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Provider not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Provider not configured"
+        )
     state = state_store.issue(provider)
     url = provider_cfg.authorization_url(settings, state)
     return {"authorization_url": url, "state": state}

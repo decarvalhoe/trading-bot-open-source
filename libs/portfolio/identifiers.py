@@ -1,4 +1,5 @@
 """Encoding helpers for portfolio and position identifiers."""
+
 from __future__ import annotations
 
 import base64

@@ -28,15 +28,21 @@ async def tradingview_webhook(
     if settings.tradingview_hmac_secret:
         provided_signature = request.headers.get("x-signature")
         if not provided_signature:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing signature header")
-        digest = hmac.new(settings.tradingview_hmac_secret.encode("utf-8"), raw_body, sha256).digest()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Missing signature header"
+            )
+        digest = hmac.new(
+            settings.tradingview_hmac_secret.encode("utf-8"), raw_body, sha256
+        ).digest()
         expected_signature = base64.b64encode(digest).decode("utf-8")
         if not hmac.compare_digest(provided_signature, expected_signature):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
     try:
         payload = TradingViewWebhook.parse_raw(raw_body)
     except ValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     idempotency_key = request.headers.get("x-idempotency-key")
     if idempotency_key and idempotency_key in _PROCESSED_EVENTS:
         return {"status": "ignored", "reason": "duplicate"}

@@ -5,11 +5,11 @@ Revises: 0005_user_profile_fields
 Create Date: 2025-09-29 03:32:52.611831
 
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "8595db87b446"
 down_revision = "0005_user_profile_fields"

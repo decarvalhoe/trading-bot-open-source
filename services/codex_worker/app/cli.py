@@ -37,7 +37,9 @@ def load_event(provider: str, event_type: str, path: Path) -> CodexEvent:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Execute a Codex worker run for a single event")
-    parser.add_argument("--provider", default="github", help="Event provider (github|stripe|tradingview)")
+    parser.add_argument(
+        "--provider", default="github", help="Event provider (github|stripe|tradingview)"
+    )
     parser.add_argument("--event-type", default="issue_comment", help="Type de l'événement")
     parser.add_argument("--event-path", required=True, help="Chemin vers le payload JSON")
     args = parser.parse_args()

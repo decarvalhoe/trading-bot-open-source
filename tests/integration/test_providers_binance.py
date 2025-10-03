@@ -4,8 +4,8 @@ import os
 import time
 from typing import Any
 
-import pytest
 import httpx
+import pytest
 from httpx import Response
 
 from services.market_data.adapters import BinanceMarketConnector

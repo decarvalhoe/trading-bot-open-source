@@ -1,10 +1,10 @@
 """Create strategy management tables"""
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 revision = "1b70b7cb0c53"
 down_revision = "9c4f7f5f7b2a"
@@ -25,7 +25,9 @@ def upgrade() -> None:
         sa.Column("metadata", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("source_format", sa.String(length=16), nullable=True),
         sa.Column("source", sa.Text(), nullable=True),
-        sa.Column("status", sa.String(length=16), nullable=False, server_default=sa.text("'PENDING'")),
+        sa.Column(
+            "status", sa.String(length=16), nullable=False, server_default=sa.text("'PENDING'")
+        ),
         sa.Column("last_error", sa.Text(), nullable=True),
         sa.Column("last_backtest", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(
@@ -69,9 +71,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["strategy_id"], ["strategies.id"], ondelete="CASCADE", name="fk_versions_strategy"
         ),
-        sa.UniqueConstraint(
-            "strategy_id", "version", name="uq_strategy_versions_strategy_version"
-        ),
+        sa.UniqueConstraint("strategy_id", "version", name="uq_strategy_versions_strategy_version"),
     )
     op.create_index(
         op.f("ix_strategy_versions_strategy_id"),

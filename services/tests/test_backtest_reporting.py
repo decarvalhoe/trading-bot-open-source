@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from services.reports.app import config as reports_config
 from services.reports.app.database import get_engine, reset_engine, session_scope
@@ -93,7 +93,9 @@ def test_backtest_results_are_published_and_visible(
     os.environ.setdefault("ENTITLEMENTS_BYPASS", "1")
 
     publisher_client = _build_reports_transport(reports_client)
-    publisher = ALGO_MAIN.ReportsPublisher(client=publisher_client, base_url=str(reports_client.base_url))
+    publisher = ALGO_MAIN.ReportsPublisher(
+        client=publisher_client, base_url=str(reports_client.base_url)
+    )
     monkeypatch.setattr(ALGO_MAIN, "reports_publisher", publisher, raising=False)
 
     # Reset strategy repository for isolation
@@ -128,7 +130,9 @@ def test_backtest_results_are_published_and_visible(
         assert stored.strategy_id == strategy_id
         assert stored.account == "backtest-account"
         assert stored.symbol == "AAPL"
-        assert pytest.approx(stored.total_return, rel=1e-6) == backtest_response.json()["total_return"]
+        assert (
+            pytest.approx(stored.total_return, rel=1e-6) == backtest_response.json()["total_return"]
+        )
 
     daily = reports_client.get("/reports/daily").json()
     assert any(entry["account"] == "backtest-account" for entry in daily)

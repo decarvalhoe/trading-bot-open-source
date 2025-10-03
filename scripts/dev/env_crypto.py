@@ -1,4 +1,5 @@
 """Utilities to encrypt and decrypt local .env files."""
+
 from __future__ import annotations
 
 import argparse
@@ -98,7 +99,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     encrypt_parser = sub.add_parser("encrypt", help="Encrypt a plain-text .env file")
-    encrypt_parser.add_argument("--input", default=".env", help="Path to the plain-text file to encrypt")
+    encrypt_parser.add_argument(
+        "--input", default=".env", help="Path to the plain-text file to encrypt"
+    )
     encrypt_parser.add_argument(
         "--output",
         default=".env.enc",

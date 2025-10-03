@@ -7,9 +7,10 @@ import types
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
+from schemas.report import StrategyName, TradeOutcome
 from services.reports.app import config
 from services.reports.app.database import get_engine, reset_engine, session_scope
 from services.reports.app.main import app
@@ -23,7 +24,6 @@ from services.reports.app.tables import (
     ReportJobStatus,
     ReportSnapshot,
 )
-from schemas.report import StrategyName, TradeOutcome
 
 
 def _configure_database(tmp_path: Path) -> None:
@@ -255,7 +255,9 @@ def test_daily_risk_report_endpoint(tmp_path: Path) -> None:
         payload = response.json()
         assert payload
         summary = payload[0]
-        assert {"session_date", "account", "pnl", "max_drawdown", "incidents"} <= set(summary.keys())
+        assert {"session_date", "account", "pnl", "max_drawdown", "incidents"} <= set(
+            summary.keys()
+        )
         if summary["session_date"] == "2024-03-19":
             assert summary["incidents"], "Expected losing trade to be flagged as incident"
 
@@ -347,7 +349,9 @@ def test_render_daily_risk_report_to_pdf(tmp_path: Path, monkeypatch: pytest.Mon
     assert "Most recent 10 sessions" in dummy_html.last_rendered
 
 
-def test_render_report_returns_404_when_no_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_render_report_returns_404_when_no_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _configure_database(tmp_path)
     _configure_storage(tmp_path)
     _mock_weasyprint(monkeypatch)
@@ -412,7 +416,9 @@ def test_generate_report_endpoint_creates_async_job(
         assert job.file_path is None
 
 
-def test_generate_report_job_task_updates_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generate_report_job_task_updates_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _configure_database(tmp_path)
     _seed_sample_data()
     _configure_storage(tmp_path)

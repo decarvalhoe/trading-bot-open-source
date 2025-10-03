@@ -1,4 +1,5 @@
 """Shared market data and order execution contracts."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

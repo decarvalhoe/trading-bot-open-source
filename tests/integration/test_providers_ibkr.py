@@ -83,9 +83,7 @@ class _HttpIBGateway:
 
 
 @pytest.mark.asyncio
-async def test_ibkr_provider_latency_and_reconnect(
-    sandbox_mode: str, sandbox_respx: Any
-) -> None:
+async def test_ibkr_provider_latency_and_reconnect(sandbox_mode: str, sandbox_respx: Any) -> None:
     """Ensure the IBKR connector handles pacing and reconnects."""
 
     if sandbox_mode != "sandbox":

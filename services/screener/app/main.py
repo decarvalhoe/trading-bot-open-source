@@ -1,4 +1,5 @@
 """FastAPI application exposing screener capabilities."""
+
 from __future__ import annotations
 
 import json
@@ -68,7 +69,9 @@ class UserServiceClient:
             raise RuntimeError("UserServiceClient must be awaited as a context manager")
         response = await self._client.get("/users/me", headers={"Authorization": authorization})
         if response.status_code == 401:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized user")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized user"
+            )
         response.raise_for_status()
         payload = response.json()
         return payload.get("preferences") or {}
@@ -82,7 +85,9 @@ class UserServiceClient:
             json=preferences,
         )
         if response.status_code == 401:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized user")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized user"
+            )
         response.raise_for_status()
 
 
@@ -102,18 +107,24 @@ def get_entitlements(request: Request) -> Entitlements:
 
 def require_authorization(authorization: str | None = Header(default=None)) -> str:
     if not authorization:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Authorization header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Authorization header"
+        )
     return authorization
 
 
 def require_customer_id(request: Request) -> int:
     header_value = request.headers.get("x-customer-id") or request.headers.get("x-user-id")
     if not header_value:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing x-customer-id header")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing x-customer-id header"
+        )
     try:
         return int(header_value)
     except ValueError as exc:  # pragma: no cover - defensive
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid customer id") from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid customer id"
+        ) from exc
 
 
 @app.get("/health")
@@ -127,9 +138,13 @@ def _extract_filters(filters: str | None) -> dict[str, Any]:
     try:
         parsed = json.loads(filters)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid filters payload") from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid filters payload"
+        ) from exc
     if not isinstance(parsed, dict):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Filters must be a JSON object")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Filters must be a JSON object"
+        )
     return parsed
 
 
@@ -173,7 +188,9 @@ async def run_screener(
     fmp_client: FinancialModelingPrepClient = Depends(get_fmp_client),
 ) -> ScreenerRunResponse:
     if provider != "fmp":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider '{provider}'")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider '{provider}'"
+        )
 
     user_id = require_customer_id(request)
 
@@ -184,7 +201,9 @@ async def run_screener(
         if preset is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preset not found")
         if preset.user_id != user_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Preset does not belong to the user")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Preset does not belong to the user"
+            )
         payload_filters.update(preset.filters)
         resolved_preset_id = preset.id
 
@@ -195,14 +214,18 @@ async def run_screener(
     except FinancialModelingPrepError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    snapshot = ScreenerSnapshot(user_id=user_id, preset_id=resolved_preset_id, provider=provider, filters=payload_filters)
+    snapshot = ScreenerSnapshot(
+        user_id=user_id, preset_id=resolved_preset_id, provider=provider, filters=payload_filters
+    )
     db.add(snapshot)
     db.flush()
 
     for index, row in enumerate(results, start=1):
         symbol = row.get("symbol") or row.get("ticker") or ""
         if not symbol:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Provider response missing symbol")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail="Provider response missing symbol"
+            )
         result = ScreenerResult(
             snapshot_id=snapshot.id,
             symbol=symbol,
@@ -235,7 +258,11 @@ async def list_presets(
     preferences = await user_client.get_preferences(authorization)
     favorites = set(_preferences_favorites(preferences))
 
-    presets = db.scalars(select(ScreenerPreset).where(ScreenerPreset.user_id == user_id).order_by(ScreenerPreset.created_at.desc())).all()
+    presets = db.scalars(
+        select(ScreenerPreset)
+        .where(ScreenerPreset.user_id == user_id)
+        .order_by(ScreenerPreset.created_at.desc())
+    ).all()
 
     response: list[ScreenerPresetOut] = []
     for preset in presets:
@@ -253,7 +280,9 @@ async def list_presets(
     return response
 
 
-@app.post("/screener/presets", response_model=ScreenerPresetOut, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/screener/presets", response_model=ScreenerPresetOut, status_code=status.HTTP_201_CREATED
+)
 async def create_preset(
     request: Request,
     payload: ScreenerPresetCreate,
@@ -309,7 +338,9 @@ async def toggle_favorite(
     if preset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preset not found")
     if preset.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Preset does not belong to the user")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Preset does not belong to the user"
+        )
 
     preferences = await user_client.get_preferences(authorization)
     favorites = set(_preferences_favorites(preferences))

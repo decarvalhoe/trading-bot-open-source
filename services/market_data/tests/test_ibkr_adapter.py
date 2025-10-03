@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import asyncio
-from collections.abc import AsyncIterator
-import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, Iterable
 
@@ -51,9 +48,15 @@ class FakeIB:
         self.reqMktData_calls += 1
         if self.reqMktData_calls == 1:
             raise ConnectionError("disconnected")
-        self.pendingTickersEvent.add_sequence([
-            type("Ticker", (), {"contract": contract, "last": 10.0, "time": kwargs.get("time", None)})
-        ])
+        self.pendingTickersEvent.add_sequence(
+            [
+                type(
+                    "Ticker",
+                    (),
+                    {"contract": contract, "last": 10.0, "time": kwargs.get("time", None)},
+                )
+            ]
+        )
 
     def cancelMktData(self, contract: Any) -> None:  # noqa: N802
         return None

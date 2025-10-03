@@ -1,4 +1,5 @@
 """Unified interface for loading application secrets."""
+
 from __future__ import annotations
 
 import json
@@ -104,7 +105,9 @@ def _build_provider() -> SecretProvider:
     if provider in {"aws", "aws-secrets-manager", "secretsmanager"}:
         region_name = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
         if not region_name:
-            raise RuntimeError("AWS_REGION or AWS_DEFAULT_REGION must be set for AWS Secrets Manager")
+            raise RuntimeError(
+                "AWS_REGION or AWS_DEFAULT_REGION must be set for AWS Secrets Manager"
+            )
         prefix = os.environ.get("AWS_SECRETS_PREFIX", "")
         profile_name = os.environ.get("AWS_PROFILE")
         return AWSSecretsManagerProvider(

@@ -25,7 +25,9 @@ async def create_session(
     if not overlay:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Overlay not found")
     session = storage.create_session(user_id, payload)
-    overlay_token = issue_overlay_token(overlay.overlay_id, settings.overlay_token_secret, settings.overlay_token_ttl_seconds)
+    overlay_token = issue_overlay_token(
+        overlay.overlay_id, settings.overlay_token_secret, settings.overlay_token_ttl_seconds
+    )
     overlay_url = f"{settings.public_base_url}/o/{overlay.overlay_id}?token={overlay_token}"
     background_tasks.add_task(
         announce_session_start,
@@ -37,7 +39,9 @@ async def create_session(
     status_value = "scheduled" if session.scheduled_start else "live"
     if status_value == "live":
         storage.update_session_status(session.session_id, "live")
-    return SessionResponse(sessionId=session.session_id, status=storage.sessions[session.session_id].status)
+    return SessionResponse(
+        sessionId=session.session_id, status=storage.sessions[session.session_id].status
+    )
 
 
 @router.post("/{session_id}/status/{status}")

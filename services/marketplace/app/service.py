@@ -1,4 +1,5 @@
 """Domain logic for the marketplace API."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -94,7 +95,9 @@ def create_listing(db: Session, *, owner_id: str, payload: ListingCreate) -> Lis
     return listing
 
 
-def add_version(db: Session, *, listing: Listing, payload: ListingVersionRequest, actor_id: str) -> ListingVersion:
+def add_version(
+    db: Session, *, listing: Listing, payload: ListingVersionRequest, actor_id: str
+) -> ListingVersion:
     if listing.owner_id != actor_id:
         raise HTTPException(status_code=403, detail="Only the owner can publish a new version")
 
@@ -130,18 +133,21 @@ def _with_review_stats(stmt: Select) -> tuple[Select, Any]:
         .group_by(ListingReview.listing_id)
         .subquery()
     )
-    stmt = (
-        stmt.outerjoin(review_stats, review_stats.c.listing_id == Listing.id)
-        .add_columns(review_stats.c.reviews_count, review_stats.c.average_rating)
+    stmt = stmt.outerjoin(review_stats, review_stats.c.listing_id == Listing.id).add_columns(
+        review_stats.c.reviews_count, review_stats.c.average_rating
     )
     return stmt, review_stats
 
 
-def _attach_review_stats(rows: list[tuple[Listing, Optional[int], Optional[float]]]) -> list[Listing]:
+def _attach_review_stats(
+    rows: list[tuple[Listing, Optional[int], Optional[float]]]
+) -> list[Listing]:
     listings: list[Listing] = []
     for listing, reviews_count, average_rating in rows:
         setattr(listing, "reviews_count", int(reviews_count or 0))
-        setattr(listing, "average_rating", float(average_rating) if average_rating is not None else None)
+        setattr(
+            listing, "average_rating", float(average_rating) if average_rating is not None else None
+        )
         listings.append(listing)
     return listings
 
@@ -206,9 +212,7 @@ def list_listings(db: Session, filters: Optional[ListingFilters] = None) -> list
 
 def get_listing(db: Session, listing_id: int) -> Listing:
     stmt: Select = (
-        select(Listing)
-        .where(Listing.id == listing_id)
-        .options(selectinload(Listing.versions))
+        select(Listing).where(Listing.id == listing_id).options(selectinload(Listing.versions))
     )
     stmt, _ = _with_review_stats(stmt)
     row = db.execute(stmt).first()
@@ -251,7 +255,9 @@ def create_subscription(
     listing = get_listing(db, payload.listing_id)
 
     if listing.owner_id == actor_id:
-        raise HTTPException(status_code=400, detail="Creators cannot subscribe to their own strategy")
+        raise HTTPException(
+            status_code=400, detail="Creators cannot subscribe to their own strategy"
+        )
     if listing.status != ListingStatus.APPROVED.value:
         raise HTTPException(status_code=403, detail="Listing is not approved for subscription")
 

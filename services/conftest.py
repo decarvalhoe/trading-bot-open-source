@@ -5,10 +5,13 @@ TEST_DB = os.getenv("TEST_DATABASE_PATH", "/tmp/trading_bot_tests.db")
 os.environ.setdefault("DATABASE_URL", f"sqlite+pysqlite:///{TEST_DB}")
 os.environ.setdefault("ENTITLEMENTS_BYPASS", "1")
 
-from libs.db import db  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 
-connect_args = {"check_same_thread": False} if os.environ["DATABASE_URL"].startswith("sqlite") else {}
+from libs.db import db  # noqa: E402
+
+connect_args = (
+    {"check_same_thread": False} if os.environ["DATABASE_URL"].startswith("sqlite") else {}
+)
 
 if str(db.engine.url) != os.environ["DATABASE_URL"]:
     db.engine.dispose()

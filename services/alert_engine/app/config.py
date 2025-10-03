@@ -28,9 +28,7 @@ class AlertEngineSettings:
             stream_symbols = defaults.stream_symbols
         else:
             stream_symbols = tuple(
-                symbol.strip()
-                for symbol in symbols_env.split(",")
-                if symbol.strip()
+                symbol.strip() for symbol in symbols_env.split(",") if symbol.strip()
             )
         market_data_url = os.getenv("ALERT_ENGINE_MARKET_DATA_URL", defaults.market_data_url)
         reports_url = os.getenv("ALERT_ENGINE_REPORTS_URL", defaults.reports_url)

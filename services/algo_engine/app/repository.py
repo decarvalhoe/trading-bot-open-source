@@ -1,4 +1,5 @@
 """Persistence layer for strategies backed by PostgreSQL."""
+
 from __future__ import annotations
 
 import copy
@@ -13,9 +14,9 @@ from sqlalchemy.orm import Session
 
 from infra.strategy_models import (
     Strategy,
+    StrategyBacktest,
     StrategyBase,
     StrategyExecution,
-    StrategyBacktest,
     StrategyVersion,
 )
 
@@ -401,8 +402,10 @@ class StrategyRepository:
             .limit(limit)
             .offset(offset)
         )
-        count_stmt = select(func.count()).select_from(StrategyBacktest).where(
-            StrategyBacktest.strategy_id == strategy_id
+        count_stmt = (
+            select(func.count())
+            .select_from(StrategyBacktest)
+            .where(StrategyBacktest.strategy_id == strategy_id)
         )
         with self._session_factory() as session:
             results = session.execute(stmt).scalars().all()

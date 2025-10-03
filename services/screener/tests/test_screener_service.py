@@ -23,7 +23,9 @@ from services.screener.app.main import (
 def disable_entitlements_middleware() -> None:
     """Remove the entitlements middleware for isolated unit tests."""
 
-    app.user_middleware = [mw for mw in app.user_middleware if mw.cls.__name__ != "EntitlementsMiddleware"]
+    app.user_middleware = [
+        mw for mw in app.user_middleware if mw.cls.__name__ != "EntitlementsMiddleware"
+    ]
     app.middleware_stack = app.build_middleware_stack()
 
 
@@ -43,7 +45,9 @@ class DummyProvider:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    async def screen(self, *, filters: dict[str, Any] | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    async def screen(
+        self, *, filters: dict[str, Any] | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
         payload = {
             "filters": filters or {},
             "limit": limit,
@@ -65,10 +69,14 @@ class DummyUserService:
     async def __aexit__(self, *exc: object) -> None:
         return None
 
-    async def get_preferences(self, authorization: str) -> dict[str, Any]:  # noqa: ARG002 - signature compatibility
+    async def get_preferences(
+        self, authorization: str
+    ) -> dict[str, Any]:  # noqa: ARG002 - signature compatibility
         return self.preferences or {}
 
-    async def update_preferences(self, authorization: str, preferences: dict[str, Any]) -> None:  # noqa: ARG002
+    async def update_preferences(
+        self, authorization: str, preferences: dict[str, Any]
+    ) -> None:  # noqa: ARG002
         self.preferences = preferences
 
 
@@ -116,7 +124,9 @@ def _auth_headers() -> dict[str, str]:
     }
 
 
-def test_run_screener_creates_snapshot(dummy_provider: DummyProvider, dummy_user_service: DummyUserService) -> None:
+def test_run_screener_creates_snapshot(
+    dummy_provider: DummyProvider, dummy_user_service: DummyUserService
+) -> None:
     with TestClient(app) as client:
         response = client.get("/screener/run", headers={"x-customer-id": "1"})
 

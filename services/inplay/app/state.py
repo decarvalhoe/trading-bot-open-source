@@ -5,13 +5,7 @@ from datetime import datetime
 from typing import Dict, Iterable, Tuple
 from urllib.parse import quote
 
-from .schemas import (
-    SessionName,
-    StrategySetup,
-    SymbolSetups,
-    TickPayload,
-    WatchlistSnapshot,
-)
+from .schemas import SessionName, StrategySetup, SymbolSetups, TickPayload, WatchlistSnapshot
 
 
 class WatchlistState:
@@ -83,9 +77,7 @@ class InPlayState:
                     updated.append(watchlist.snapshot())
             return updated
 
-    async def get_strategy_setup(
-        self, symbol: str, strategy: str
-    ) -> StrategySetup | None:
+    async def get_strategy_setup(self, symbol: str, strategy: str) -> StrategySetup | None:
         async with self._lock:
             candidates: list[StrategySetup] = []
             for watchlist in self._watchlists.values():

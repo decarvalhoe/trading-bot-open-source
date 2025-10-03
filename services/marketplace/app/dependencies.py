@@ -1,4 +1,5 @@
 """Dependency helpers for the marketplace service."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -9,6 +10,7 @@ from libs.entitlements.client import Entitlements
 
 from .payments import StripeConnectGateway
 
+
 def get_entitlements(request: Request) -> Entitlements:
     entitlements = getattr(request.state, "entitlements", None)
     if entitlements is None:
@@ -16,7 +18,9 @@ def get_entitlements(request: Request) -> Entitlements:
     return entitlements
 
 
-def require_publish_capability(entitlements: Entitlements = Depends(get_entitlements)) -> Entitlements:
+def require_publish_capability(
+    entitlements: Entitlements = Depends(get_entitlements),
+) -> Entitlements:
     if not entitlements.has("can.publish_strategy"):
         raise HTTPException(status_code=403, detail="Missing capability: can.publish_strategy")
     return entitlements

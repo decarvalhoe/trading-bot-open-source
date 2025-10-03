@@ -13,7 +13,6 @@ from .clients import MarketDataStreamClient
 from .engine import AlertEngine
 from .schemas import MarketEvent
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -83,4 +82,3 @@ class StreamProcessor:
 
 
 __all__ = ["StreamProcessor"]
-

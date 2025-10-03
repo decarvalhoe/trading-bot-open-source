@@ -175,9 +175,7 @@ class AlertRuleUpdate(BaseModel):
             payload["expression"] = expression
             payload["conditions"] = self.rule.model_dump(mode="json")
         if self.channels is not None:
-            payload["channels"] = [
-                channel.model_dump(mode="json") for channel in self.channels
-            ]
+            payload["channels"] = [channel.model_dump(mode="json") for channel in self.channels]
         if self.throttle_seconds is not None:
             payload["throttle_seconds"] = self.throttle_seconds
         return payload
@@ -238,7 +236,6 @@ class AlertRuleSummary(BaseModel):
     expression: str = Field(..., description="Expression evaluated to generate the trigger")
     triggered_at: datetime
     context: dict[str, Any] | None = None
-
 
 
 class AlertEvaluationResponse(BaseModel):

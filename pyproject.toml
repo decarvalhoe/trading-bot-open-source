@@ -26,4 +26,3 @@ markers = [
     "asyncio: Tests asynchrones nécessitant une boucle d'événements",
     "integration: Tests nécessitant la stack docker complète",
 ]
-

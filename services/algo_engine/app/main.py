@@ -1,4 +1,5 @@
 """Algo engine service exposing a plugin oriented strategy registry."""
+
 from __future__ import annotations
 
 import logging
@@ -27,9 +28,7 @@ if ASSISTANT_FEATURE_ENABLED and ASSISTANT_SRC.exists():
         )
         from ai_strategy_assistant.schemas import StrategyFormat  # noqa: E402
     except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover - optional dependency
-        logging.getLogger(__name__).warning(
-            "AI strategy assistant unavailable: %s", exc
-        )
+        logging.getLogger(__name__).warning("AI strategy assistant unavailable: %s", exc)
         AIStrategyAssistant = None  # type: ignore[assignment]
         StrategyGenerationError = RuntimeError  # type: ignore[assignment]
         StrategyGenerationRequest = None  # type: ignore[assignment]
@@ -51,18 +50,24 @@ from libs.entitlements import install_entitlements_middleware
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
 from providers.limits import build_plan, get_pair_limit
-from schemas.market import ExecutionPlan, ExecutionVenue, OrderRequest, OrderSide, OrderType, TimeInForce
+from schemas.market import (
+    ExecutionPlan,
+    ExecutionVenue,
+    OrderRequest,
+    OrderSide,
+    OrderType,
+    TimeInForce,
+)
 
 from .backtest import Backtester
 from .declarative import DeclarativeStrategyError, load_declarative_definition
-from .order_router_client import OrderRouterClient
 from .orchestrator import Orchestrator
+from .order_router_client import OrderRouterClient
 from .reports_client import ReportsPublisher
 from .repository import StrategyRecord, StrategyRepository, StrategyStatus
 from .strategies import base  # noqa: F401 - ensures registry initialised
-from .strategies.base import StrategyConfig, registry
 from .strategies import declarative, gap_fill, orb  # noqa: F401 - register plugins
-
+from .strategies.base import StrategyConfig, registry
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +134,7 @@ def _handle_strategy_execution_error(strategy: base.StrategyBase, error: Excepti
         )
         return
     try:
-        strategy_repository.update(
-            strategy_id, status=StrategyStatus.ERROR, last_error=str(error)
-        )
+        strategy_repository.update(strategy_id, status=StrategyStatus.ERROR, last_error=str(error))
     except KeyError:
         logger.warning(
             "Strategy id %s not found in repository when handling routing failure",
@@ -153,9 +156,7 @@ orchestrator = Orchestrator(
 )
 try:
     orchestrator.restore_recent_executions(
-        strategy_repository.get_recent_executions(
-            limit=orchestrator.execution_history_limit
-        )
+        strategy_repository.get_recent_executions(limit=orchestrator.execution_history_limit)
     )
 except Exception:
     logger.exception("Unable to restore execution history from repository")
@@ -204,7 +205,9 @@ class StrategyUpdatePayload(BaseModel):
 
 class StrategyStatusUpdatePayload(BaseModel):
     status: StrategyStatus
-    error: Optional[str] = Field(default=None, description="Latest error message when status is ERROR")
+    error: Optional[str] = Field(
+        default=None, description="Latest error message when status is ERROR"
+    )
 
 
 class OrchestratorStatePayload(BaseModel):
@@ -286,7 +289,9 @@ def _enforce_entitlements(request: Request, enabled: bool) -> None:
     entitlements = getattr(request.state, "entitlements", None)
     limit = entitlements.quota("max_active_strategies") if entitlements else None
     if limit is not None and strategy_repository.active_count() >= limit:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Active strategy limit reached")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Active strategy limit reached"
+        )
 
 
 @app.post("/strategies", status_code=status.HTTP_201_CREATED)
@@ -334,7 +339,9 @@ def clone_strategy(strategy_id: str, request: Request) -> Dict[str, Any]:
     try:
         original = strategy_repository.get(strategy_id)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found"
+        ) from exc
 
     _enforce_entitlements(request, original.enabled)
 
@@ -450,7 +457,9 @@ def generate_strategy_from_prompt(payload: StrategyGenerationPayload) -> Dict[st
 
 
 @app.put("/strategies/{strategy_id}")
-def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: Request) -> Dict[str, Any]:
+def update_strategy(
+    strategy_id: str, payload: StrategyUpdatePayload, request: Request
+) -> Dict[str, Any]:
     try:
         existing = strategy_repository.get(strategy_id)
     except KeyError:
@@ -480,7 +489,9 @@ def update_strategy(strategy_id: str, payload: StrategyUpdatePayload, request: R
 
 
 @app.post("/strategies/{strategy_id}/status")
-def transition_strategy_status(strategy_id: str, payload: StrategyStatusUpdatePayload) -> Dict[str, Any]:
+def transition_strategy_status(
+    strategy_id: str, payload: StrategyStatusUpdatePayload
+) -> Dict[str, Any]:
     try:
         strategy_repository.get(strategy_id)
     except KeyError:
@@ -504,14 +515,18 @@ def delete_strategy(strategy_id: str) -> None:
 
 
 @app.get("/strategies/{strategy_id}/export")
-def export_strategy(strategy_id: str, fmt: Literal["yaml", "python"] = Query("yaml")) -> Dict[str, Any]:
+def export_strategy(
+    strategy_id: str, fmt: Literal["yaml", "python"] = Query("yaml")
+) -> Dict[str, Any]:
     try:
         record = strategy_repository.get(strategy_id)
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
     if record.source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy source unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Strategy source unavailable"
+        )
     if record.source_format and record.source_format != fmt:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -573,16 +588,8 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
         "strategy_name": record.name,
         "strategy_type": record.strategy_type,
         "account": (record.metadata or {}).get("account"),
-        "symbol": (
-            record.parameters.get("symbol")
-            if isinstance(record.parameters, dict)
-            else None
-        )
-        or (
-            (record.metadata or {}).get("symbol")
-            if isinstance(record.metadata, dict)
-            else None
-        ),
+        "symbol": (record.parameters.get("symbol") if isinstance(record.parameters, dict) else None)
+        or ((record.metadata or {}).get("symbol") if isinstance(record.metadata, dict) else None),
         "initial_balance": payload.initial_balance,
         "parameters": record.parameters,
         "tags": record.tags,
@@ -601,7 +608,9 @@ def get_backtest_ui_metrics(strategy_id: str) -> Dict[str, Any]:
     try:
         record = strategy_repository.get(strategy_id)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found"
+        ) from exc
 
     if not record.last_backtest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No backtest available")
@@ -634,7 +643,9 @@ def list_backtests(
     try:
         strategy_repository.get(strategy_id)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found"
+        ) from exc
 
     offset = (page - 1) * page_size
     items, total = strategy_repository.get_backtests(
@@ -672,9 +683,13 @@ def update_state(payload: OrchestratorStatePayload) -> Dict[str, Any]:
 def build_execution_plan(payload: ExecutionIntent) -> ExecutionPlan:
     limit = get_pair_limit(payload.venue, payload.symbol)
     if limit is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported trading pair")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported trading pair"
+        )
     if payload.quantity > limit.max_order_size:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order size exceeds sandbox limit")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Order size exceeds sandbox limit"
+        )
     order = OrderRequest(
         broker=payload.broker,
         venue=payload.venue,

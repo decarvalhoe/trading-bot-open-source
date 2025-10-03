@@ -1,0 +1,74 @@
+diff --git a/services/web-dashboard/.storybook/main.js b/services/web-dashboard/.storybook/main.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..1e70bb60358d2c6177544b6ed8c18c9d6ae18f44
+--- /dev/null
++++ b/services/web-dashboard/.storybook/main.js
+@@ -0,0 +1,14 @@
++/** @type {import('storybook').StorybookConfig} */
++const config = {
++  stories: ["../src/**/*.stories.@(js|jsx|ts|tsx|mdx)"],
++  addons: ["@storybook/addon-essentials", "@storybook/addon-interactions", "@storybook/addon-viewport"],
++  framework: {
++    name: "@storybook/react-vite",
++    options: {},
++  },
++  docs: {
++    autodocs: "tag",
++  },
++};
++
++export default config;
+diff --git a/services/web-dashboard/.storybook/preview.js b/services/web-dashboard/.storybook/preview.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..40c26ec604c7b349e70abb6fb8fe89dda00dfa1b
+--- /dev/null
++++ b/services/web-dashboard/.storybook/preview.js
+@@ -0,0 +1,48 @@
++import "../src/ui/design-system/design-system.css";
++
++const customViewports = {
++  mobile: {
++    name: "Mobile",
++    styles: {
++      width: "360px",
++      height: "640px",
++    },
++  },
++  tablet: {
++    name: "Tablette",
++    styles: {
++      width: "768px",
++      height: "1024px",
++    },
++  },
++  desktop: {
++    name: "Bureau",
++    styles: {
++      width: "1200px",
++      height: "800px",
++    },
++  },
++};
++
++export const parameters = {
++  layout: "centered",
++  controls: {
++    matchers: {
++      color: /(background|color)$/i,
++      date: /Date$/i,
++    },
++  },
++  backgrounds: {
++    default: "Dashboard",
++    values: [
++      { name: "Dashboard", value: "#0f172a" },
++      { name: "Clair", value: "#ffffff" },
++    ],
++  },
++  chromatic: {
++    viewports: [360, 768, 1200],
++  },
++  viewport: {
++    viewports: customViewports,
++  },
++};

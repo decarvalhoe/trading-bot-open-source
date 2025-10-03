@@ -46,9 +46,7 @@ class GitHubClient:
         response.raise_for_status()
         return response.json()
 
-    async def post_pr_comment(
-        self, repository: str, pull_number: int, body: str
-    ) -> dict[str, Any]:
+    async def post_pr_comment(self, repository: str, pull_number: int, body: str) -> dict[str, Any]:
         response = await self._client.post(
             f"/repos/{repository}/issues/{pull_number}/comments", json={"body": body}
         )

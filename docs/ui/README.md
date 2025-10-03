@@ -77,4 +77,3 @@ Quatre niveaux pour les titres et un style `text--muted` pour les éléments sec
 - Tester les contrastes avec les outils intégrés des navigateurs (ex. Lighthouse).
 - Documenter toute extension de design system dans un fichier Markdown complémentaire au présent
   document et référencer l'usage dans le code.
-

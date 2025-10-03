@@ -7,17 +7,12 @@ from uuid import uuid4
 
 import httpx
 import pytest
-
-from algo_engine.app.main import (
-    StrategyRecord,
-    StrategyStatus,
-    orchestrator,
-    strategy_repository,
-)
-from algo_engine.app.order_router_client import OrderRouterClientError
+from algo_engine.app.main import StrategyRecord, StrategyStatus, orchestrator, strategy_repository
 from algo_engine.app.orchestrator import Orchestrator
+from algo_engine.app.order_router_client import OrderRouterClientError
 from algo_engine.app.repository import StrategyRepository
 from algo_engine.app.strategies.base import StrategyBase, StrategyConfig
+
 from libs.db.db import SessionLocal
 from schemas.market import ExecutionStatus, ExecutionVenue, OrderSide, OrderType
 
@@ -85,7 +80,9 @@ def test_strategy_execution_flow_updates_state_and_handles_errors(
         }
     )
 
-    reports = asyncio.run(orchestrator.execute_strategy(strategy=strategy, market_state={"emit": True}))
+    reports = asyncio.run(
+        orchestrator.execute_strategy(strategy=strategy, market_state={"emit": True})
+    )
     assert len(reports) == 1
     assert reports[0].order_id == "order-success"
     assert mock_order_router.requests and mock_order_router.requests[0].url.path == "/orders"
@@ -105,9 +102,7 @@ def test_strategy_execution_flow_updates_state_and_handles_errors(
         strategy_repository=fresh_repository,
     )
     restored.restore_recent_executions(
-        fresh_repository.get_recent_executions(
-            limit=restored.execution_history_limit
-        )
+        fresh_repository.get_recent_executions(limit=restored.execution_history_limit)
     )
     assert restored.get_state().recent_executions
 

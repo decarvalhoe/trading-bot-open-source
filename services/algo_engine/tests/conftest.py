@@ -24,7 +24,9 @@ prometheus_stub = types.ModuleType("prometheus_client")
 
 
 class _DummyMetric:
-    def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401 - mimic Prometheus signature
+    def __init__(
+        self, *args: Any, **kwargs: Any
+    ) -> None:  # noqa: D401 - mimic Prometheus signature
         """No-op metric"""
 
     def labels(self, *args: Any, **kwargs: Any) -> "_DummyMetric":
@@ -95,7 +97,9 @@ def reset_state(main_module: types.ModuleType) -> None:
 
 
 class MockRouterController:
-    def __init__(self, orchestrator: Any, order_router_factory: Callable[[httpx.AsyncClient], Any]) -> None:
+    def __init__(
+        self, orchestrator: Any, order_router_factory: Callable[[httpx.AsyncClient], Any]
+    ) -> None:
         self._orchestrator = orchestrator
         self._factory = order_router_factory
         self._requests: list[httpx.Request] = []

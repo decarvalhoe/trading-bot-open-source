@@ -9,17 +9,18 @@ from sqlalchemy.orm import Session
 from infra import Activity, AuditLog, Follow, Leaderboard, Profile
 from libs.db.db import SessionLocal
 from libs.entitlements.client import Entitlements
-
 from services.social.app.dependencies import get_entitlements
 from services.social.app.main import app
 
 client = TestClient(app)
 
+
 @pytest.fixture(scope="module", autouse=True)
 def disable_entitlements_middleware() -> None:
-    app.user_middleware = [mw for mw in app.user_middleware if mw.cls.__name__ != "EntitlementsMiddleware"]
+    app.user_middleware = [
+        mw for mw in app.user_middleware if mw.cls.__name__ != "EntitlementsMiddleware"
+    ]
     app.middleware_stack = app.build_middleware_stack()
-
 
 
 def _clear_social_tables(db: Session) -> None:
@@ -160,4 +161,9 @@ def test_social_flow(entitlements_state):
         activities = db.scalars(select(Activity.activity_type)).all()
         assert "follow" in activities
         audits = db.scalars(select(AuditLog.action)).all()
-        assert {"profile.created", "profile.followed", "activity.logged", "leaderboard.created"}.issubset(set(audits))
+        assert {
+            "profile.created",
+            "profile.followed",
+            "activity.logged",
+            "leaderboard.created",
+        }.issubset(set(audits))

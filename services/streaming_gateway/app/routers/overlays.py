@@ -20,7 +20,9 @@ async def create_overlay(
     settings: Settings = Depends(get_settings_dependency),
 ) -> OverlayResponse:
     overlay = storage.create_overlay(user_id, payload)
-    token = issue_overlay_token(overlay.overlay_id, settings.overlay_token_secret, settings.overlay_token_ttl_seconds)
+    token = issue_overlay_token(
+        overlay.overlay_id, settings.overlay_token_secret, settings.overlay_token_ttl_seconds
+    )
     signed_url = f"{settings.public_base_url}/o/{overlay.overlay_id}?token={token}"
     return OverlayResponse(overlayId=overlay.overlay_id, signedUrl=signed_url)
 
@@ -34,6 +36,8 @@ async def get_overlay(
     overlay = storage.get_overlay(overlay_id, user_id)
     if not overlay:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Overlay not found")
-    token = issue_overlay_token(overlay.overlay_id, settings.overlay_token_secret, settings.overlay_token_ttl_seconds)
+    token = issue_overlay_token(
+        overlay.overlay_id, settings.overlay_token_secret, settings.overlay_token_ttl_seconds
+    )
     signed_url = f"{settings.public_base_url}/o/{overlay.overlay_id}?token={token}"
     return OverlayResponse(overlayId=overlay.overlay_id, signedUrl=signed_url)

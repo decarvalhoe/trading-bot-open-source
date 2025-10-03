@@ -13,7 +13,9 @@ from .models import AlertRule, AlertTrigger
 class AlertRuleRepository:
     """Repository handling persistence for alert rules and triggers."""
 
-    async def list_active_rules(self, session: Session, symbol: str | None = None) -> Sequence[AlertRule]:
+    async def list_active_rules(
+        self, session: Session, symbol: str | None = None
+    ) -> Sequence[AlertRule]:
         def _query() -> Sequence[AlertRule]:
             stmt = select(AlertRule).where(AlertRule.is_active.is_(True))
             if symbol is not None:

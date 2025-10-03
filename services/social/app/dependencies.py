@@ -1,4 +1,5 @@
 """Dependency helpers for the social API."""
+
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, Request
@@ -13,13 +14,17 @@ def get_entitlements(request: Request) -> Entitlements:
     return entitlements
 
 
-def require_profile_capability(entitlements: Entitlements = Depends(get_entitlements)) -> Entitlements:
+def require_profile_capability(
+    entitlements: Entitlements = Depends(get_entitlements),
+) -> Entitlements:
     if not entitlements.has("can.publish_strategy"):
         raise HTTPException(status_code=403, detail="Missing capability: can.publish_strategy")
     return entitlements
 
 
-def require_follow_capability(entitlements: Entitlements = Depends(get_entitlements)) -> Entitlements:
+def require_follow_capability(
+    entitlements: Entitlements = Depends(get_entitlements),
+) -> Entitlements:
     if not entitlements.has("can.copy_trade"):
         raise HTTPException(status_code=403, detail="Missing capability: can.copy_trade")
     return entitlements
