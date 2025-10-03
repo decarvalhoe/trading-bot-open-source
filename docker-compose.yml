@@ -319,6 +319,9 @@ services:
       WEB_DASHBOARD_REPORTS_TIMEOUT: "5.0"
       WEB_DASHBOARD_ALERT_ENGINE_URL: http://alert_engine:8000
       WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT: "5.0"
+      WEB_DASHBOARD_AUTH_SERVICE_URL: http://auth_service:8000/
+      WEB_DASHBOARD_ALGO_ENGINE_URL: http://algo_engine:8000/
+      WEB_DASHBOARD_ORDER_ROUTER_BASE_URL: http://order_router:8000/
       WEB_DASHBOARD_ALERTS_TOKEN: ${WEB_DASHBOARD_ALERTS_TOKEN:-demo-alerts-token}
       WEB_DASHBOARD_ALERT_EVENTS_DATABASE_URL: sqlite:////data/alert_events.db
     depends_on:

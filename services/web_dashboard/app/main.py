@@ -95,19 +95,19 @@ def _template_context(request: Request, extra: dict[str, object] | None = None) 
 STREAMING_BASE_URL = os.getenv("WEB_DASHBOARD_STREAMING_BASE_URL", "http://localhost:8001/")
 STREAMING_ROOM_ID = os.getenv("WEB_DASHBOARD_STREAMING_ROOM_ID", "public-room")
 STREAMING_VIEWER_ID = os.getenv("WEB_DASHBOARD_STREAMING_VIEWER_ID", "demo-viewer")
-ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alerts-engine:8000/")
+ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert_engine:8000/")
 ALERT_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
-ALGO_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALGO_ENGINE_URL", "http://algo-engine:8000/")
+ALGO_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALGO_ENGINE_URL", "http://algo_engine:8000/")
 ALGO_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALGO_ENGINE_TIMEOUT", "5.0"))
 AI_ASSISTANT_BASE_URL = os.getenv(
     "WEB_DASHBOARD_AI_ASSISTANT_URL",
-    "http://ai-strategy-assistant:8085/",
+    "http://ai_strategy_assistant:8085/",
 )
 AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10.0"))
 DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
 USER_SERVICE_BASE_URL = os.getenv(
     "WEB_DASHBOARD_USER_SERVICE_URL",
-    os.getenv("USER_SERVICE_URL", "http://user-service:8000/"),
+    os.getenv("USER_SERVICE_URL", "http://user_service:8000/"),
 )
 USER_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_USER_SERVICE_TIMEOUT", "5.0"))
 USER_SERVICE_JWT_SECRET = os.getenv(
@@ -131,7 +131,7 @@ def _env_bool(value: str | None, default: bool) -> bool:
 
 AUTH_SERVICE_BASE_URL = os.getenv(
     "WEB_DASHBOARD_AUTH_SERVICE_URL",
-    os.getenv("AUTH_SERVICE_URL", "http://auth-service:8011/"),
+    os.getenv("AUTH_SERVICE_URL", "http://auth_service:8000/"),
 )
 AUTH_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AUTH_SERVICE_TIMEOUT", "5.0"))
 AUTH_PUBLIC_BASE_URL = os.getenv("AUTH_BASE_URL") or AUTH_SERVICE_BASE_URL
