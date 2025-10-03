@@ -17,16 +17,16 @@ dev-up:
 	docker compose up -d --build auth_service user_service
 
 dev-down:
-        docker compose down -v
+	docker compose down -v
 
 native-up:
-        ./scripts/dev/native_up.sh
+	./scripts/dev/native_up.sh
 
 native-down:
-        ./scripts/dev/native_down.sh
+	./scripts/dev/native_down.sh
 
 demo-up:
-        docker compose up -d postgres redis
+	docker compose up -d postgres redis
 	docker compose up -d --build streaming streaming_gateway market_data order_router algo_engine \
 	reports alert_engine notification_service inplay web_dashboard auth_service user_service \
 	prometheus grafana
@@ -53,8 +53,8 @@ e2e-sh:
 	bash ./scripts/e2e/auth_e2e.sh
 
 web_dashboard-e2e:
-        python -m playwright install --with-deps chromium firefox
-        python -m pytest services/web_dashboard/tests/e2e
+	python -m playwright install --with-deps chromium firefox
+	python -m pytest services/web_dashboard/tests/e2e
 
 migrate-generate:
 	@if [ -z "$(message)" ]; then \
