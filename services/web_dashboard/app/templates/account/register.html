@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Créer un compte</title>
+    <style>
+      body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
+      .card { max-width: 420px; padding: 1.5rem; border: 1px solid #ddd; border-radius: 12px; }
+      .row { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 1rem; }
+      .error { color: #b00020; margin-bottom: 1rem; }
+      .ok { color: #0a7a0a; margin-bottom: 1rem; }
+      input[type="email"], input[type="password"] { padding: .6rem; border: 1px solid #ccc; border-radius: 8px; }
+      button { padding: .6rem 1rem; border: 0; border-radius: 8px; background: #111; color: #fff; cursor: pointer; }
+      a { color: #0a5bd9; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <h1>Créer un compte</h1>
+    <div class="card">
+      {% if created %}
+        <div class="ok">Compte créé ! Vous pouvez vous connecter.</div>
+      {% endif %}
+      {% if error %}
+        <div class="error">Échec de création (code: {{ error }}). Vérifiez l'email/mot de passe.</div>
+      {% endif %}
+      <form method="post" action="{{ request.url_for('submit_account_registration') }}">
+        <div class="row">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" placeholder="you@example.com" required />
+        </div>
+        <div class="row">
+          <label for="password">Mot de passe</label>
+          <input id="password" name="password" type="password" minlength="8" required />
+        </div>
+        <button type="submit">Créer mon compte</button>
+      </form>
+      <p style="margin-top:1rem;">Déjà un compte ? <a href="{{ request.url_for('render_account_login') }}">Se connecter</a></p>
+      <p style="margin-top:1rem;"><a href="{{ request.url_for('render_status_page') }}">État des services</a></p>
+    </div>
+  </body>
+  </html>
