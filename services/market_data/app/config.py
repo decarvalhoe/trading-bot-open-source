@@ -2,15 +2,21 @@ from __future__ import annotations
 
 import functools
 
+import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from libs.secrets import get_secret
-from libs.env import get_database_url
+from libs.env import DEFAULT_POSTGRES_DSN_NATIVE
 
 
 def _default_database_url() -> str:
-    return get_database_url(env_var="MARKET_DATA_DATABASE_URL")
+    for env_var in ("MARKET_DATA_DATABASE_URL", "DATABASE_URL", "POSTGRES_DSN"):
+        value = os.getenv(env_var)
+        if value:
+            return value
+    return DEFAULT_POSTGRES_DSN_NATIVE
 
 
 class Settings(BaseSettings):
