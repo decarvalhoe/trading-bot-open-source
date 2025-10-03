@@ -27,6 +27,8 @@ jobs:
           pip install -r requirements/services-dev.txt
       - name: Install Playwright browsers
         run: python -m playwright install --with-deps chromium
+      - name: Run Alembic migration test
+        run: python -m pytest -m slow -k migrations
       - name: Run test suite
         run: make test
       - name: Run web dashboard E2E tests
