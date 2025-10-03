@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AbstractContextManager
 from datetime import datetime, timezone
-from typing import Callable, Iterable, Mapping
+from typing import Awaitable, Callable, Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
@@ -21,11 +21,13 @@ class MarketDataCollector:
         binance: BinanceMarketConnector,
         ibkr: IBKRMarketConnector,
         session_factory: Callable[[], AbstractContextManager[Session]],
+        tick_publishers: Iterable[Callable[[Iterable[PersistedTick]], Awaitable[None]]] | None = None,
     ) -> None:
         self._binance = binance
         self._ibkr = ibkr
         self._session_factory = session_factory
         self._stop_event = asyncio.Event()
+        self._tick_publishers = list(tick_publishers or [])
 
     async def collect_binance_ohlcv(self, symbol: str, interval: str) -> None:
         while not self._stop_event.is_set():
@@ -64,7 +66,9 @@ class MarketDataCollector:
                 side=None,
                 extra={"bid": getattr(ticker, "bid", None), "ask": getattr(ticker, "ask", None)},
             )
-            self._persist_ticks([row])
+            ticks = [row]
+            self._persist_ticks(ticks)
+            await self._publish_ticks(ticks)
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -110,3 +114,11 @@ class MarketDataCollector:
             return
         with self._session_factory() as session:
             persist_ticks(session, payload)
+
+    async def _publish_ticks(self, ticks: Iterable[PersistedTick]) -> None:
+        if not self._tick_publishers:
+            return
+        batch = list(ticks)
+        if not batch:
+            return
+        await asyncio.gather(*(publisher(batch) for publisher in self._tick_publishers))
