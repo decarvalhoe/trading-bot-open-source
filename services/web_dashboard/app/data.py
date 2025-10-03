@@ -52,11 +52,11 @@ REPORTS_BASE_URL = os.getenv("WEB_DASHBOARD_REPORTS_BASE_URL", "http://reports:8
 REPORTS_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_REPORTS_TIMEOUT", "5.0"))
 ORCHESTRATOR_BASE_URL = os.getenv(
     "WEB_DASHBOARD_ORCHESTRATOR_BASE_URL",
-    "http://algo-engine:8000/",
+    "http://algo_engine:8000/",
 )
 ORCHESTRATOR_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ORCHESTRATOR_TIMEOUT", "5.0"))
 MAX_LOG_ENTRIES = int(os.getenv("WEB_DASHBOARD_MAX_LOG_ENTRIES", "100"))
-ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert-engine:8000/")
+ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert_engine:8000/")
 ALERT_ENGINE_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
 MAX_ALERTS = int(os.getenv("WEB_DASHBOARD_MAX_ALERTS", "20"))
 INPLAY_BASE_URL = os.getenv("WEB_DASHBOARD_INPLAY_BASE_URL", "http://inplay:8000/")
@@ -73,7 +73,7 @@ INPLAY_DEGRADED_MESSAGE = (
     "Flux InPlay partiellement disponible : certains instantanés proviennent du cache."
 )
 
-ORDER_ROUTER_BASE_URL = os.getenv("WEB_DASHBOARD_ORDER_ROUTER_BASE_URL", "http://order-router:8000/")
+ORDER_ROUTER_BASE_URL = os.getenv("WEB_DASHBOARD_ORDER_ROUTER_BASE_URL", "http://order_router:8000/")
 ORDER_ROUTER_TIMEOUT_SECONDS = float(
     os.getenv("WEB_DASHBOARD_ORDER_ROUTER_TIMEOUT", "5.0")
 )
