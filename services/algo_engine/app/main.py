@@ -7,43 +7,56 @@ import os
 import sys
 import uuid
 from datetime import datetime, timezone
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-ASSISTANT_SRC = Path(__file__).resolve().parents[2] / "ai-strategy-assistant" / "src"
+ASSISTANT_SRC = Path(__file__).resolve().parents[2] / "ai_strategy_assistant" / "src"
 ASSISTANT_ENV_FLAG = os.getenv("AI_ASSISTANT_ENABLED", "true").lower()
 ASSISTANT_FEATURE_ENABLED = ASSISTANT_ENV_FLAG not in {"0", "false", "no", "off"}
 ASSISTANT_AVAILABLE = False
 
-if ASSISTANT_FEATURE_ENABLED and ASSISTANT_SRC.exists():
-    sys.path.insert(0, str(ASSISTANT_SRC))
+AIStrategyAssistant = None  # type: ignore[assignment]
+StrategyGenerationError = RuntimeError  # type: ignore[assignment]
+StrategyGenerationRequest = None  # type: ignore[assignment]
+StrategyFormat = None  # type: ignore[assignment]
+
+if ASSISTANT_FEATURE_ENABLED:
+    assistant_import_error: Optional[Exception] = None
+    assistant_module = None
     try:
-        from ai_strategy_assistant import (  # noqa: E402
-            AIStrategyAssistant,
-            StrategyGenerationError,
-            StrategyGenerationRequest,
-        )
-        from ai_strategy_assistant.schemas import StrategyFormat  # noqa: E402
-    except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover - optional dependency
-        logging.getLogger(__name__).warning("AI strategy assistant unavailable: %s", exc)
-        AIStrategyAssistant = None  # type: ignore[assignment]
-        StrategyGenerationError = RuntimeError  # type: ignore[assignment]
-        StrategyGenerationRequest = None  # type: ignore[assignment]
-        StrategyFormat = None  # type: ignore[assignment]
-    else:
-        ASSISTANT_AVAILABLE = True
+        assistant_module = import_module("ai_strategy_assistant")
+    except (ImportError, ModuleNotFoundError) as exc:
+        assistant_import_error = exc
+        if ASSISTANT_SRC.exists():
+            assistant_src_str = str(ASSISTANT_SRC)
+            if assistant_src_str not in sys.path:
+                sys.path.insert(0, assistant_src_str)
+            try:
+                assistant_module = import_module("ai_strategy_assistant")
+            except (ImportError, ModuleNotFoundError) as retry_exc:  # pragma: no cover - optional dependency
+                assistant_import_error = retry_exc
+    if assistant_module is not None:
+        try:
+            AIStrategyAssistant = getattr(assistant_module, "AIStrategyAssistant")
+            StrategyGenerationError = getattr(assistant_module, "StrategyGenerationError")
+            StrategyGenerationRequest = getattr(assistant_module, "StrategyGenerationRequest")
+            schemas_module = import_module("ai_strategy_assistant.schemas")
+            StrategyFormat = getattr(schemas_module, "StrategyFormat")
+        except AttributeError as exc:  # pragma: no cover - optional dependency
+            assistant_import_error = exc
+        else:
+            ASSISTANT_AVAILABLE = True
+    if not ASSISTANT_AVAILABLE:
+        detail = assistant_import_error or "module not found"
+        logging.getLogger(__name__).warning("AI strategy assistant unavailable: %s", detail)
 else:
-    if not ASSISTANT_FEATURE_ENABLED:
-        logging.getLogger(__name__).info(
-            "AI strategy assistant disabled via AI_ASSISTANT_ENABLED environment flag"
-        )
-    AIStrategyAssistant = None  # type: ignore[assignment]
-    StrategyGenerationError = RuntimeError  # type: ignore[assignment]
-    StrategyGenerationRequest = None  # type: ignore[assignment]
-    StrategyFormat = None  # type: ignore[assignment]
+    logging.getLogger(__name__).info(
+        "AI strategy assistant disabled via AI_ASSISTANT_ENABLED environment flag"
+    )
 
 from libs.db.db import SessionLocal
 from libs.entitlements import install_entitlements_middleware

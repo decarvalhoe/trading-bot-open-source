@@ -1,8 +1,29 @@
+import importlib
+import sys
+from pathlib import Path
 from typing import Any, Dict
 
 from algo_engine.app import main as main_module
 from algo_engine.app.main import app
 from fastapi.testclient import TestClient
+import pytest
+
+
+def test_ai_strategy_assistant_loader_succeeds(monkeypatch):
+    assistant_src = Path(__file__).resolve().parents[2] / "ai_strategy_assistant" / "src"
+    if not assistant_src.exists():  # pragma: no cover - optional dependency truly absent
+        pytest.skip("AI strategy assistant sources are not available")
+
+    sanitized_path = [
+        entry for entry in sys.path if Path(entry).resolve() != assistant_src.resolve()
+    ]
+    monkeypatch.setattr(sys, "path", sanitized_path, raising=False)
+
+    reloaded_module = importlib.reload(main_module)
+
+    assert reloaded_module.ASSISTANT_AVAILABLE is True
+    assert reloaded_module.ai_assistant is not None
+    assert reloaded_module.StrategyFormat is not None
 
 
 class DummyAssistant:
