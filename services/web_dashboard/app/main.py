@@ -60,7 +60,7 @@ from .help_progress import (
 )
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from .localization import LocalizationMiddleware, template_base_context
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from schemas.order_router import PositionCloseRequest
 
 
@@ -106,6 +106,33 @@ USER_SERVICE_JWT_SECRET = os.getenv(
 )
 USER_SERVICE_JWT_ALG = "HS256"
 DEFAULT_DASHBOARD_USER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_USER_ID", "1")
+
+
+def _env_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    lowered = value.strip().lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+AUTH_SERVICE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_AUTH_SERVICE_URL",
+    os.getenv("AUTH_SERVICE_URL", "http://auth-service:8011/"),
+)
+AUTH_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AUTH_SERVICE_TIMEOUT", "5.0"))
+ACCESS_TOKEN_COOKIE_NAME = os.getenv("WEB_DASHBOARD_ACCESS_COOKIE", "dashboard_access_token")
+REFRESH_TOKEN_COOKIE_NAME = os.getenv("WEB_DASHBOARD_REFRESH_COOKIE", "dashboard_refresh_token")
+ACCESS_TOKEN_MAX_AGE = int(os.getenv("WEB_DASHBOARD_ACCESS_TOKEN_MAX_AGE", str(15 * 60)))
+REFRESH_TOKEN_MAX_AGE = int(
+    os.getenv("WEB_DASHBOARD_REFRESH_TOKEN_MAX_AGE", str(7 * 24 * 60 * 60))
+)
+AUTH_COOKIE_SECURE = _env_bool(os.getenv("WEB_DASHBOARD_AUTH_COOKIE_SECURE"), False)
+AUTH_COOKIE_SAMESITE = os.getenv("WEB_DASHBOARD_AUTH_COOKIE_SAMESITE", "lax")
+AUTH_COOKIE_DOMAIN = os.getenv("WEB_DASHBOARD_AUTH_COOKIE_DOMAIN") or None
  
 HELP_DEFAULT_USER_ID = os.getenv("WEB_DASHBOARD_HELP_DEFAULT_USER_ID", "demo-user")
 
@@ -196,6 +223,221 @@ def get_alert_events_session() -> Iterator[Session]:
 @lru_cache(maxsize=1)
 def _alerts_client_factory() -> AlertsEngineClient:
     return AlertsEngineClient(base_url=ALERT_ENGINE_BASE_URL, timeout=ALERT_ENGINE_TIMEOUT)
+
+
+class AccountUser(BaseModel):
+    id: int
+    email: EmailStr
+    roles: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class AccountSession(BaseModel):
+    authenticated: bool = False
+    user: AccountUser | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class AccountLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+    totp: str | None = None
+
+
+def _auth_service_url(path: str) -> str:
+    base = AUTH_SERVICE_BASE_URL.rstrip("/") + "/"
+    return urljoin(base, path.lstrip("/"))
+
+
+def _extract_auth_error(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        text = (response.text or "").strip()
+        return text or "Une erreur est survenue lors de l'authentification."
+
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if isinstance(detail, str) and detail:
+        return detail
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str) and message:
+            return message
+    message = payload.get("message") if isinstance(payload, dict) else None
+    if isinstance(message, str) and message:
+        return message
+    return "Une erreur est survenue lors de l'authentification."
+
+
+async def _call_auth_service(
+    method: str,
+    path: str,
+    *,
+    json: dict[str, Any] | None = None,
+    token: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    url = _auth_service_url(path)
+    request_headers = {"Accept": "application/json"}
+    if headers:
+        request_headers.update(headers)
+    if token:
+        if token.lower().startswith("bearer "):
+            request_headers["Authorization"] = token
+        else:
+            request_headers["Authorization"] = f"Bearer {token}"
+    try:
+        async with httpx.AsyncClient(timeout=AUTH_SERVICE_TIMEOUT) as client:
+            response = await client.request(method.upper(), url, json=json, headers=request_headers)
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        detail = "Service d'authentification indisponible."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from error
+    return response
+
+
+def _set_auth_cookies(response: Response, token_pair: dict[str, Any]) -> None:
+    access_token = token_pair.get("access_token")
+    refresh_token = token_pair.get("refresh_token")
+    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
+        detail = "Réponse du service d'authentification invalide."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+
+    cookie_kwargs: dict[str, Any] = {
+        "httponly": True,
+        "secure": AUTH_COOKIE_SECURE,
+        "samesite": AUTH_COOKIE_SAMESITE,
+        "path": "/",
+    }
+    if AUTH_COOKIE_DOMAIN:
+        cookie_kwargs["domain"] = AUTH_COOKIE_DOMAIN
+
+    response.set_cookie(
+        ACCESS_TOKEN_COOKIE_NAME,
+        access_token,
+        max_age=ACCESS_TOKEN_MAX_AGE,
+        **cookie_kwargs,
+    )
+    response.set_cookie(
+        REFRESH_TOKEN_COOKIE_NAME,
+        refresh_token,
+        max_age=REFRESH_TOKEN_MAX_AGE,
+        **cookie_kwargs,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    cookie_kwargs: dict[str, Any] = {"path": "/"}
+    if AUTH_COOKIE_DOMAIN:
+        cookie_kwargs["domain"] = AUTH_COOKIE_DOMAIN
+    response.delete_cookie(ACCESS_TOKEN_COOKIE_NAME, **cookie_kwargs)
+    response.delete_cookie(REFRESH_TOKEN_COOKIE_NAME, **cookie_kwargs)
+
+
+async def _auth_login(payload: AccountLoginRequest) -> dict[str, Any]:
+    response = await _call_auth_service(
+        "POST",
+        "/auth/login",
+        json=payload.model_dump(exclude_none=True),
+    )
+    if response.status_code >= 400:
+        detail = _extract_auth_error(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    try:
+        return response.json()
+    except ValueError:
+        detail = "Réponse du service d'authentification invalide."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+
+
+async def _auth_me(access_token: str | None) -> AccountUser | None:
+    if not access_token:
+        return None
+    response = await _call_auth_service("GET", "/auth/me", token=access_token)
+    if response.status_code == status.HTTP_200_OK:
+        try:
+            payload = response.json()
+        except ValueError:
+            detail = "Réponse du service d'authentification invalide."
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+        return AccountUser.model_validate(payload)
+    if response.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
+        return None
+    detail = _extract_auth_error(response)
+    raise HTTPException(status_code=response.status_code, detail=detail)
+
+
+async def _auth_refresh(refresh_token: str | None) -> dict[str, Any] | None:
+    if not refresh_token:
+        return None
+    response = await _call_auth_service(
+        "POST",
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    if response.status_code == status.HTTP_200_OK:
+        try:
+            return response.json()
+        except ValueError:
+            detail = "Réponse du service d'authentification invalide."
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+    if response.status_code in {
+        status.HTTP_400_BAD_REQUEST,
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_403_FORBIDDEN,
+        status.HTTP_404_NOT_FOUND,
+    }:
+        return None
+    detail = _extract_auth_error(response)
+    raise HTTPException(status_code=response.status_code, detail=detail)
+
+
+async def _auth_logout(access_token: str | None, refresh_token: str | None) -> None:
+    if not access_token and not refresh_token:
+        return
+    json_payload = {"refresh_token": refresh_token} if refresh_token else None
+    try:
+        response = await _call_auth_service(
+            "POST",
+            "/auth/logout",
+            json=json_payload,
+            token=access_token,
+        )
+    except HTTPException:
+        return
+    if response.status_code >= 400 and response.status_code not in {404, 405}:
+        # Logout should be best-effort; ignore unsupported endpoints.
+        detail = _extract_auth_error(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+
+async def _resolve_account_session(
+    response: Response,
+    access_token: str | None,
+    refresh_token: str | None,
+) -> AccountSession:
+    user = await _auth_me(access_token)
+    if user:
+        return AccountSession(authenticated=True, user=user)
+
+    refreshed = await _auth_refresh(refresh_token)
+    if refreshed and isinstance(refreshed, dict):
+        _set_auth_cookies(response, refreshed)
+        user = await _auth_me(refreshed.get("access_token"))
+        if user:
+            return AccountSession(authenticated=True, user=user)
+
+    _clear_auth_cookies(response)
+    return AccountSession(authenticated=False)
+
+
+async def _resolve_session_from_request(request: Request, response: Response) -> AccountSession:
+    access_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
+    refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
+    return await _resolve_account_session(response, access_token, refresh_token)
 
 
 def get_alerts_client() -> AlertsEngineClient:
@@ -1231,6 +1473,32 @@ async def clone_strategy_action(request: Request, strategy_id: str = Form(...)) 
         initial_strategy["status_type"] = "success"
 
     return _render_strategies_page(request, initial_strategy=initial_strategy)
+
+
+@app.post("/account/login", response_model=AccountSession)
+async def account_login(payload: AccountLoginRequest, response: Response) -> AccountSession:
+    token_pair = await _auth_login(payload)
+    _set_auth_cookies(response, token_pair)
+    return await _resolve_account_session(
+        response,
+        token_pair.get("access_token"),
+        token_pair.get("refresh_token"),
+    )
+
+
+@app.get("/account/session", response_model=AccountSession)
+async def account_session(request: Request, response: Response) -> AccountSession:
+    return await _resolve_session_from_request(request, response)
+
+
+@app.post("/account/logout", response_model=AccountSession)
+async def account_logout(request: Request, response: Response) -> AccountSession:
+    await _auth_logout(
+        request.cookies.get(ACCESS_TOKEN_COOKIE_NAME),
+        request.cookies.get(REFRESH_TOKEN_COOKIE_NAME),
+    )
+    _clear_auth_cookies(response)
+    return AccountSession(authenticated=False)
 
 
 @app.get("/account", response_class=HTMLResponse)
