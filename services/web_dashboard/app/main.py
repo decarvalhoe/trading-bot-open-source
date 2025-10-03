@@ -34,6 +34,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from libs.alert_events import AlertEventBase, AlertEventRepository
 
 from .data import (
+    MARKETPLACE_BASE_URL,
+    MARKETPLACE_TIMEOUT_SECONDS,
     ORDER_ROUTER_BASE_URL,
     ORDER_ROUTER_TIMEOUT_SECONDS,
     MarketplaceServiceError,
@@ -43,6 +45,8 @@ from .data import (
     load_follower_dashboard,
     load_portfolio_history,
     load_tradingview_config,
+    REPORTS_BASE_URL,
+    REPORTS_TIMEOUT_SECONDS,
     save_tradingview_config,
 )
 from .order_router_client import OrderRouterClient, OrderRouterError
@@ -127,6 +131,7 @@ AUTH_SERVICE_BASE_URL = os.getenv(
     os.getenv("AUTH_SERVICE_URL", "http://auth-service:8011/"),
 )
 AUTH_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AUTH_SERVICE_TIMEOUT", "5.0"))
+AUTH_PUBLIC_BASE_URL = os.getenv("AUTH_BASE_URL") or AUTH_SERVICE_BASE_URL
 ACCESS_TOKEN_COOKIE_NAME = os.getenv("WEB_DASHBOARD_ACCESS_COOKIE", "dashboard_access_token")
 REFRESH_TOKEN_COOKIE_NAME = os.getenv("WEB_DASHBOARD_REFRESH_COOKIE", "dashboard_refresh_token")
 ACCESS_TOKEN_MAX_AGE = int(os.getenv("WEB_DASHBOARD_ACCESS_TOKEN_MAX_AGE", str(15 * 60)))
@@ -1640,19 +1645,225 @@ async def account_logout(request: Request, response: Response) -> AccountSession
     return AccountSession(authenticated=False)
 
 
+def _account_template_context(request: Request) -> dict[str, object]:
+    created_flag = request.query_params.get("created")
+    account_created = False
+    if isinstance(created_flag, str):
+        account_created = created_flag.strip().lower() in {"1", "true", "yes"}
+
+    return _template_context(
+        request,
+        {
+            "active_page": "account",
+            "broker_credentials_endpoint": request.url_for(
+                "api_get_broker_credentials"
+            ),
+            "account_created": account_created,
+            "registration_url": request.url_for("render_account_register"),
+        },
+    )
+
+
 @app.get("/account", response_class=HTMLResponse)
 def render_account(request: Request) -> HTMLResponse:
     """Render the account and API key management page."""
 
+    return templates.TemplateResponse("account.html", _account_template_context(request))
+
+
+@app.get("/account/login", response_class=HTMLResponse, name="render_account_login")
+def render_account_login(request: Request) -> HTMLResponse:
+    """Expose a dedicated login entry point that reuses the account view."""
+
+    return templates.TemplateResponse("account.html", _account_template_context(request))
+
+
+def _render_registration_page(
+    request: Request,
+    *,
+    email: str = "",
+    error_message: str | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
     return templates.TemplateResponse(
-        "account.html",
+        "account_register.html",
         _template_context(
             request,
             {
                 "active_page": "account",
-                "broker_credentials_endpoint": request.url_for(
-                    "api_get_broker_credentials"
-                ),
+                "form_email": email,
+                "form_error": error_message,
+                "submit_endpoint": request.url_for("submit_account_registration"),
+                "login_url": request.url_for("render_account_login"),
+            },
+        ),
+        status_code=status_code,
+    )
+
+
+@app.get(
+    "/account/register",
+    response_class=HTMLResponse,
+    name="render_account_register",
+)
+async def render_account_register(request: Request) -> HTMLResponse:
+    """Render the account registration form."""
+
+    initial_email = request.query_params.get("email")
+    return _render_registration_page(request, email=initial_email or "")
+
+
+def _build_auth_registration_url() -> str:
+    base = AUTH_PUBLIC_BASE_URL.rstrip("/") + "/"
+    return urljoin(base, "auth/register")
+
+
+@app.post(
+    "/account/register",
+    response_class=HTMLResponse,
+    name="submit_account_registration",
+)
+async def submit_account_registration(
+    request: Request,
+    email: EmailStr = Form(...),
+    password: str = Form(...),
+) -> Response:
+    """Forward registration requests to the authentication service."""
+
+    try:
+        async with httpx.AsyncClient(timeout=AUTH_SERVICE_TIMEOUT) as client:
+            response = await client.post(
+                _build_auth_registration_url(),
+                json={"email": email, "password": password},
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError:
+        message = "Impossible de créer le compte pour le moment."
+        return _render_registration_page(
+            request,
+            email=email,
+            error_message=message,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if response.status_code >= 400:
+        error_message = _extract_auth_error(response)
+        return _render_registration_page(
+            request,
+            email=email,
+            error_message=error_message,
+            status_code=response.status_code,
+        )
+
+    redirect_target = request.url_for("render_account_login").include_query_params(
+        created="1"
+    )
+    return RedirectResponse(str(redirect_target), status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _service_health_definitions() -> list[dict[str, object]]:
+    return [
+        {
+            "id": "auth",
+            "label": "Service d'authentification",
+            "description": "Gestion des comptes utilisateurs et des sessions.",
+            "base_url": AUTH_PUBLIC_BASE_URL,
+            "timeout": AUTH_SERVICE_TIMEOUT,
+        },
+        {
+            "id": "reports",
+            "label": "Service de rapports",
+            "description": "Calcul des indicateurs de performance et exports.",
+            "base_url": REPORTS_BASE_URL,
+            "timeout": REPORTS_TIMEOUT_SECONDS,
+        },
+        {
+            "id": "algo",
+            "label": "Algo Engine",
+            "description": "Orchestration et exécution des stratégies automatisées.",
+            "base_url": ALGO_ENGINE_BASE_URL,
+            "timeout": ALGO_ENGINE_TIMEOUT,
+        },
+        {
+            "id": "router",
+            "label": "Order Router",
+            "description": "Acheminement des ordres vers les exchanges connectés.",
+            "base_url": ORDER_ROUTER_BASE_URL,
+            "timeout": ORDER_ROUTER_TIMEOUT_SECONDS,
+        },
+        {
+            "id": "marketplace",
+            "label": "Marketplace",
+            "description": "Publication des stratégies et signaux proposés.",
+            "base_url": MARKETPLACE_BASE_URL,
+            "timeout": MARKETPLACE_TIMEOUT_SECONDS,
+        },
+    ]
+
+
+async def _fetch_service_health(
+    *, base_url: str, timeout: float
+) -> tuple[str, str | None, str]:
+    health_url = urljoin(base_url.rstrip("/") + "/", "health")
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(health_url, headers={"Accept": "application/json"})
+    except httpx.HTTPError as error:
+        return "down", str(error), health_url
+
+    if response.status_code >= 400:
+        return "down", f"HTTP {response.status_code}", health_url
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        status_value = payload.get("status")
+        if isinstance(status_value, str):
+            normalised = status_value.strip().lower()
+            if normalised and normalised not in {"ok", "up", "healthy", "online"}:
+                return "down", status_value, health_url
+
+    return "up", None, health_url
+
+
+@app.get("/status", response_class=HTMLResponse, name="render_status_page")
+async def render_status_page(request: Request) -> HTMLResponse:
+    """Display the live health information for the platform services."""
+
+    checked_at = datetime.now(timezone.utc)
+    services: list[dict[str, object]] = []
+
+    for definition in _service_health_definitions():
+        base_url = str(definition["base_url"])
+        timeout = float(definition["timeout"])
+        status_value, detail, health_url = await _fetch_service_health(
+            base_url=base_url, timeout=timeout
+        )
+        is_up = status_value == "up"
+        services.append(
+            {
+                "id": definition["id"],
+                "label": definition["label"],
+                "description": definition["description"],
+                "status": status_value,
+                "status_label": "Opérationnel" if is_up else "Indisponible",
+                "badge_variant": "success" if is_up else "critical",
+                "detail": detail,
+                "health_url": health_url,
+            }
+        )
+
+    return templates.TemplateResponse(
+        "status.html",
+        _template_context(
+            request,
+            {
+                "active_page": "status",
+                "services": services,
+                "checked_at": checked_at,
             },
         ),
     )

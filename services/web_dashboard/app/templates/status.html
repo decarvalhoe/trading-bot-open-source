@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="{{ current_language }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ _('Statut des services') }}</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="layout__header">
+      {% include "_navigation.html" %}
+      <h1 class="heading heading--xl">{{ _('Surveillance des services') }}</h1>
+      <p class="text text--muted">
+        {{ _('Contrôlez en un coup d’œil la disponibilité de l’authentification, de la marketplace et des moteurs.')|safe }}
+      </p>
+    </header>
+    <main class="layout__main layout__main--wide">
+      <section class="card" aria-labelledby="status-title">
+        <div class="card__header">
+          <h2 id="status-title" class="heading heading--lg">{{ _('État temps réel') }}</h2>
+          <p class="text text--muted">
+            {{ _('Dernier contrôle le') }} {{ checked_at.strftime('%d/%m/%Y %H:%M:%S') }} UTC.
+          </p>
+        </div>
+        <div class="card__body">
+          <ul class="status-list" role="list">
+            {% for service in services %}
+            <li class="status-list__item" role="listitem">
+              <div class="status-list__meta">
+                <span class="heading heading--md">{{ service.label }}</span>
+                <p class="text text--muted">{{ service.description }}</p>
+                <p class="text text--muted">
+                  <span class="visually-hidden">Endpoint:</span>
+                  <code>{{ service.health_url }}</code>
+                </p>
+                {% if service.detail %}
+                <p class="text text--muted status-list__detail">
+                  {{ _('Détail :') }} {{ service.detail }}
+                </p>
+                {% endif %}
+              </div>
+              <span class="status-list__status badge badge--{{ service.badge_variant }}">
+                <span
+                  class="status-indicator status-indicator--{{ service.status }}"
+                  aria-hidden="true"
+                ></span>
+                {{ service.status_label }}
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
+    </main>
+    <footer class="layout__footer">
+      <p class="text text--muted">
+        {{ _('Des contrôles récurrents permettent de détecter rapidement les indisponibilités critiques.') }}
+      </p>
+    </footer>
+    <script id="i18n-bootstrap" type="application/json">
+      {{ i18n_bundle|tojson }}
+    </script>
+  </body>
+</html>
