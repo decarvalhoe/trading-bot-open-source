@@ -14,13 +14,13 @@ jobs:
       - name: Build & Up infra
         run: |
           docker compose up -d postgres redis
-          docker compose up -d --build auth-service
-      - name: Wait for auth-service
+          docker compose up -d --build auth_service
+      - name: Wait for auth_service
         run: |
           set -euo pipefail
-          PORT=$(docker compose port auth-service 8000 | awk -F: '{print $2}')
+          PORT=$(docker compose port auth_service 8000 | awk -F: '{print $2}')
           if [ -z "${PORT:-}" ]; then
-            echo "Unable to determine auth-service port"
+            echo "Unable to determine auth_service port"
             docker ps -a
             exit 1
           fi
@@ -30,8 +30,8 @@ jobs:
             fi
             sleep 2
           done
-          echo "auth-service not ready"
-          docker logs $(docker compose ps -q auth-service) || true
+          echo "auth_service not ready"
+          docker logs $(docker compose ps -q auth_service) || true
           exit 1
       - name: Run E2E (bash)
         run: bash ./scripts/e2e/auth_e2e.sh
