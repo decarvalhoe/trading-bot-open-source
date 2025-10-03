@@ -8,12 +8,17 @@ import hmac
 import json
 import os
 import sys
+from pathlib import Path
 import time
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Iterable, Mapping
 
 import httpx
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from schemas.market import ExecutionVenue, OrderSide, OrderType
 from schemas.order_router import ExecutionIntent, ExecutionReport, RiskOverrides
