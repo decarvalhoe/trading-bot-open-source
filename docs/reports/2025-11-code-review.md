@@ -13,9 +13,10 @@ techniques.
 - **Services Auth & Utilisateurs** — `auth-service` expose l'inscription, la connexion, la MFA TOTP et la
 gestion des rôles via SQLAlchemy, tandis que `user-service` fournit un CRUD complet sur le profil et les
 préférences avec masquage des champs sensibles pour les tiers.【F:services/auth-service/app/main.py†L1-L88】【F:services/user-service/app/main.py†L1-L132】
-- **Stratégies & Exécution** — `algo-engine` maintient un catalogue en mémoire avec orchestrateur,
-backtester et import déclaratif de stratégies; `order-router` combine adaptateurs brokers, moteur de
-risque (limites dynamiques, stop-loss, alertes) et suivi des exécutions en mémoire.【F:services/algo-engine/app/main.py†L1-L136】【F:services/order-router/app/main.py†L1-L143】
+- **Stratégies & Exécution** — `algo-engine` orchestre le catalogue de stratégies avec backtester et import
+déclaratif en s'appuyant sur `StrategyRepository` (SQLAlchemy/PostgreSQL), tandis que `order-router`
+persiste ordres et positions via SQLAlchemy en plus de son moteur de risque (limites dynamiques,
+stop-loss, alertes).【F:services/algo_engine/app/main.py†L1-L136】【F:services/algo_engine/app/repository.py†L1-L180】【F:services/order_router/app/main.py†L1-L1880】
 - **Données de marché** — `market_data` expose des webhooks TradingView, des snapshots de quotes/orderbook
 et configure les adaptateurs Binance/IBKR via des limites sandbox mutualisées.【F:services/market_data/app/main.py†L1-L88】【F:providers/limits.py†L1-L120】
 - **Librairies transverses** — l'entitlements middleware unifie les contrôles d'accès, `libs/observability`
@@ -25,8 +26,9 @@ résolution de secrets multi-providers.【F:libs/entitlements/__init__.py†L1-L
 ## 3. Qualité, tests et outillage
 
 - **Tests unitaires** — `user-service` possède une suite couvrant le parcours inscription → activation →
-profil, y compris l'application des entitlements; d'autres services n'ont pas encore de tests dédiés.
-【F:services/user-service/tests/test_user.py†L1-L128】
+profil, y compris l'application des entitlements. `algo-engine` et `order-router` disposent désormais de
+tests couvrant la génération de stratégies, les backtests et le routage d'ordres persisté.
+【F:services/user-service/tests/test_user.py†L1-L128】【F:services/algo_engine/tests/test_strategies.py†L1-L176】【F:services/order_router/tests/test_order_router.py†L1-L256】
 - **Tests E2E & CI** — des scripts Bash/Powershell valident le flux auth dans la CI GitHub Actions, et le
 Makefile automatise lint/tests/coverage pour un onboarding rapide.【F:codex.plan.yaml†L45-L109】【F:Makefile†L1-L28】
 - **Observabilité & monitoring** — toutes les APIs FastAPI installent le middleware de logs structurés et
@@ -44,10 +46,10 @@ exposent `/metrics`; `docker-compose` embarque Prometheus+Grafana pré-configur�
 
 ## 5. Axes d'amélioration
 
-1. **Persistance et scalabilité** — `algo-engine` et `order-router` fonctionnent en mémoire; il faut
-   prévoir la persistance (DB ou cache distribué) pour passer en production.【F:services/algo-engine/app/main.py†L27-L74】【F:services/order-router/app/main.py†L33-L111】
-2. **Tests multi-services** — absence de tests contractuels pour `market_data`, `order-router`,
-   `algo-engine`; à combler avant d'ouvrir les contributions externes.
+1. **Robustesse de la persistance** — industrialiser les migrations SQL, le monitoring transactionnel et
+   les plans de reprise pour les dépôts `algo-engine` et `order-router`.
+2. **Tests multi-services** — absence de tests contractuels pour `market_data`; compléter les scénarios
+   E2E combinant persistance et limites de risque pour `algo-engine` et `order-router`.
 3. **Sécurité opérationnelle** — le gestionnaire de secrets est prêt mais nécessite documentation
    d'intégration (Vault/Doppler/AWS) et procédures de rotation effectives.
 4. **Parcours utilisateurs** — aligner `auth-service` et `user-service` dans des scénarios E2E end-to-end
@@ -57,8 +59,8 @@ exposent `/metrics`; `docker-compose` embarque Prometheus+Grafana pré-configur�
 
 1. **Finaliser le MVP parcours utilisateur** : orchestrer auth + user-service dans les tests E2E,
    documenter l'OpenAPI et ajouter un guide front pour les appels critiques.
-2. **Solidifier le trading sandbox** : persister les stratégies, enregistrer les exécutions, exposer une
-   CLI démonstration s'appuyant sur `providers/limits` pour dérouler un trade complet.
+2. **Solidifier le trading sandbox** : automatiser les migrations SQL, ajouter des contrôles d'intégrité et
+   exposer une CLI démonstration s'appuyant sur `providers/limits` pour dérouler un trade complet.
 3. **Industrialiser l'observabilité** : publier un playbook Prometheus/Grafana, brancher l'alerte latence
    > 1s ou taux 5xx > 2% et définir l'escalade.
 4. **Sécuriser les secrets** : documenter les recettes Vault/Doppler/AWS, ajouter des checks de cohérence

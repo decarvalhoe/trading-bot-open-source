@@ -7,8 +7,9 @@ _Date de l'évaluation : novembre 2025_
 Le projet **Trading Bot Open Source** consolide une architecture microservices moderne (FastAPI,
 SQLAlchemy) avec des briques de sécurité et d'observabilité déjà intégrées. Les fondations
 utilisateur (authentification, profils) sont opérationnelles et le socle trading (algo-engine,
-order-router, market-data) dispose d'un premier jeu de limites sandbox. Les prochaines itérations
-portent sur la persistance des stratégies, l'industrialisation des tests contractuels et la
+order-router, market-data) dispose d'un premier jeu de limites sandbox. Les dernières itérations ont
+introduit la persistance SQLAlchemy pour les stratégies et les journaux d'ordres ainsi que des suites
+de tests dédiées. Les prochains chantiers portent sur l'industrialisation des tests contractuels et la
 formalisation des procédures de gestion des secrets.
 
 ## 2. Architecture et code
@@ -16,10 +17,10 @@ formalisation des procédures de gestion des secrets.
 - **Services d'identité** : `auth-service` gère l'inscription, la connexion JWT, la MFA TOTP et les rôles,
   tandis que `user-service` fournit le CRUD complet sur les profils avec masquage des champs sensibles
   selon les entitlements.【F:services/auth-service/app/main.py†L1-L88】【F:services/user-service/app/main.py†L1-L132】
-- **Moteur de stratégies** : `algo-engine` expose un catalogue in-memory avec orchestrateur, backtester et
-  import YAML/Python; les stratégies sont enregistrées via une API FastAPI dédiée.【F:services/algo-engine/app/main.py†L1-L136】
+- **Moteur de stratégies** : `algo-engine` expose un catalogue orchestré avec backtester et import
+  YAML/Python, en s'appuyant désormais sur une couche de persistance SQLAlchemy (`StrategyRepository`).【F:services/algo_engine/app/main.py†L1-L136】【F:services/algo_engine/app/repository.py†L1-L180】
 - **Routage d'ordres** : `order-router` combine adaptateurs Binance/IBKR simulés, moteur de risque (limites
-  dynamiques, stop-loss, notional max) et journal en mémoire des exécutions.【F:services/order-router/app/main.py†L1-L143】
+  dynamiques, stop-loss, notional max) et journal des exécutions sauvegardé via SQLAlchemy.【F:services/order_router/app/main.py†L1-L1880】
 - **Données de marché** : `market_data` fournit un webhook TradingView sécurisé (HMAC), expose quotes et
   orderbooks basés sur les limites sandbox partagées dans `providers/limits.py`.【F:services/market_data/app/main.py†L1-L88】【F:providers/limits.py†L1-L120】
 - **Libs transverses** : entitlements middleware mutualisé, logs JSON corrélés, métriques Prometheus et
@@ -37,7 +38,8 @@ formalisation des procédures de gestion des secrets.
 ## 4. Tests et qualité
 
 - **Unitaires** : `user-service` dispose d'une suite couvrant le parcours complet (inscription, activation,
-  préférences, masquage entitlements).【F:services/user-service/tests/test_user.py†L1-L128】
+  préférences, masquage entitlements). `algo-engine` et `order-router` possèdent également des tests
+  couvrant le catalogue de stratégies, les backtests et le routage d'ordres persisté.【F:services/user-service/tests/test_user.py†L1-L128】【F:services/algo_engine/tests/test_backtests.py†L1-L184】【F:services/order_router/tests/test_order_router.py†L1-L256】
 - **E2E** : des scripts Bash/PowerShell exécutent le flux auth (register/login/me) et sont intégrés à la CI
   GitHub Actions via `codex.plan.yaml` (workflow `e2e`).【F:codex.plan.yaml†L45-L109】
 - **Qualité** : la configuration `pyproject.toml` impose Black, isort, Flake8, Mypy strict, garantissant un
@@ -52,10 +54,11 @@ formalisation des procédures de gestion des secrets.
 
 ## 6. Risques et points d'attention
 
-1. **Persistance manquante** : `algo-engine` et `order-router` conservent l'état en mémoire, limitant la
-   scalabilité et la résilience. Prioriser l'externalisation vers Postgres/Redis.【F:services/algo-engine/app/main.py†L27-L74】【F:services/order-router/app/main.py†L33-L111】
-2. **Couverture tests hétérogène** : seuls auth/user disposent de tests solides; `market_data`,
-   `order-router`, `algo-engine` nécessitent des tests contractuels et unitaires additionnels.
+1. **Robustesse de la persistance** : la couche SQLAlchemy nécessite encore des migrations
+   automatisées, du monitoring des transactions et un plan de reprise pour garantir la résilience en
+   production.【F:services/algo_engine/app/repository.py†L46-L96】【F:services/order_router/app/main.py†L1702-L1775】
+2. **Couverture tests hétérogène** : `market_data` reste sans tests contractuels; `algo-engine` et
+   `order-router` doivent compléter les scénarios E2E combinant persistance et limites de risque.
 3. **Secrets & conformité** : le gestionnaire de secrets n'est pas encore accompagné de procédures
    d'exploitation (Vault/Doppler/AWS), augmentant le risque opérationnel.【F:libs/secrets/__init__.py†L1-L120】
 4. **Experience utilisateur** : l'enchaînement auth ➜ profil ➜ TOTP n'est pas documenté via un parcours
@@ -65,8 +68,8 @@ formalisation des procédures de gestion des secrets.
 
 1. **Aligner les scénarios E2E** : fusionner les scripts auth et user-service, couvrir les cas d'erreur et
    publier une documentation API front-friendly.
-2. **Persister l'état trading** : introduire des dépôts (SQL/Redis) pour les stratégies et journaux
-   d'ordres, ajouter les migrations nécessaires et mettre à jour les docs.
+2. **Durcir l'état trading** : automatiser les migrations SQL, ajouter des contrôles d'intégrité et
+   documenter les procédures de reprise pour les stratégies et journaux d'ordres.
 3. **Playbook observabilité** : documenter l'utilisation de Prometheus/Grafana, configurer une alerte
    latence/taux d'erreur et intégrer ces checks à la CI/CD.
 4. **Industrialiser les secrets** : fournir des guides pas-à-pas pour Vault, Doppler et AWS Secrets Manager,
