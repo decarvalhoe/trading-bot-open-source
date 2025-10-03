@@ -39,60 +39,73 @@ make demo-up
 
 Services expose the following ports by default:
 
-| Service | URL |
-| ------- | --- |
-| Web dashboard | http://localhost:8022 |
-| Auth service | http://localhost:8011 |
-| User service | http://localhost:8004 |
-| Algo engine | http://localhost:8020 |
-| Grafana | http://localhost:3000 (admin/admin) |
-| Prometheus | http://localhost:9090 |
+| Component | URL (host) | Purpose |
+| --------- | ---------- | ------- |
+| Web dashboard | http://localhost:8022 | End-user UI for onboarding, status and backtesting |
+| Auth service | http://localhost:8011 | Account registration, login and token refresh |
+| User service | http://localhost:8012 | Stores profile information and demo personas |
+| Order router | http://localhost:8013 | Relays orders to the execution venues |
+| Algo engine | http://localhost:8014 | Runs strategies and backtests |
+| Reports service | http://localhost:8016 | Generates and serves performance reports |
+| Grafana | http://localhost:3000 (admin/admin) | Observability dashboards |
+| Prometheus | http://localhost:9090 | Metrics collection |
 
-Verify health probes once containers are up:
+### Dashboard service bindings
 
-```bash
-curl http://localhost:8022/health
-curl http://localhost:8011/health
-curl http://localhost:8004/health
-```
+The dashboard relies on a handful of environment variables to reach the backend services. When
+you use `make demo-up` the compose file seeds the following defaults:
 
-All endpoints should return `{ "status": "ok" }`.
+| Service | `WEB_DASHBOARD_*` variable | Default target | Host port exposed |
+| ------- | ------------------------- | -------------- | ----------------- |
+| Auth service | `WEB_DASHBOARD_AUTH_SERVICE_URL` | `http://auth_service:8000/` | `http://localhost:8011` |
+| Reports service | `WEB_DASHBOARD_REPORTS_BASE_URL` | `http://reports:8000` | `http://localhost:8016` |
+| Algo engine | `WEB_DASHBOARD_ALGO_ENGINE_URL` | `http://algo_engine:8000/` | `http://localhost:8014` |
+| Order router | `WEB_DASHBOARD_ORDER_ROUTER_BASE_URL` | `http://order_router:8000/` | `http://localhost:8013` |
+| Marketplace | `WEB_DASHBOARD_MARKETPLACE_URL` | `http://marketplace:8000/` | *(configure if enabled)* |
+
+Adjust these variables in your environment or override them in `docker-compose.override.yml` when
+pointing the dashboard at remote services.
 
 ## 3. Walk through the demo
 
-1. **Register** – call the auth service to provision credentials:
-   ```bash
-   curl -X POST http://localhost:8011/auth/register \
-     -H 'Content-Type: application/json' \
-     -d '{"email":"demo@example.com","password":"ValidPass123!"}'
-   ```
-2. **Create the user profile** – register the same email with user-service:
-   ```bash
-   export DEMO_TOKEN=$(python -c 'from datetime import datetime, timezone; from jose import jwt; print(jwt.encode({"sub": "auth-service", "iat": int(datetime.now(timezone.utc).timestamp())}, "test-onboarding-secret", algorithm="HS256"))')
-   curl -X POST http://localhost:8004/users/register \
-     -H "Authorization: Bearer $DEMO_TOKEN" \
-     -H 'Content-Type: application/json' \
-     -d '{"email":"demo@example.com","first_name":"Demo","last_name":"Trader"}'
-   ```
-3. **Login through the dashboard** – open http://localhost:8022/account and sign in with
-   the credentials created in step 1. The “Connecté en tant que …” banner confirms the session.
-4. **Onboarding dry-run** – navigate to http://localhost:8022/dashboard?user_id=<USER_ID> using the
-   identifier returned by user-service. Click through “Connexion broker”, “Créer une stratégie” and
-   “Premier backtest” to complete the checklist.
-5. **Strategy & Backtest** – head to http://localhost:8022/strategies. Select the “ORB” strategy,
-   choose your asset (e.g. ETHUSDT), tweak the inputs and trigger “Lancer le backtest”. A success
-   toast and updated history confirm the run.
-6. **Observe metrics** – browse to http://localhost:3000, open the *Trading-Bot Overview* dashboard
+1. **Create an account via the dashboard.** Visit http://localhost:8022/account/register once the
+   containers report ready. Fill in an email and a strong password, then submit the form. A success
+   banner redirects you to the login page.
+2. **Sign in.** Use the credentials you just created on http://localhost:8022/account/login.
+   The top banner confirms you are authenticated (“Connecté en tant que …”).
+3. **Check service health.** From the navigation menu open http://localhost:8022/status. The page
+   calls the auth, reports, algo engine, order router and marketplace endpoints and marks each as
+   “Opérationnel” when the corresponding `/health` probe answers.
+4. **Launch a backtest from the UI.** Go to http://localhost:8022/strategies, pick the “ORB” demo
+   strategy (or design your own), set the asset, timeframe, lookback window and initial balance, then
+   click “Lancer le backtest”. Watch for the confirmation toast and the updated history card.
+5. **Observe metrics.** Browse to http://localhost:3000, open the *Trading-Bot Overview* dashboard
    and confirm request rates, latency and error panels are populated.
 
 Shut everything down with `make demo-down` when you are done.
+
+## Optional: command-line registration and troubleshooting
+
+The web flow is the recommended path. If you need to bootstrap accounts without the UI (for
+automated tests, CI or air-gapped environments), you can still call the services directly:
+
+```bash
+curl -X POST http://localhost:8011/auth/register -H 'Content-Type: application/json' -d '{"email":"demo@example.com","password":"ValidPass123!"}'
+
+export DEMO_TOKEN=$(python -c 'from datetime import datetime, timezone; from jose import jwt; print(jwt.encode({"sub": "auth_service", "iat": int(datetime.now(timezone.utc).timestamp())}, "test-onboarding-secret", algorithm="HS256"))')
+curl -X POST http://localhost:8012/users/register -H "Authorization: Bearer $DEMO_TOKEN" -H 'Content-Type: application/json' -d '{"email":"demo@example.com","first_name":"Demo","last_name":"Trader"}'
+```
+
+Both endpoints return `{ "status": "ok" }` on success and let you confirm the underlying services
+remain reachable even if the dashboard is unavailable.
 
 ## Running inside WSL
 
 1. Install [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/) and enable
    integration for your WSL distribution.
-2. From your WSL shell, follow the same steps as the Linux walkthrough (`make demo-up`, curl health
-   endpoints, open the dashboard via `http://localhost:8022` from Windows or WSL).
+2. From your WSL shell, follow the same steps as the Linux walkthrough (`make demo-up`, open
+   `http://localhost:8022/status`, browse the dashboard via `http://localhost:8022` from Windows or
+   WSL).
 3. If browsers cannot reach the services, ensure the WSL firewall allows inbound connections and
    that Docker Desktop is running.
 
@@ -102,7 +115,8 @@ Shut everything down with `make demo-down` when you are done.
 2. Inside the Codespace terminal run `make demo-up` and wait for all services to report healthy.
 3. Use **Ports** forwarding to expose 8022 (dashboard), 8011 (auth) and 3000 (Grafana). The
    forwarded URLs appear automatically.
-4. Execute the walkthrough exactly like on a workstation. You can also run the automated flow with
+4. Execute the walkthrough exactly like on a workstation: register via `/account/register`, inspect
+   `/status` and launch a backtest from `/strategies`. You can also run the automated flow with
    `pytest services/web_dashboard/tests/e2e/test_demo_journey.py -vv` once Playwright browsers are
    installed.
 
