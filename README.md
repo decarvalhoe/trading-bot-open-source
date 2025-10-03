@@ -81,20 +81,28 @@ curl http://localhost:8011/health
 make dev-down
 ```
 
-To develop without Docker (for example on platforms where virtualization is unavailable), start the PostgreSQL and Redis services natively and skip the compose steps:
+### Native (host) development
+
+The default `.env.dev` assumes every dependency runs inside Docker. When you
+prefer to run PostgreSQL/Redis/RabbitMQ directly on your machine, switch to the
+native configuration helpers:
 
 ```bash
-# Start native services
-make native-up
+# Point the stack at localhost services
+export $(cat .env.native | grep -v '^#' | xargs)
 
-# (Optional) decrypt .env.enc and export variables without invoking Docker
-USE_NATIVE=1 scripts/dev/start.sh
+# Make sure ENVIRONMENT=native so shared helpers hand out localhost URLs
+echo $ENVIRONMENT  # native
 
-# When finished
-make native-down
-# or
-USE_NATIVE=1 scripts/dev/stop.sh
+# Apply the latest migrations against your host database
+scripts/run_migrations.sh
 ```
+
+Both the configuration service and the shared helpers use the
+`ENVIRONMENT` flag to pick the right `.env.<env>` file and config JSON. Setting
+`ENVIRONMENT=native` automatically rewrites DSNs such as `POSTGRES_DSN`,
+`DATABASE_URL`, `REDIS_URL` and `RABBITMQ_URL` to target `localhost` while the
+Docker-based environments keep pointing at the internal container hostnames.
 
 ### Demo Trading Stack
 

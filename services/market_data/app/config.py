@@ -6,11 +6,16 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from libs.secrets import get_secret
+from libs.env import get_database_url
+
+
+def _default_database_url() -> str:
+    return get_database_url(env_var="MARKET_DATA_DATABASE_URL")
 
 
 class Settings(BaseSettings):
     database_url: str = Field(
-        "postgresql+psycopg2://trading:trading@postgres:5432/trading",
+        default_factory=_default_database_url,
         alias="MARKET_DATA_DATABASE_URL",
     )
     tradingview_hmac_secret: str = Field(..., alias="TRADINGVIEW_HMAC_SECRET")

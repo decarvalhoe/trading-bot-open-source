@@ -77,6 +77,30 @@ curl http://localhost:8011/health
 make dev-down
 ```
 
+### Développement natif (hors Docker)
+
+Le fichier `.env.dev` suppose que PostgreSQL/Redis/RabbitMQ tournent dans les
+conteneurs Docker. Si vous exécutez ces dépendances directement sur votre
+machine, basculez sur la configuration native :
+
+```bash
+# Pointer la stack vers les services locaux
+export $(cat .env.native | grep -v '^#' | xargs)
+
+# Vérifier que ENVIRONMENT=native pour activer les URLs localhost
+echo $ENVIRONMENT  # native
+
+# Appliquer les migrations sur votre base hôte
+scripts/run_migrations.sh
+```
+
+Le service de configuration et les helpers partagés s'appuient sur la variable
+`ENVIRONMENT` pour sélectionner le bon fichier `.env.<env>` et le JSON de
+configuration correspondant. Avec `ENVIRONMENT=native`, les DSN (`POSTGRES_DSN`,
+`DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL`) pointent automatiquement vers
+`localhost` tandis que les environnements Docker continuent d'utiliser les
+hostnames internes.
+
 ### Stack de Démonstration
 
 Pour explorer l'ensemble des services de monitoring et d'alertes, lancez la stack complète :
