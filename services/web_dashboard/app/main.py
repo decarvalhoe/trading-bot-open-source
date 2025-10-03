@@ -2087,24 +2087,23 @@ async def submit_account_register(
     password: str = Form(...),
 ) -> Response:
     payload = AccountRegisterRequest(email=email, password=password)
-    register_url = default_service_url(AUTH_SERVICE_BASE_URL, "/auth/register")
     try:
-        async with httpx.AsyncClient(timeout=AUTH_SERVICE_TIMEOUT) as client:
-            service_response = await client.post(
-                register_url,
-                json=payload.model_dump(),
-                headers={"Accept": "application/json"},
-            )
-    except httpx.HTTPError:
+        service_response = await _call_auth_service(
+            "POST",
+            "/auth/register",
+            json=payload.model_dump(),
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "Service d'authentification indisponible."
         context = _account_register_template_context(
             request,
             email=str(email),
-            error_message="Service d'authentification indisponible.",
+            error_message=detail,
         )
         return templates.TemplateResponse(
             "account/register.html",
             context,
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=exc.status_code or status.HTTP_502_BAD_GATEWAY,
         )
 
     if service_response.status_code < 400:
