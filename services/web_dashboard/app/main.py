@@ -67,7 +67,7 @@ from .help_progress import (
 )
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from .localization import LocalizationMiddleware, template_base_context
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, model_validator
 from schemas.order_router import PositionCloseRequest
 
 
@@ -541,11 +541,26 @@ def shutdown_alerts_client() -> None:
 
 
 class StrategySaveRequest(BaseModel):
-    """Payload accepted by the strategy import endpoint."""
+    """Payload accepted by the strategy save endpoint."""
 
     name: str = Field(..., min_length=1)
-    format: Literal["yaml", "python"]
-    code: str = Field(..., min_length=1)
+    format: Literal["yaml", "python"] | None = None
+    code: str | None = Field(default=None, min_length=1)
+    strategy_type: str | None = Field(default=None, min_length=1)
+    parameters: dict[str, Any] | None = None
+    enabled: bool = False
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_payload(self) -> "StrategySaveRequest":
+        has_source = bool(self.format and self.code)
+        has_structured = bool(self.strategy_type and self.parameters is not None)
+        if not has_source and not has_structured:
+            raise ValueError(
+                "Provide either format/code or strategy_type/parameters to save a strategy."
+            )
+        return self
 
 
 class StrategyGenerationRequestPayload(BaseModel):
@@ -647,6 +662,11 @@ class StrategyBacktestRunRequest(BaseModel):
     initial_balance: float = Field(10_000.0, gt=0)
 
 
+class BacktestRunRequest(StrategyBacktestRunRequest):
+    strategy_id: str = Field(..., min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 def _timeframe_to_minutes(timeframe: str) -> int:
     minutes = SUPPORTED_TIMEFRAMES.get(timeframe)
     if minutes is None:
@@ -660,6 +680,8 @@ def _generate_synthetic_market_data(
     lookback_days: int,
     *,
     max_candles: int = 500,
+    fast_length: int = 5,
+    slow_length: int = 20,
 ) -> List[Dict[str, Any]]:
     """Create deterministic OHLC data for backtests when real data is unavailable."""
 
@@ -670,6 +692,7 @@ def _generate_synthetic_market_data(
     start_time = datetime.now() - timedelta(days=lookback_days)
     equity: List[Dict[str, Any]] = []
     amplitude = max(1.0, base_price * 0.015)
+    closes: List[float] = []
 
     for index in range(candle_count):
         progress = index / max(1, candle_count - 1)
@@ -681,6 +704,13 @@ def _generate_synthetic_market_data(
         high = max(close, open_price) + amplitude * 0.1
         low = min(close, open_price) - amplitude * 0.1
         timestamp = start_time + timedelta(minutes=index * minutes)
+        closes.append(close)
+        window_fast = closes[-max(1, fast_length) :]
+        window_slow = closes[-max(1, slow_length) :]
+        sma_fast = sum(window_fast) / len(window_fast)
+        sma_slow = sum(window_slow) / len(window_slow)
+        above_fast = close >= sma_fast
+        trend_up = sma_fast >= sma_slow
         equity.append(
             {
                 "timestamp": timestamp.isoformat(),
@@ -689,6 +719,12 @@ def _generate_synthetic_market_data(
                 "low": round(low, 4),
                 "close": round(close, 4),
                 "volume": round(abs(math.cos(angle)) * 10_000, 3),
+                "sma_fast": round(sma_fast, 4),
+                "sma_slow": round(sma_slow, 4),
+                "trend_up": trend_up,
+                "trend_down": not trend_up,
+                "above_fast_ma": above_fast,
+                "below_fast_ma": not above_fast,
             }
         )
     return equity
@@ -1001,6 +1037,85 @@ async def run_strategy_backtest(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
 
 
+@app.post("/backtests/run", name="run_backtest")
+async def run_backtest(payload: BacktestRunRequest) -> dict[str, Any]:
+    """Trigger a backtest run for a freshly created strategy."""
+
+    def _coerce_period(value: Any, default: int) -> int:
+        try:
+            period = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(1, period)
+
+    metadata: dict[str, Any] = {
+        "symbol": payload.symbol,
+        "timeframe": payload.timeframe,
+        "lookback_days": payload.lookback_days,
+    }
+    metadata.update(payload.metadata or {})
+    fast_length = _coerce_period(metadata.get("fast_length"), 5)
+    slow_length = _coerce_period(metadata.get("slow_length"), 20)
+
+    market_data = _generate_synthetic_market_data(
+        payload.symbol,
+        payload.timeframe,
+        payload.lookback_days,
+        fast_length=fast_length,
+        slow_length=slow_length,
+    )
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, "backtests")
+    request_payload = {
+        "strategy_id": payload.strategy_id,
+        "market_data": market_data,
+        "initial_balance": payload.initial_balance,
+        "metadata": metadata,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.post(
+                target_url,
+                json=request_payload,
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Algo-engine indisponible pour lancer le backtest."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        detail = _safe_json(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    try:
+        return response.json()
+    except ValueError as error:  # pragma: no cover - invalid payload
+        message = "Réponse invalide du moteur de stratégies."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+
+@app.get("/backtests/{backtest_id}", name="get_backtest")
+async def get_backtest(backtest_id: int) -> dict[str, Any]:
+    """Retrieve backtest details and artifacts."""
+
+    target_url = urljoin(ALGO_ENGINE_BASE_URL, f"backtests/{backtest_id}")
+    try:
+        async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
+            response = await client.get(target_url, headers={"Accept": "application/json"})
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        message = "Algo-engine indisponible pour récupérer le backtest."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+    if response.status_code >= 400:
+        detail = _safe_json(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    try:
+        return response.json()
+    except ValueError as error:  # pragma: no cover - invalid payload
+        message = "Réponse invalide du moteur de stratégies."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message) from error
+
+
 @app.get(
     "/api/strategies/{strategy_id}/backtest/ui",
     name="get_strategy_backtest_ui",
@@ -1064,16 +1179,32 @@ async def list_strategy_backtests(
 async def save_strategy(payload: StrategySaveRequest) -> dict[str, object]:
     """Relay strategy definitions to the algo-engine import endpoint."""
 
-    target_url = urljoin(ALGO_ENGINE_BASE_URL, "strategies/import")
+    if payload.format and payload.code:
+        target_url = urljoin(ALGO_ENGINE_BASE_URL, "strategies/import")
+        request_payload: dict[str, Any] = {
+            "name": payload.name,
+            "format": payload.format,
+            "content": payload.code,
+        }
+    else:
+        target_url = urljoin(ALGO_ENGINE_BASE_URL, "strategies")
+        request_payload = {
+            "name": payload.name,
+            "strategy_type": payload.strategy_type,
+            "parameters": payload.parameters or {},
+            "enabled": payload.enabled,
+            "tags": payload.tags,
+            "metadata": payload.metadata,
+        }
+        if payload.format:
+            request_payload["source_format"] = payload.format
+        if payload.code:
+            request_payload["source"] = payload.code
     try:
         async with httpx.AsyncClient(timeout=ALGO_ENGINE_TIMEOUT) as client:
             response = await client.post(
                 target_url,
-                json={
-                    "name": payload.name,
-                    "format": payload.format,
-                    "content": payload.code,
-                },
+                json=request_payload,
                 headers={"Accept": "application/json"},
             )
     except httpx.HTTPError as error:  # pragma: no cover - network failure
@@ -1475,6 +1606,40 @@ def render_strategies(request: Request) -> HTMLResponse:
     """Render the visual strategy designer page."""
 
     return _render_strategies_page(request)
+
+
+@app.get("/strategies/new", response_class=HTMLResponse)
+def render_one_click_strategy(request: Request) -> HTMLResponse:
+    """Expose the one-click strategy creation workflow."""
+
+    save_endpoint = request.url_for("save_strategy")
+    run_endpoint = request.url_for("run_backtest")
+    backtest_detail_template = request.url_for("get_backtest", backtest_id="__id__")
+    history_endpoint_template = request.url_for(
+        "list_strategy_backtests", strategy_id="__id__"
+    )
+    defaults = {
+        "name": "Tendance BTCUSDT",
+        "symbol": "BTCUSDT",
+        "timeframe": "1h",
+        "lookback_days": 60,
+        "initial_balance": 10_000,
+        "fast_length": 5,
+        "slow_length": 20,
+        "position_size": 1,
+    }
+    context = {
+        "save_endpoint": save_endpoint,
+        "run_endpoint": run_endpoint,
+        "backtest_detail_template": backtest_detail_template,
+        "history_endpoint_template": history_endpoint_template,
+        "defaults": defaults,
+        "active_page": "strategies-new",
+    }
+    return templates.TemplateResponse(
+        "strategies_new.html",
+        _template_context(request, context),
+    )
 
 
 @app.get("/strategies/documentation", response_class=HTMLResponse)

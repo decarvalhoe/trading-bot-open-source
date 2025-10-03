@@ -28,6 +28,13 @@
           {{ _('Stratégies') }}
         </a>
         <a
+          href="{{ request.url_for('render_one_click_strategy') }}"
+          class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategies-new' else '' }}"
+          aria-current="{{ 'page' if active_page == 'strategies-new' else 'false' }}"
+        >
+          {{ _('Stratégie express') }}
+        </a>
+        <a
           href="{{ request.url_for('render_strategy_documentation') }}"
           class="app-nav__link {{ 'app-nav__link--active' if active_page == 'strategy-docs' else '' }}"
           aria-current="{{ 'page' if active_page == 'strategy-docs' else 'false' }}"
