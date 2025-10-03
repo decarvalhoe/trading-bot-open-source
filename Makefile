@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 .PHONY: setup dev-up dev-down demo-up demo-down native-up native-down lint test e2e e2e-sh migrate-generate migrate-up migrate-down \
-	web_dashboard-e2e fix-makefile demo-bootstrap
+	web_dashboard-e2e
 
 ALEMBIC_CONFIG ?= infra/migrations/alembic.ini
 ALEMBIC_DATABASE_URL ?= postgresql+psycopg2://trading:trading@localhost:5432/trading
@@ -75,3 +75,10 @@ migrate-up:
 
 migrate-down:
 	ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) downgrade $(DOWN_REVISION)
+
+fix-makefile:
+	@python scripts/dev/fix_make_tabs.py Makefile
+
+# lance bootstrap dans le conteneur (robuste)
+demo-bootstrap:
+	docker compose exec auth_service python /app/scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market

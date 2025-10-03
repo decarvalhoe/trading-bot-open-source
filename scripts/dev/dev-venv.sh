@@ -5,4 +5,4 @@ python3 -m venv .venv
 pip install -U pip
 pip install pydantic fastapi httpx python-dotenv
 echo "source .venv/bin/activate" > .envrc || true
-
+echo "OK: .venv ready"
