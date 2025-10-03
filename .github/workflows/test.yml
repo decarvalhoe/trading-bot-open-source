@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements/services.txt
           pip install -r requirements/services-dev.txt
       - name: Install Playwright browsers
-        run: python -m playwright install --with-deps chromium
+        run: python -m playwright install --with-deps chromium firefox
       - name: Run Alembic migration test
         run: python -m pytest -m slow -k migrations
       - name: Run test suite

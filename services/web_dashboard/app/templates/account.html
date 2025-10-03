@@ -21,7 +21,62 @@
         data-login-endpoint="{{ request.url_for('account_login') }}"
         data-logout-endpoint="{{ request.url_for('account_logout') }}"
       >
-        <p class="text text--muted">{{ _('Activez JavaScript pour gérer votre session.') }}</p>
+        <div class="account-fallback" aria-live="polite">
+          <p class="text text--muted">{{ _('Activez JavaScript pour gérer votre session.') }}</p>
+
+          <section class="card" aria-labelledby="login-title-fallback">
+            <div class="card__header">
+              <h2 id="login-title-fallback" class="heading heading--lg">{{ _('Connexion') }}</h2>
+              <p class="text text--muted">
+                {{ _("Authentifiez-vous pour débloquer les fonctions de sauvegarde et d'orchestration.") }}
+              </p>
+            </div>
+            <div class="card__body">
+              <form class="form-grid" action="{{ request.url_for('account_login') }}" method="post">
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Adresse e-mail') }}</span>
+                  <input type="email" name="email" autocomplete="email" required />
+                </label>
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Mot de passe') }}</span>
+                  <input type="password" name="password" autocomplete="current-password" required />
+                </label>
+                <button type="submit" class="button button--primary">{{ _('Se connecter') }}</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="card" aria-labelledby="api-keys-title-fallback">
+            <div class="card__header">
+              <h2 id="api-keys-title-fallback" class="heading heading--lg">{{ _('Clés API exchanges') }}</h2>
+              <p class="text text--muted">
+                {{ _("Stockez vos identifiants chiffrés. Ils seront synchronisés avec l'orchestrateur lors des déploiements.") }}
+              </p>
+            </div>
+            <div class="card__body">
+              <form class="form-grid" action="#" method="post">
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Sélectionnez un exchange') }}</span>
+                  <select name="exchange" required>
+                    <option value="" disabled selected>{{ _('Exchange') }}</option>
+                    <option value="binance">{{ _('Binance') }}</option>
+                    <option value="coinbase">{{ _('Coinbase Pro') }}</option>
+                    <option value="kraken">{{ _('Kraken') }}</option>
+                  </select>
+                </label>
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Clé publique') }}</span>
+                  <input type="text" name="public" autocomplete="off" required />
+                </label>
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Clé secrète') }}</span>
+                  <input type="password" name="secret" autocomplete="off" required />
+                </label>
+                <button type="submit" class="button button--secondary">{{ _('Associer la clé') }}</button>
+              </form>
+            </div>
+          </section>
+        </div>
       </div>
     </main>
     <footer class="layout__footer">
