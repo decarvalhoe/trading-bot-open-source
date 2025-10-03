@@ -2,57 +2,146 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Request, status as http_status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from ..config import default_service_url
+from ..localization import template_base_context
+
 router = APIRouter(tags=["Status"])
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-AUTH_BASE_URL = (
-    os.getenv("AUTH_BASE_URL")
-    or os.getenv("AUTH_SERVICE_URL")
-    or "http://auth_service:8000"
-)
-REPORTS_BASE_URL = os.getenv("REPORTS_BASE_URL", "http://reports:8000")
-ALGO_BASE_URL = os.getenv("ALGO_ENGINE_BASE_URL", "http://algo_engine:8000")
-ROUTER_BASE_URL = os.getenv("ORDER_ROUTER_BASE_URL", "http://order_router:8000")
-MARKET_BASE_URL = os.getenv("MARKET_DATA_BASE_URL", "http://market_data:8000")
 STATUS_TIMEOUT = float(os.getenv("WEB_DASHBOARD_STATUS_TIMEOUT", "5.0"))
 
 
-async def _check_service(url: str) -> bool:
-    """Return ``True`` when the provided health endpoint answers successfully."""
+STATUS_CODES: dict[int | None, str] = {
+    http_status.HTTP_503_SERVICE_UNAVAILABLE: "HTTP 503 - Indisponible",
+    http_status.HTTP_500_INTERNAL_SERVER_ERROR: "HTTP 500 - Erreur interne",
+    http_status.HTTP_502_BAD_GATEWAY: "HTTP 502 - Mauvaise passerelle",
+    http_status.HTTP_504_GATEWAY_TIMEOUT: "HTTP 504 - Délai d'attente dépassé",
+    None: "Impossible de contacter le service",
+}
+
+
+ServiceDefinition = dict[str, Any]
+
+
+def _service_definitions() -> list[ServiceDefinition]:
+    """Return the service definitions displayed on the status page."""
+
+    return [
+        {
+            "name": "auth",
+            "env": "WEB_DASHBOARD_AUTH_SERVICE_URL",
+            "default": default_service_url("auth_service"),
+            "label": "Service d'authentification",
+            "description": "Gestion des comptes utilisateurs et des sessions.",
+        },
+        {
+            "name": "reports",
+            "env": "WEB_DASHBOARD_REPORTS_BASE_URL",
+            "default": default_service_url("reports"),
+            "label": "Service de rapports",
+            "description": "Génère les rapports de performance et d'exécution.",
+        },
+        {
+            "name": "algo",
+            "env": "WEB_DASHBOARD_ALGO_ENGINE_URL",
+            "default": default_service_url("algo_engine"),
+            "label": "Moteur d'algorithmes",
+            "description": "Exécute les stratégies quantitatives en continu.",
+        },
+        {
+            "name": "router",
+            "env": "WEB_DASHBOARD_ORDER_ROUTER_BASE_URL",
+            "default": default_service_url("order_router"),
+            "label": "Routeur d'ordres",
+            "description": "Distribue les ordres vers les places de marché.",
+        },
+        {
+            "name": "market",
+            "env": "WEB_DASHBOARD_MARKETPLACE_URL",
+            "default": default_service_url("marketplace"),
+            "label": "Service marketplace",
+            "description": "Fournit les données de marché et la vitrine produits.",
+        },
+    ]
+
+
+async def _check_service(url: str) -> tuple[bool, int | None]:
+    """Return the availability flag and status code for a health endpoint."""
 
     try:
         async with httpx.AsyncClient(timeout=STATUS_TIMEOUT) as client:
             response = await client.get(url)
     except httpx.HTTPError:
-        return False
-    return response.status_code == http_status.HTTP_200_OK
+        return False, None
+    return response.status_code == http_status.HTTP_200_OK, response.status_code
+
+
+def _service_status_label(is_up: bool) -> str:
+    return "Opérationnel" if is_up else "Incident"
+
+
+def _service_badge_variant(is_up: bool) -> str:
+    return "success" if is_up else "critical"
+
+
+def _service_indicator(is_up: bool) -> str:
+    return "up" if is_up else "down"
+
+
+def _service_detail(status_code: int | None) -> str | None:
+    if status_code == http_status.HTTP_200_OK:
+        return None
+    if status_code in STATUS_CODES:
+        return STATUS_CODES[status_code]
+    if status_code is None:
+        return STATUS_CODES[None]
+    return f"HTTP {status_code} - Réponse inattendue"
 
 
 @router.get("/status", response_class=HTMLResponse, name="render_status_page")
 async def status_page(request: Request) -> HTMLResponse:
-    """Display a minimal status page for core services."""
+    """Display the status page for core services."""
 
-    targets = {
-        "auth": f"{AUTH_BASE_URL.rstrip('/')}/health",
-        "reports": f"{REPORTS_BASE_URL.rstrip('/')}/health",
-        "algo": f"{ALGO_BASE_URL.rstrip('/')}/health",
-        "router": f"{ROUTER_BASE_URL.rstrip('/')}/health",
-        "market": f"{MARKET_BASE_URL.rstrip('/')}/health",
-    }
+    services: list[dict[str, Any]] = []
 
-    results: dict[str, bool] = {}
-    for name, url in targets.items():
-        results[name] = await _check_service(url)
+    for service in _service_definitions():
+        base_url = os.getenv(service["env"], service["default"])
+        health_url = f"{base_url.rstrip('/')}/health"
+        is_up, status_code = await _check_service(health_url)
 
-    context = {"request": request, "services": results, "targets": targets}
-    return templates.TemplateResponse("misc/status.html", context)
+        services.append(
+            {
+                "name": service["name"],
+                "label": service["label"],
+                "description": service["description"],
+                "health_url": health_url,
+                "status": _service_indicator(is_up),
+                "status_label": _service_status_label(is_up),
+                "badge_variant": _service_badge_variant(is_up),
+                "status_code": status_code,
+                "detail": _service_detail(status_code),
+            }
+        )
+
+    context: dict[str, Any] = {"request": request}
+    context.update(template_base_context(request))
+    context.update(
+        {
+            "services": services,
+            "checked_at": datetime.now(timezone.utc),
+            "status_codes": STATUS_CODES,
+        }
+    )
+    return templates.TemplateResponse(request, "status.html", context)
