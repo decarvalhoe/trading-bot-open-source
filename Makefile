@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: setup dev-up dev-down demo-up demo-down lint test e2e e2e-sh migrate-generate migrate-up migrate-down \
+.PHONY: setup dev-up dev-down demo-up demo-down native-up native-down lint test e2e e2e-sh migrate-generate migrate-up migrate-down \
         web_dashboard-e2e
 
 ALEMBIC_CONFIG ?= infra/migrations/alembic.ini
@@ -17,10 +17,16 @@ dev-up:
 	docker compose up -d --build auth_service user_service
 
 dev-down:
-	docker compose down -v
+        docker compose down -v
+
+native-up:
+        ./scripts/dev/native_up.sh
+
+native-down:
+        ./scripts/dev/native_down.sh
 
 demo-up:
-	docker compose up -d postgres redis
+        docker compose up -d postgres redis
 	docker compose up -d --build streaming streaming_gateway market_data order_router algo_engine \
 	reports alert_engine notification_service inplay web_dashboard auth_service user_service \
 	prometheus grafana
