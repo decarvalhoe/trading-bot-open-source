@@ -33,11 +33,6 @@
               </p>
             </div>
             <div class="card__body">
-              {% if account_created %}
-              <div class="flash flash--success" role="status" aria-live="polite">
-                {{ _('Votre compte a été créé avec succès. Vous pouvez vous connecter dès maintenant !') }}
-              </div>
-              {% endif %}
               <form class="form-grid" action="{{ request.url_for('account_login') }}" method="post">
                 <label class="designer-field">
                   <span class="designer-field__label text text--muted">{{ _('Adresse e-mail') }}</span>
@@ -49,10 +44,6 @@
                 </label>
                 <button type="submit" class="button button--primary">{{ _('Se connecter') }}</button>
               </form>
-              <p class="text text--muted">
-                {{ _("Pas encore de compte ?") }}
-                <a href="{{ registration_url }}">{{ _('Créer un compte') }}</a>
-              </p>
             </div>
           </section>
 
