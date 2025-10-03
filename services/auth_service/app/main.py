@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from jose import JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -74,10 +75,18 @@ def _parse_env_bool(value: str | None, default: bool) -> bool:
     return default
 
 
-enable_docs = _parse_env_bool(os.getenv("AUTH_SERVICE_ENABLE_DOCS"), True)
-docs_url = "/docs" if enable_docs else None
-redoc_url = "/redoc" if enable_docs else None
-openapi_url = "/openapi.json" if enable_docs else None
+def _get_enable_docs() -> bool:
+    override = os.getenv("ENABLE_DOCS")
+    if override is not None:
+        return override.lower() == "true"
+    return _parse_env_bool(os.getenv("AUTH_SERVICE_ENABLE_DOCS"), True)
+
+
+ENABLE_DOCS = _get_enable_docs()
+ROOT_PATH = os.getenv("ROOT_PATH", "")
+docs_url = "/docs" if ENABLE_DOCS else None
+redoc_url = "/redoc" if ENABLE_DOCS else None
+openapi_url = "/openapi.json" if ENABLE_DOCS else None
 
 
 app = FastAPI(
@@ -86,15 +95,22 @@ app = FastAPI(
     docs_url=docs_url,
     redoc_url=redoc_url,
     openapi_url=openapi_url,
+    root_path=ROOT_PATH,
 )
 install_entitlements_middleware(
     app,
     required_capabilities=["can.use_auth"],
     required_quotas={"quota.active_algos": 1},
-    skip_paths=AUTH_SKIP_ENDPOINTS + (DOCS_ENDPOINTS if enable_docs else ()),
+    skip_paths=AUTH_SKIP_ENDPOINTS + (DOCS_ENDPOINTS if ENABLE_DOCS else ()),
 )
 app.add_middleware(RequestContextMiddleware, service_name="auth-service")
 setup_metrics(app, service_name="auth-service")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET", "dev-secret"),
+    same_site=os.getenv("AUTH_COOKIE_SAMESITE", "None"),
+    https_only=os.getenv("AUTH_COOKIE_SECURE", "true").lower() == "true",
+)
 
 
 cors_allow_origins = _parse_env_list(
@@ -125,7 +141,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "auth_service"}
 
 def _ensure_timezone(value: datetime) -> datetime:
     if value.tzinfo is None:
