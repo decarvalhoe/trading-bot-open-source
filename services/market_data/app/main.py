@@ -29,7 +29,7 @@ from schemas.market import ExecutionVenue
 
 import httpx
 
-from ..adapters import (
+from services.market_data.adapters import (
     BinanceMarketConnector,
     DTCAdapter,
     DTCConfig,
@@ -106,8 +106,17 @@ async def get_topstep_adapter(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="TopStep credentials are not configured",
         )
-        _dtc_adapter = DTCAdapter(config)
-    return _dtc_adapter
+
+    adapter = TopStepAdapter(
+        base_url=settings.topstep_base_url,
+        client_id=settings.topstep_client_id,
+        client_secret=settings.topstep_client_secret,
+    )
+
+    try:
+        yield adapter
+    finally:
+        await adapter.aclose()
 
 
 @app.get("/health", tags=["system"])
@@ -166,11 +175,6 @@ def _persist_tick_record(tick: PersistedTick) -> None:
                 }
             ],
         )
-    if dtc is not None:
-        try:
-            await dtc.publish_ticks([tick])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to forward TradingView tick to DTC: %s", exc)
 
 
 async def publish_ticks_to_dtc(dtc: DTCAdapter, ticks: Iterable[PersistedTick]) -> None:
