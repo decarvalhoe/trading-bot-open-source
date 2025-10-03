@@ -26,10 +26,10 @@ native-down:
 	./scripts/dev/native_down.sh
 
 demo-up:
-	docker compose up -d postgres redis
-	docker compose up -d --build auth_service user_service streaming streaming_gateway market_data \
-		order_router algo_engine reports alert_engine notification_service inplay web_dashboard \
-		prometheus grafana
+        docker compose up -d postgres redis
+        docker compose up -d --build auth_service user_service billing_service streaming streaming_gateway market_data \
+                order_router algo_engine reports alert_engine notification_service inplay web_dashboard \
+                prometheus grafana
 
 demo-down:
 	docker compose down -v

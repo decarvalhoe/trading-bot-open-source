@@ -121,6 +121,7 @@ export OPENAI_API_KEY="sk-your-key"
 ```
 
 **Available Services:**
+- `8005` — `billing-service` (Stripe-style subscription orchestration and webhook replay tools)
 - `8013` — `order-router` (execution plans and simulated brokers)
 - `8014` — `algo-engine` (strategy catalogue, backtesting, optional AI assistant on `/strategies/generate`)
 - `8015` — `market_data` (spot quotes, orderbooks and TradingView webhooks)
@@ -148,7 +149,7 @@ Once the stack is running you can exercise the full onboarding → trading journ
 scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
 ```
 
-The command provisions a demo account, assigns entitlements, configures a strategy, routes an order, generates a PDF report, registers an alert and publishes a streaming event. The emitted JSON summarises all created identifiers (user, strategy, order, alert, report location) together with the JWT tokens associated to the demo profile.
+The command provisions a demo account, assigns entitlements, configures a strategy, routes an order, generates a PDF report, registers an alert, books a mock subscription in the billing API (available at `http://localhost:8005`) and publishes a streaming event. The emitted JSON summarises all created identifiers (user, strategy, order, alert, report location) together with the JWT tokens associated to the demo profile.
 
 `scripts/dev/run_mvp_flow.py` now simply wraps this command for backward compatibility.
 
