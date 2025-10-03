@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, AsyncIterator, Iterable
+from datetime import datetime, timezone
+from typing import Any, AsyncIterator, Iterable, List
 
 from ib_async.ib import IB
 
@@ -54,10 +55,10 @@ class IBKRMarketConnector(MarketConnector):
         what_to_show: str = "TRADES",
         use_rth: bool = True,
         format_date: int = 1,
-    ) -> Iterable[Any]:
+    ) -> Iterable[dict[str, Any]]:
         await self.ensure_connected()
         await self._rate_limiter.acquire()
-        return await self._ib.reqHistoricalDataAsync(
+        bars = await self._ib.reqHistoricalDataAsync(
             contract,
             endDateTime=end,
             durationStr=duration,
@@ -66,6 +67,37 @@ class IBKRMarketConnector(MarketConnector):
             useRTH=use_rth,
             formatDate=format_date,
         )
+        normalized: list[dict[str, Any]] = []
+        for bar in bars:
+            bar_time = getattr(bar, "date", None)
+            if isinstance(bar_time, (int, float)):
+                timestamp = datetime.fromtimestamp(float(bar_time), tz=timezone.utc)
+            elif isinstance(bar_time, str):
+                try:
+                    timestamp = datetime.strptime(bar_time, "%Y%m%d %H:%M:%S").replace(
+                        tzinfo=timezone.utc
+                    )
+                except ValueError:
+                    timestamp = datetime.fromtimestamp(0, tz=timezone.utc)
+            elif isinstance(bar_time, datetime):
+                timestamp = bar_time if bar_time.tzinfo else bar_time.replace(tzinfo=timezone.utc)
+            else:
+                timestamp = datetime.fromtimestamp(0, tz=timezone.utc)
+
+            normalized.append(
+                {
+                    "timestamp": timestamp,
+                    "open": float(getattr(bar, "open", 0.0)),
+                    "high": float(getattr(bar, "high", 0.0)),
+                    "low": float(getattr(bar, "low", 0.0)),
+                    "close": float(getattr(bar, "close", 0.0)),
+                    "volume": float(getattr(bar, "volume", 0.0)),
+                    "bar_count": int(getattr(bar, "barCount", 0)),
+                    "average": float(getattr(bar, "average", 0.0)),
+                }
+            )
+
+        return normalized
 
     async def stream_trades(self, contract: Any) -> AsyncIterator[Any]:
         while True:
@@ -99,3 +131,50 @@ class IBKRMarketConnector(MarketConnector):
             self._ib.disconnect()
         finally:
             await asyncio.sleep(0)
+
+    async def list_symbols(self, pattern: str, *, limit: int | None = None) -> List[dict[str, Any]]:
+        if not pattern:
+            raise ValueError("pattern must be provided for IBKR symbol search")
+
+        await self.ensure_connected()
+        await self._rate_limiter.acquire()
+        matches = await self._ib.reqMatchingSymbolsAsync(pattern)
+
+        symbols: list[dict[str, Any]] = []
+        for match in matches:
+            summary = getattr(match, "contract", getattr(match, "summary", None))
+            symbol = getattr(summary, "symbol", None)
+            symbols.append(
+                {
+                    "symbol": symbol,
+                    "description": getattr(summary, "description", None),
+                    "currency": getattr(summary, "currency", None),
+                    "exchange": getattr(summary, "exchange", None),
+                    "security_type": getattr(summary, "secType", None),
+                }
+            )
+
+        if limit is not None:
+            symbols = symbols[:limit]
+        return symbols
+
+    async def fetch_order_book(self, contract: Any) -> dict[str, Any]:
+        await self.ensure_connected()
+        await self._rate_limiter.acquire()
+        ticker = await self._ib.reqMktDataAsync(contract, "", False, False, None)
+        bids = []
+        asks = []
+        bid = getattr(ticker, "bid", None)
+        bid_size = getattr(ticker, "bidSize", None)
+        ask = getattr(ticker, "ask", None)
+        ask_size = getattr(ticker, "askSize", None)
+        if bid is not None:
+            bids.append({"price": float(bid), "size": float(bid_size or 0.0)})
+        if ask is not None:
+            asks.append({"price": float(ask), "size": float(ask_size or 0.0)})
+
+        return {
+            "bids": bids,
+            "asks": asks,
+            "timestamp": datetime.now(timezone.utc),
+        }

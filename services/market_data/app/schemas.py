@@ -89,10 +89,83 @@ class MarketStreamEvent(BaseModel):
             object.__setattr__(self, "timestamp", self.timestamp.replace(tzinfo=timezone.utc))
 
 
+class MarketSymbol(BaseModel):
+    symbol: str
+    base_asset: str | None = None
+    quote_asset: str | None = None
+    status: str | None = None
+    description: str | None = None
+    tick_size: float | None = Field(default=None, ge=0)
+    lot_size: float | None = Field(default=None, ge=0)
+
+
+class SymbolListResponse(BaseModel):
+    venue: ExecutionVenue
+    symbols: list[MarketSymbol]
+
+
+class QuoteLevel(BaseModel):
+    price: float
+    size: float | None = Field(default=None, ge=0)
+
+
+class QuoteSnapshot(BaseModel):
+    venue: ExecutionVenue
+    symbol: str
+    bid: QuoteLevel | None = None
+    ask: QuoteLevel | None = None
+    mid: float | None = Field(default=None, ge=0)
+    spread_bps: float | None = Field(default=None, ge=0)
+    last_update: datetime
+
+    model_config = ConfigDict(json_encoders={datetime: lambda value: value.isoformat()})
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: D401
+        """Ensure timestamps are timezone aware for downstream services."""
+
+        if self.last_update.tzinfo is None:
+            object.__setattr__(self, "last_update", self.last_update.replace(tzinfo=timezone.utc))
+
+
+class HistoricalCandle(BaseModel):
+    open_time: datetime
+    close_time: datetime | None = None
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    trades: int | None = None
+    quote_volume: float | None = None
+
+    model_config = ConfigDict(json_encoders={datetime: lambda value: value.isoformat()})
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: D401
+        """Ensure all timestamps carry timezone information."""
+
+        if self.open_time.tzinfo is None:
+            object.__setattr__(self, "open_time", self.open_time.replace(tzinfo=timezone.utc))
+        if self.close_time and self.close_time.tzinfo is None:
+            object.__setattr__(self, "close_time", self.close_time.replace(tzinfo=timezone.utc))
+
+
+class HistoryResponse(BaseModel):
+    venue: ExecutionVenue
+    symbol: str
+    interval: str
+    candles: list[HistoricalCandle]
+
+
 __all__ = [
+    "HistoricalCandle",
+    "HistoryResponse",
     "MarketContextSnapshot",
     "MarketStreamEvent",
+    "MarketSymbol",
     "PersistedBar",
     "PersistedTick",
+    "QuoteLevel",
+    "QuoteSnapshot",
+    "SymbolListResponse",
     "TradingViewSignal",
 ]

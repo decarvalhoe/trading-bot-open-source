@@ -3,26 +3,43 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
-import math
-from collections.abc import AsyncIterator
+import logging
 from datetime import datetime, timezone
 from hashlib import sha256
+from typing import Any, Awaitable, Callable, TypeVar
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
-from providers.limits import PairLimit, build_orderbook, build_quote, get_pair_limit
-from schemas.market import ExecutionVenue, OrderBookSnapshot, Quote
+from schemas.market import ExecutionVenue
 
 from ..adapters import BinanceMarketConnector, IBKRMarketConnector
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
-from .schemas import MarketContextSnapshot, MarketStreamEvent, PersistedTick, TradingViewSignal
+from .schemas import (
+    HistoricalCandle,
+    HistoryResponse,
+    MarketSymbol,
+    PersistedTick,
+    QuoteLevel,
+    QuoteSnapshot,
+    SymbolListResponse,
+    TradingViewSignal,
+)
 
 configure_logging("market-data")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Market Data Service", version="0.1.0")
 app.add_middleware(RequestContextMiddleware, service_name="market-data")
@@ -47,6 +64,19 @@ def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketCo
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _resolve_connector(
+    venue: ExecutionVenue,
+    *,
+    binance: BinanceMarketConnector,
+    ibkr: IBKRMarketConnector,
+) -> BinanceMarketConnector | IBKRMarketConnector:
+    if venue == ExecutionVenue.BINANCE_SPOT:
+        return binance
+    if venue == ExecutionVenue.IBKR_PAPER:
+        return ibkr
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported venue")
 
 
 async def _persist_tradingview_tick(signal: TradingViewSignal) -> None:
@@ -104,132 +134,171 @@ async def tradingview_webhook(
     return {"status": "accepted"}
 
 
-@app.get("/spot/{symbol}", response_model=Quote, tags=["quotes"])
-async def get_spot_quote(
-    symbol: str,
-    venue: ExecutionVenue = Query(ExecutionVenue.BINANCE_SPOT, description="Market data venue"),
-) -> Quote:
-    limit = get_pair_limit(venue, symbol.upper())
-    if limit is None:
-        raise HTTPException(status_code=404, detail="Unsupported trading pair")
-    return build_quote(limit)
+
+T = TypeVar("T")
 
 
-@app.get("/orderbook/{symbol}", response_model=OrderBookSnapshot, tags=["orderbook"])
-async def get_orderbook(
-    symbol: str,
-    venue: ExecutionVenue = Query(ExecutionVenue.BINANCE_SPOT, description="Market data venue"),
-) -> OrderBookSnapshot:
-    limit = get_pair_limit(venue, symbol.upper())
-    if limit is None:
-        raise HTTPException(status_code=404, detail="Unsupported trading pair")
-    return build_orderbook(limit)
-
-
-def _build_market_context(limit: PairLimit) -> MarketContextSnapshot:
-    quote = build_quote(limit)
-    orderbook = build_orderbook(limit)
-    total_bid_volume = sum(level.size for level in orderbook.bids)
-    total_ask_volume = sum(level.size for level in orderbook.asks)
-    total_volume = total_bid_volume + total_ask_volume
-    moving_average = quote.mid * 0.995
-    indicators = {
-        "moving_average": moving_average,
-        "moving_average_slow": quote.mid * 0.985,
-        "rsi": 50.0 + min(45.0, limit.tick_size * orderbook.depth),
-    }
-    return MarketContextSnapshot(
-        symbol=limit.symbol,
-        venue=limit.venue,
-        price=quote.mid,
-        bid=quote.bid,
-        ask=quote.ask,
-        spread_bps=quote.spread_bps,
-        volume=total_volume,
-        total_bid_volume=total_bid_volume,
-        total_ask_volume=total_ask_volume,
-        indicators=indicators,
-        timestamp=quote.timestamp,
-    )
-
-
-def _stream_payload(
-    limit: PairLimit, sequence: int, context: MarketContextSnapshot
-) -> MarketStreamEvent:
-    base_price = context.price
-    variation = math.sin(sequence / 5.0) * limit.tick_size
-    price = base_price + variation
-    bid = price - (limit.tick_size / 2)
-    ask = price + (limit.tick_size / 2)
-    depth = max(1, limit.depth_levels)
-    volume_multiplier = 1.0 + (sequence % depth) / depth
-    volume = limit.max_order_size * volume_multiplier
-    metadata = {
-        "sequence": sequence,
-        "moving_average": context.indicators.get("moving_average", context.price),
-    }
-    return MarketStreamEvent(
-        price=price,
-        bid=bid,
-        ask=ask,
-        volume=volume,
-        metadata=metadata,
-        timestamp=datetime.now(timezone.utc),
-    )
-
-
-async def _event_generator(
-    limit: PairLimit, *, max_events: int | None = None
-) -> AsyncIterator[str]:
-    context = _build_market_context(limit)
-    sequence = 0
-    emitted = 0
-    try:
-        while True:
-            if max_events is not None and emitted >= max_events:
+async def _call_with_retries(
+    operation: Callable[[], Awaitable[T]], *, attempts: int = 2, delay: float = 0.1
+) -> T:
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await operation()
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt == attempts:
                 break
-            event = _stream_payload(limit, sequence, context)
-            payload = json.dumps(event.model_dump(mode="json")) + "\n"
-            yield payload
-            sequence += 1
-            emitted += 1
-            if max_events is None or emitted < max_events:
-                await asyncio.sleep(0.1)
-    except asyncio.CancelledError:  # pragma: no cover - cancellation during disconnect
-        return
+            logger.warning("Retrying market data operation after error: %s", exc)
+            await asyncio.sleep(delay * attempt)
+    assert last_exc is not None
+    raise last_exc
+
+
+@app.get("/market-data/symbols", response_model=SymbolListResponse, tags=["reference"])
+async def list_symbols(
+    venue: ExecutionVenue = Query(ExecutionVenue.BINANCE_SPOT, description="Market data venue"),
+    search: str | None = Query(None, min_length=1, description="Optional case-insensitive filter"),
+    limit: int = Query(100, ge=1, le=1_000, description="Maximum number of symbols to return"),
+    binance: BinanceMarketConnector = Depends(get_binance_adapter),
+    ibkr: IBKRMarketConnector = Depends(get_ibkr_adapter),
+) -> SymbolListResponse:
+    connector = _resolve_connector(venue, binance=binance, ibkr=ibkr)
+
+    async def _load() -> list[dict[str, Any]]:
+        if hasattr(connector, "list_symbols"):
+            return await connector.list_symbols(search=search, limit=limit)
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not supported")
+
+    try:
+        records = await _call_with_retries(_load)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to load symbols for venue %s", venue)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
+
+    symbols = [MarketSymbol(**record) for record in records[:limit]]
+    return SymbolListResponse(venue=venue, symbols=symbols)
 
 
 @app.get(
-    "/symbols/{symbol}/context",
-    response_model=MarketContextSnapshot,
-    tags=["context"],
+    "/market-data/quotes/{symbol}",
+    response_model=QuoteSnapshot,
+    tags=["quotes"],
 )
-async def get_symbol_context(
+async def get_quote(
     symbol: str,
     venue: ExecutionVenue = Query(ExecutionVenue.BINANCE_SPOT, description="Market data venue"),
-) -> MarketContextSnapshot:
-    limit = get_pair_limit(venue, symbol.upper())
-    if limit is None:
-        raise HTTPException(status_code=404, detail="Unsupported trading pair")
-    return _build_market_context(limit)
+    binance: BinanceMarketConnector = Depends(get_binance_adapter),
+    ibkr: IBKRMarketConnector = Depends(get_ibkr_adapter),
+) -> QuoteSnapshot:
+    connector = _resolve_connector(venue, binance=binance, ibkr=ibkr)
+
+    async def _load() -> dict[str, Any]:
+        target_symbol = symbol.upper() if venue == ExecutionVenue.BINANCE_SPOT else symbol
+        if hasattr(connector, "fetch_order_book"):
+            return await connector.fetch_order_book(target_symbol)
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not supported")
+
+    try:
+        book = await _call_with_retries(_load)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to fetch quote for %s on %s", symbol, venue)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
+
+    bids = book.get("bids") or []
+    asks = book.get("asks") or []
+    bid = QuoteLevel(**bids[0]) if bids else None
+    ask = QuoteLevel(**asks[0]) if asks else None
+
+    mid = None
+    spread_bps = None
+    if bid and ask and bid.price and ask.price:
+        mid = (bid.price + ask.price) / 2
+        spread = ask.price - bid.price
+        spread_bps = (spread / mid) * 10_000 if mid else None
+
+    timestamp = book.get("timestamp", datetime.now(timezone.utc))
+    if isinstance(timestamp, str):
+        timestamp = datetime.fromisoformat(timestamp)
+
+    return QuoteSnapshot(
+        venue=venue,
+        symbol=symbol.upper(),
+        bid=bid,
+        ask=ask,
+        mid=mid,
+        spread_bps=spread_bps,
+        last_update=timestamp,
+    )
 
 
-@app.get("/streaming/{symbol}", tags=["streaming"])
-async def stream_symbol_updates(
+@app.get(
+    "/market-data/history/{symbol}",
+    response_model=HistoryResponse,
+    tags=["history"],
+)
+async def get_history(
     symbol: str,
+    interval: str = Query(..., description="Exchange specific interval, e.g. 1m"),
     venue: ExecutionVenue = Query(ExecutionVenue.BINANCE_SPOT, description="Market data venue"),
-    max_events: int | None = Query(
-        default=None,
-        ge=1,
-        le=1_000,
-        description="Optional cap on the number of streamed events",
-    ),
-) -> StreamingResponse:
-    limit = get_pair_limit(venue, symbol.upper())
-    if limit is None:
-        raise HTTPException(status_code=404, detail="Unsupported trading pair")
-    generator = _event_generator(limit, max_events=max_events)
-    return StreamingResponse(generator, media_type="application/x-ndjson")
+    limit: int = Query(200, ge=1, le=1_000),
+    binance: BinanceMarketConnector = Depends(get_binance_adapter),
+    ibkr: IBKRMarketConnector = Depends(get_ibkr_adapter),
+) -> HistoryResponse:
+    connector = _resolve_connector(venue, binance=binance, ibkr=ibkr)
+
+    async def _load() -> list[dict[str, Any]]:
+        if venue == ExecutionVenue.BINANCE_SPOT:
+            return list(await connector.fetch_ohlcv(symbol.upper(), interval, limit=limit))
+
+        bars = await connector.fetch_ohlcv(
+            symbol,
+            end="",
+            duration=interval,
+            bar_size=interval,
+        )
+        return list(bars)
+
+    try:
+        candles = await _call_with_retries(_load)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to load historical data for %s on %s", symbol, venue)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
+
+    normalized: list[HistoricalCandle] = []
+    for candle in candles:
+        if isinstance(candle, HistoricalCandle):
+            normalized.append(candle)
+            continue
+
+        if isinstance(candle, dict):
+            data = dict(candle)
+        else:
+            data = candle.__dict__ if hasattr(candle, "__dict__") else {}
+
+        open_time = data.get("open_time") or data.get("timestamp")
+        close_time = data.get("close_time") or data.get("timestamp")
+        data.setdefault("open_time", open_time)
+        data.setdefault("close_time", close_time)
+        if "trades" not in data:
+            trades = data.get("number_of_trades") or data.get("bar_count")
+            if trades is not None:
+                data["trades"] = trades
+        if "quote_volume" not in data and data.get("quote_asset_volume") is not None:
+            data["quote_volume"] = data["quote_asset_volume"]
+
+        normalized.append(HistoricalCandle(**data))
+
+    return HistoryResponse(
+        venue=venue,
+        symbol=symbol.upper(),
+        interval=interval,
+        candles=normalized[:limit],
+    )
 
 
 __all__ = ["app", "get_binance_adapter", "get_ibkr_adapter"]
