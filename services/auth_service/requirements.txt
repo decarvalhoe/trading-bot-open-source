@@ -8,3 +8,4 @@ pyotp
 pydantic[email]>=2
 prometheus-client>=0.20
 alembic
+itsdangerous

@@ -1,6 +1,7 @@
 import os
 import urllib.parse
 from datetime import datetime, timezone
+from typing import Iterable
 
 from fastapi import Depends, FastAPI, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from jose import JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from starlette.middleware.sessions import SessionMiddleware
 
 from .schemas import (
     LoginRequest,
@@ -57,6 +59,14 @@ AUTH_SKIP_ENDPOINTS = (
 DOCS_ENDPOINTS = ("/docs", "/redoc", "/openapi.json")
 
 
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None:
+            return value
+    return None
+
+
 def _parse_env_list(value: str | None, default: list[str]) -> list[str]:
     if value is None:
         return default
@@ -89,6 +99,9 @@ redoc_url = "/redoc" if ENABLE_DOCS else None
 openapi_url = "/openapi.json" if ENABLE_DOCS else None
 
 
+root_path = _normalise_root_path(_first_env("AUTH_SERVICE_ROOT_PATH", "ROOT_PATH"))
+
+
 app = FastAPI(
     title="Auth Service",
     version="0.1.0",
@@ -114,20 +127,73 @@ app.add_middleware(
 
 
 cors_allow_origins = _parse_env_list(
-    os.getenv("AUTH_SERVICE_ALLOWED_ORIGINS"),
+    _first_env("AUTH_SERVICE_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"),
     ["http://localhost:3000", "http://localhost:8022"],
 )
 cors_allow_methods = _parse_env_list(
-    os.getenv("AUTH_SERVICE_ALLOWED_METHODS"),
+    _first_env("AUTH_SERVICE_ALLOWED_METHODS", "ALLOWED_METHODS"),
     ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 cors_allow_headers = _parse_env_list(
-    os.getenv("AUTH_SERVICE_ALLOWED_HEADERS"),
+    _first_env("AUTH_SERVICE_ALLOWED_HEADERS", "ALLOWED_HEADERS"),
     ["Authorization", "Content-Type"],
 )
 cors_allow_credentials = _parse_env_bool(
-    os.getenv("AUTH_SERVICE_ALLOW_CREDENTIALS"),
+    _first_env("AUTH_SERVICE_ALLOW_CREDENTIALS", "ALLOW_CREDENTIALS"),
     True,
+)
+
+session_secret = _first_env("AUTH_SERVICE_SESSION_SECRET", "SESSION_SECRET")
+if not session_secret:
+    session_secret = os.getenv("JWT_SECRET", "dev-session-secret")
+
+session_cookie_name = _first_env(
+    "AUTH_SERVICE_SESSION_COOKIE_NAME",
+    "SESSION_COOKIE_NAME",
+) or "session"
+session_cookie_domain = _first_env(
+    "AUTH_SERVICE_SESSION_COOKIE_DOMAIN",
+    "SESSION_COOKIE_DOMAIN",
+)
+session_cookie_path = _first_env(
+    "AUTH_SERVICE_SESSION_COOKIE_PATH",
+    "SESSION_COOKIE_PATH",
+) or (root_path or "/")
+session_same_site = (
+    _first_env(
+        "AUTH_SERVICE_SESSION_COOKIE_SAMESITE",
+        "SESSION_COOKIE_SAMESITE",
+    )
+    or "none"
+).lower()
+if session_same_site not in {"lax", "strict", "none"}:
+    session_same_site = "none"
+session_https_only = _parse_env_bool(
+    _first_env(
+        "AUTH_SERVICE_SESSION_COOKIE_SECURE",
+        "SESSION_COOKIE_SECURE",
+    ),
+    False,
+)
+session_max_age_env = _first_env(
+    "AUTH_SERVICE_SESSION_MAX_AGE",
+    "SESSION_MAX_AGE",
+)
+session_max_age: int | None
+try:
+    session_max_age = int(session_max_age_env) if session_max_age_env else None
+except ValueError:
+    session_max_age = None
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=session_secret,
+    session_cookie=session_cookie_name,
+    domain=session_cookie_domain,
+    path=session_cookie_path,
+    same_site=session_same_site,
+    https_only=session_https_only,
+    max_age=session_max_age,
 )
 
 app.add_middleware(

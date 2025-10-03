@@ -27,9 +27,9 @@ native-down:
 
 demo-up:
 	docker compose up -d postgres redis
-	docker compose up -d --build streaming streaming_gateway market_data order_router algo_engine \
-	reports alert_engine notification_service inplay web_dashboard auth_service user_service \
-	prometheus grafana
+	docker compose up -d --build auth_service user_service streaming streaming_gateway market_data \
+		order_router algo_engine reports alert_engine notification_service inplay web_dashboard \
+		prometheus grafana
 
 demo-down:
 	docker compose down -v
@@ -55,6 +55,13 @@ e2e-sh:
 web_dashboard-e2e:
 	python -m playwright install --with-deps chromium firefox
 	python -m pytest services/web_dashboard/tests/e2e
+
+fix-makefile:
+	@python scripts/dev/fix_make_tabs.py Makefile
+
+# lance bootstrap dans le conteneur (robuste)
+demo-bootstrap:
+	docker compose exec auth_service python /app/scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
 
 migrate-generate:
 	@if [ -z "$(message)" ]; then \
