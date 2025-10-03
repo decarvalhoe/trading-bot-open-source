@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from typing_extensions import Literal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -48,12 +50,31 @@ class BrokerCredentialStatus(BaseModel):
     api_key_masked: Optional[str] = None
     api_secret_masked: Optional[str] = None
     updated_at: Optional[datetime] = None
+    last_test_status: Optional[str] = None
+    last_tested_at: Optional[datetime] = None
 
 
 class BrokerCredentialsResponse(BaseModel):
     """Collection of broker credential statuses."""
 
     credentials: List[BrokerCredentialStatus] = Field(default_factory=list)
+
+
+class ApiCredentialTestRequest(BaseModel):
+    """Payload accepted when testing broker API credentials."""
+
+    broker: str = Field(min_length=1)
+    api_key: Optional[str] = Field(default=None, max_length=4096)
+    api_secret: Optional[str] = Field(default=None, max_length=4096)
+
+
+class ApiCredentialTestResponse(BaseModel):
+    """Result of a broker credential test."""
+
+    broker: str
+    status: Literal["ok", "unauthorized", "network_error"]
+    tested_at: datetime
+    message: Optional[str] = None
 
 
 class UserCreate(BaseModel):
@@ -133,6 +154,8 @@ __all__ = [
     "BrokerCredentialsResponse",
     "BrokerCredentialsUpdate",
     "BrokerCredentialUpdate",
+    "ApiCredentialTestRequest",
+    "ApiCredentialTestResponse",
     "OnboardingProgressResponse",
     "OnboardingStep",
     "PreferencesResponse",

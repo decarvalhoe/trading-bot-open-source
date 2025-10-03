@@ -223,8 +223,8 @@ def test_manage_broker_credentials(client, session_factory, broker_encryption_ke
     }
 
     try:
-        create_resp = client.put(
-            "/users/me/broker-credentials",
+        create_resp = client.post(
+            "/users/me/api-credentials",
             json=initial_payload,
             headers=headers,
         )
@@ -238,14 +238,15 @@ def test_manage_broker_credentials(client, session_factory, broker_encryption_ke
         assert binance_entry["has_api_secret"] is True
         assert binance_entry["api_key_masked"].endswith("1234")
         assert binance_entry["api_secret_masked"].endswith("9876")
+        assert binance_entry["last_test_status"] is None
 
-        get_resp = client.get("/users/me/broker-credentials", headers=headers)
+        get_resp = client.get("/users/me/api-credentials", headers=headers)
         assert get_resp.status_code == 200
         listed = get_resp.json()
         assert len(listed["credentials"]) == 2
 
         with session_factory() as check_session:
-            stored = check_session.scalars(select(main.UserBrokerCredential)).all()
+            stored = check_session.scalars(select(main.ApiCredential)).all()
             assert len(stored) == 2
             cipher = main._get_broker_credentials_cipher()
             decoded = {
@@ -262,8 +263,42 @@ def test_manage_broker_credentials(client, session_factory, broker_encryption_ke
         assert decoded["binance"]["api_key"] == "binance-api-key-1234"
         assert decoded["binance"]["api_secret"] == "binance-api-secret-9876"
 
+        test_ok = client.post(
+            "/users/me/api-credentials/test",
+            json={"broker": "binance"},
+            headers=headers,
+        )
+        assert test_ok.status_code == 200
+        ok_payload = test_ok.json()
+        assert ok_payload["status"] == "ok"
+        assert ok_payload["broker"] == "binance"
+
+        unauthorized = client.post(
+            "/users/me/api-credentials/test",
+            json={
+                "broker": "binance",
+                "api_key": "BINANCE-INVALID",
+                "api_secret": "super-invalid",
+            },
+            headers=headers,
+        )
+        assert unauthorized.status_code == 200
+        assert unauthorized.json()["status"] == "unauthorized"
+
+        network = client.post(
+            "/users/me/api-credentials/test",
+            json={
+                "broker": "kraken",
+                "api_key": "demo",
+                "api_secret": "demo",
+            },
+            headers=headers,
+        )
+        assert network.status_code == 200
+        assert network.json()["status"] == "network_error"
+
         update_resp = client.put(
-            "/users/me/broker-credentials",
+            "/users/me/api-credentials",
             json={
                 "credentials": [
                     {"broker": "binance", "api_secret": "binance-api-secret-0000"}
@@ -278,19 +313,15 @@ def test_manage_broker_credentials(client, session_factory, broker_encryption_ke
         )
         assert binance_after["api_key_masked"].endswith("1234")
         assert binance_after["api_secret_masked"].endswith("0000")
+        assert binance_after["last_test_status"] is None
 
-        clear_resp = client.put(
-            "/users/me/broker-credentials",
-            json={
-                "credentials": [
-                    {"broker": "ibkr", "api_key": None, "api_secret": None}
-                ]
-            },
+        clear_resp = client.delete(
+            "/users/me/api-credentials/ibkr",
             headers=headers,
         )
-        assert clear_resp.status_code == 200
-        cleared_payload = clear_resp.json()
-        assert {item["broker"] for item in cleared_payload["credentials"]} == {"binance"}
+        assert clear_resp.status_code == 204
+        remaining = client.get("/users/me/api-credentials", headers=headers).json()
+        assert {item["broker"] for item in remaining["credentials"]} == {"binance"}
     finally:
         app.dependency_overrides.pop(main.get_entitlements, None)
 
@@ -365,37 +396,37 @@ def test_onboarding_progress_lifecycle(client, session_factory):
     get_resp = client.get("/users/me/onboarding", headers=headers)
     assert get_resp.status_code == 200
     payload = get_resp.json()
-    assert payload["current_step"] == "connect-broker"
+    assert payload["current_step"] == "account-profile"
     assert payload["completed_steps"] == []
     assert payload["is_complete"] is False
     assert len(payload["steps"]) == 3
 
     complete_resp = client.post(
-        "/users/me/onboarding/steps/connect-broker",
+        "/users/me/onboarding/steps/account-profile",
         headers=headers,
     )
     assert complete_resp.status_code == 200
     after_first = complete_resp.json()
-    assert after_first["completed_steps"] == ["connect-broker"]
-    assert after_first["current_step"] == "create-strategy"
+    assert after_first["completed_steps"] == ["account-profile"]
+    assert after_first["current_step"] == "api-keys"
 
     second_resp = client.post(
-        "/users/me/onboarding/steps/create-strategy",
+        "/users/me/onboarding/steps/api-keys",
         headers=headers,
     )
     assert second_resp.status_code == 200
-    assert second_resp.json()["current_step"] == "run-first-test"
+    assert second_resp.json()["current_step"] == "execution-mode"
 
     final_resp = client.post(
-        "/users/me/onboarding/steps/run-first-test",
+        "/users/me/onboarding/steps/execution-mode",
         headers=headers,
     )
     assert final_resp.status_code == 200
     final_payload = final_resp.json()
     assert final_payload["completed_steps"] == [
-        "connect-broker",
-        "create-strategy",
-        "run-first-test",
+        "account-profile",
+        "api-keys",
+        "execution-mode",
     ]
     assert final_payload["current_step"] is None
     assert final_payload["is_complete"] is True
@@ -404,13 +435,13 @@ def test_onboarding_progress_lifecycle(client, session_factory):
     assert reset_resp.status_code == 200
     reset_payload = reset_resp.json()
     assert reset_payload["completed_steps"] == []
-    assert reset_payload["current_step"] == "connect-broker"
+    assert reset_payload["current_step"] == "account-profile"
     assert reset_payload["restarted_at"] is not None
 
     with session_factory() as session:
         row = session.get(OnboardingProgress, user_id)
         assert row is not None
-        assert row.current_step == "connect-broker"
+        assert row.current_step == "account-profile"
         assert row.completed_steps == []
         assert row.restarted_at is not None
 

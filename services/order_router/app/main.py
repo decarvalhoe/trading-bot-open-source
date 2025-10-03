@@ -666,11 +666,11 @@ class OrderPersistenceError(Exception):
 
 @dataclass
 class RouterState:
-    mode: str = "paper"
+    mode: str = "dry_run"
     daily_notional_limit: float = 1_000_000.0
     notional_routed: float = 0.0
 
-    ALLOWED_MODES: Tuple[str, ...] = ("paper", "live", "dry_run")
+    ALLOWED_MODES: Tuple[str, ...] = ("sandbox", "live", "dry_run")
 
     def as_dict(self) -> Dict[str, float | str]:
         return {
@@ -678,6 +678,22 @@ class RouterState:
             "daily_notional_limit": self.daily_notional_limit,
             "notional_routed": self.notional_routed,
         }
+
+
+def _normalise_router_mode(value: str) -> str:
+    cleaned = (value or "").strip().lower()
+    if cleaned == "paper":
+        cleaned = "sandbox"
+    if cleaned not in RouterState.ALLOWED_MODES:
+        allowed = "', '".join(RouterState.ALLOWED_MODES)
+        raise ValueError(f"mode must be one of '{allowed}'")
+    return cleaned
+
+
+def _public_router_mode(value: str) -> str:
+    if value == "paper":
+        return "sandbox"
+    return value
 
 
 class OrderRouter:
@@ -708,10 +724,8 @@ class OrderRouter:
     def update_state(self, *, mode: Optional[str] = None, limit: Optional[float] = None) -> RouterState:
         with self._lock:
             if mode is not None:
-                if mode not in RouterState.ALLOWED_MODES:
-                    allowed = "', '".join(RouterState.ALLOWED_MODES)
-                    raise ValueError(f"mode must be one of '{allowed}'")
-                self._state.mode = mode
+                normalised = _normalise_router_mode(mode)
+                self._state.mode = normalised
             if limit is not None:
                 if limit <= 0:
                     raise ValueError("daily_notional_limit must be positive")
@@ -720,7 +734,7 @@ class OrderRouter:
 
     def current_mode(self) -> str:
         with self._lock:
-            return self._state.mode
+            return _public_router_mode(self._state.mode)
 
     def _apply_daily_limit(self, notional: float) -> None:
         with self._lock:
@@ -1362,8 +1376,17 @@ class RiskAlertResponse(BaseModel):
 
 
 class StateUpdatePayload(BaseModel):
-    mode: Optional[str] = Field(default=None, pattern="^(paper|live|dry_run)$")
+    mode: Optional[str] = Field(default=None, pattern="^(sandbox|paper|live|dry_run)$")
     daily_notional_limit: Optional[float] = Field(default=None, gt=0)
+
+
+class ExecutionModeResponse(BaseModel):
+    mode: str = Field(pattern="^(sandbox|dry_run|live)$")
+    allowed_modes: Tuple[str, str] = ("sandbox", "dry_run")
+
+
+class ExecutionModeUpdate(BaseModel):
+    mode: str = Field(pattern="^(sandbox|dry_run)$")
 
 
 @app.get("/health")
@@ -1795,6 +1818,24 @@ def get_risk_alerts() -> List[RiskAlertResponse]:
         )
         for alert in router.risk_alerts()
     ]
+
+
+@app.get("/mode", response_model=ExecutionModeResponse)
+def get_execution_mode() -> ExecutionModeResponse:
+    """Return the current execution mode for the router."""
+
+    return ExecutionModeResponse(mode=router.current_mode())
+
+
+@app.post("/mode", response_model=ExecutionModeResponse)
+def set_execution_mode(payload: ExecutionModeUpdate) -> ExecutionModeResponse:
+    """Update the execution mode, restricting choices to sandbox or dry-run."""
+
+    try:
+        router.update_state(mode=payload.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return ExecutionModeResponse(mode=router.current_mode())
 
 
 @app.get("/state")

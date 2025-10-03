@@ -255,6 +255,14 @@ if (onboardingContainer) {
       stepTemplate={dataset.stepTemplate || ""}
       resetEndpoint={dataset.resetEndpoint || ""}
       userId={dataset.userId || ""}
+      credentialsEndpoint={dataset.credentialsEndpoint || ""}
+      credentialsSubmitEndpoint={
+        dataset.credentialsSubmitEndpoint || dataset.credentialsEndpoint || ""
+      }
+      credentialsTestEndpoint={dataset.credentialsTestEndpoint || ""}
+      credentialsDeleteTemplate={dataset.credentialsDeleteTemplate || ""}
+      modeEndpoint={dataset.modeEndpoint || ""}
+      modeUpdateEndpoint={dataset.modeUpdateEndpoint || dataset.modeEndpoint || ""}
     />
   );
 }

@@ -212,6 +212,38 @@ async def _forward_user_service_request(
         return {}
 
 
+async def _forward_order_router_request(
+    method: str,
+    path: str,
+    *,
+    json: dict[str, Any] | None = None,
+    error_detail: str | None = None,
+) -> dict[str, object]:
+    base_url = ORDER_ROUTER_BASE_URL.rstrip("/") + "/"
+    target_url = urljoin(base_url, path.lstrip("/"))
+    headers = {"Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=ORDER_ROUTER_TIMEOUT_SECONDS) as client:
+            response = await client.request(
+                method.upper(), target_url, headers=headers, json=json
+            )
+    except httpx.HTTPError as error:  # pragma: no cover - network failure
+        detail = error_detail or "Routeur d'ordres indisponible."
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from error
+
+    if response.status_code >= 400:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"detail": response.text or "Réponse invalide du routeur d'ordres."}
+        raise HTTPException(status_code=response.status_code, detail=payload)
+
+    try:
+        return response.json()
+    except ValueError:
+        return {}
+
+
 async def _forward_onboarding_request(method: str, path: str, user_id: int) -> dict[str, object]:
     return await _forward_user_service_request(
         method,
@@ -289,12 +321,42 @@ class BrokerCredentialPayload(BaseModel):
     api_key_masked: str | None = None
     api_secret_masked: str | None = None
     updated_at: datetime | None = None
+    last_test_status: str | None = None
+    last_tested_at: datetime | None = None
 
     model_config = ConfigDict(extra="ignore")
 
 
 class BrokerCredentialsPayload(BaseModel):
     credentials: List[BrokerCredentialPayload] = Field(default_factory=list)
+
+
+class ApiCredentialTestRequestPayload(BaseModel):
+    broker: str = Field(min_length=1)
+    api_key: str | None = None
+    api_secret: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class ApiCredentialTestResultPayload(BaseModel):
+    broker: str
+    status: str
+    tested_at: datetime | None = None
+    message: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class ExecutionModePayload(BaseModel):
+    mode: str = Field(pattern="^(sandbox|dry_run|live)$")
+    allowed_modes: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class ExecutionModeUpdatePayload(BaseModel):
+    mode: str = Field(pattern="^(sandbox|dry_run)$")
 
 
 def _auth_service_url(path: str) -> str:
@@ -1242,6 +1304,144 @@ async def api_reset_onboarding_progress(request: Request) -> dict[str, object]:
 
 
 @app.get(
+    "/api/onboarding/api-credentials",
+    response_model=BrokerCredentialsPayload,
+    name="api_onboarding_get_credentials",
+)
+async def api_onboarding_get_credentials(request: Request) -> dict[str, object]:
+    """Expose broker API credentials within the onboarding flow."""
+
+    user_id = _extract_dashboard_user_id(request)
+    payload = await _forward_user_service_request(
+        "GET",
+        "users/me/api-credentials",
+        user_id,
+        error_detail="Service utilisateur indisponible pour les identifiants broker.",
+    )
+    model = BrokerCredentialsPayload.model_validate(payload)
+    return model.model_dump(mode="json")
+
+
+@app.post(
+    "/api/onboarding/api-credentials",
+    response_model=BrokerCredentialsPayload,
+    name="api_onboarding_create_credentials",
+)
+async def api_onboarding_create_credentials(
+    payload: BrokerCredentialsUpdateRequest, request: Request
+) -> dict[str, object]:
+    """Create broker API credentials from the onboarding wizard."""
+
+    user_id = _extract_dashboard_user_id(request)
+    result = await _forward_user_service_request(
+        "POST",
+        "users/me/api-credentials",
+        user_id,
+        json=payload.model_dump(exclude_none=True),
+        error_detail="Service utilisateur indisponible pour les identifiants broker.",
+    )
+    model = BrokerCredentialsPayload.model_validate(result)
+    return model.model_dump(mode="json")
+
+
+@app.put(
+    "/api/onboarding/api-credentials",
+    response_model=BrokerCredentialsPayload,
+    name="api_onboarding_update_credentials",
+)
+async def api_onboarding_update_credentials(
+    payload: BrokerCredentialsUpdateRequest, request: Request
+) -> dict[str, object]:
+    """Update broker API credentials for the onboarding wizard."""
+
+    user_id = _extract_dashboard_user_id(request)
+    result = await _forward_user_service_request(
+        "PUT",
+        "users/me/api-credentials",
+        user_id,
+        json=payload.model_dump(exclude_none=True),
+        error_detail="Service utilisateur indisponible pour les identifiants broker.",
+    )
+    model = BrokerCredentialsPayload.model_validate(result)
+    return model.model_dump(mode="json")
+
+
+@app.delete(
+    "/api/onboarding/api-credentials/{broker}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    name="api_onboarding_delete_credentials",
+)
+async def api_onboarding_delete_credentials(broker: str, request: Request) -> Response:
+    """Remove a broker credential entry from the onboarding wizard."""
+
+    user_id = _extract_dashboard_user_id(request)
+    await _forward_user_service_request(
+        "DELETE",
+        f"users/me/api-credentials/{broker}",
+        user_id,
+        error_detail="Service utilisateur indisponible pour les identifiants broker.",
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/api/onboarding/api-credentials/test",
+    response_model=ApiCredentialTestResultPayload,
+    name="api_onboarding_test_credentials",
+)
+async def api_onboarding_test_credentials(
+    payload: ApiCredentialTestRequestPayload, request: Request
+) -> dict[str, object]:
+    """Trigger a credential connectivity test through the user service."""
+
+    user_id = _extract_dashboard_user_id(request)
+    result = await _forward_user_service_request(
+        "POST",
+        "users/me/api-credentials/test",
+        user_id,
+        json=payload.model_dump(exclude_none=True),
+        error_detail="Service utilisateur indisponible pour les identifiants broker.",
+    )
+    model = ApiCredentialTestResultPayload.model_validate(result)
+    return model.model_dump(mode="json")
+
+
+@app.get(
+    "/api/onboarding/mode",
+    response_model=ExecutionModePayload,
+    name="api_onboarding_get_mode",
+)
+async def api_onboarding_get_mode() -> dict[str, object]:
+    """Expose the current execution mode from the order router."""
+
+    payload = await _forward_order_router_request(
+        "GET",
+        "mode",
+        error_detail="Routeur d'ordres indisponible pour récupérer le mode.",
+    )
+    model = ExecutionModePayload.model_validate(payload)
+    return model.model_dump(mode="json")
+
+
+@app.post(
+    "/api/onboarding/mode",
+    response_model=ExecutionModePayload,
+    name="api_onboarding_set_mode",
+)
+async def api_onboarding_set_mode(payload: ExecutionModeUpdatePayload) -> dict[str, object]:
+    """Update the execution mode through the order router proxy."""
+
+    result = await _forward_order_router_request(
+        "POST",
+        "mode",
+        json={"mode": payload.mode},
+        error_detail="Routeur d'ordres indisponible pour basculer de mode.",
+    )
+    model = ExecutionModePayload.model_validate(result)
+    return model.model_dump(mode="json")
+
+
+@app.get(
     "/api/account/broker-credentials",
     response_model=BrokerCredentialsPayload,
     name="api_get_broker_credentials",
@@ -1297,6 +1497,16 @@ def render_dashboard(request: Request) -> HTMLResponse:
         ),
         "reset_endpoint": request.url_for("api_reset_onboarding_progress"),
         "user_id": str(user_id),
+        "credentials_endpoint": request.url_for("api_onboarding_get_credentials"),
+        "credentials_submit_endpoint": request.url_for(
+            "api_onboarding_update_credentials"
+        ),
+        "credentials_test_endpoint": request.url_for("api_onboarding_test_credentials"),
+        "credentials_delete_template": request.url_for(
+            "api_onboarding_delete_credentials", broker="__BROKER__"
+        ),
+        "mode_endpoint": request.url_for("api_onboarding_get_mode"),
+        "mode_update_endpoint": request.url_for("api_onboarding_set_mode"),
     }
     return templates.TemplateResponse(
         "dashboard.html",
