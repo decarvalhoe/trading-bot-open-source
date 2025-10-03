@@ -53,15 +53,7 @@ AUTH_SKIP_ENDPOINTS = (
 )
 
 
-app = FastAPI(title="Auth Service", version="0.1.0")
-install_entitlements_middleware(
-    app,
-    required_capabilities=["can.use_auth"],
-    required_quotas={"quota.active_algos": 1},
-    skip_paths=AUTH_SKIP_ENDPOINTS,
-)
-app.add_middleware(RequestContextMiddleware, service_name="auth-service")
-setup_metrics(app, service_name="auth-service")
+DOCS_ENDPOINTS = ("/docs", "/redoc", "/openapi.json")
 
 
 def _parse_env_list(value: str | None, default: list[str]) -> list[str]:
@@ -80,6 +72,29 @@ def _parse_env_bool(value: str | None, default: bool) -> bool:
     if lowered in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+enable_docs = _parse_env_bool(os.getenv("AUTH_SERVICE_ENABLE_DOCS"), True)
+docs_url = "/docs" if enable_docs else None
+redoc_url = "/redoc" if enable_docs else None
+openapi_url = "/openapi.json" if enable_docs else None
+
+
+app = FastAPI(
+    title="Auth Service",
+    version="0.1.0",
+    docs_url=docs_url,
+    redoc_url=redoc_url,
+    openapi_url=openapi_url,
+)
+install_entitlements_middleware(
+    app,
+    required_capabilities=["can.use_auth"],
+    required_quotas={"quota.active_algos": 1},
+    skip_paths=AUTH_SKIP_ENDPOINTS + (DOCS_ENDPOINTS if enable_docs else ()),
+)
+app.add_middleware(RequestContextMiddleware, service_name="auth-service")
+setup_metrics(app, service_name="auth-service")
 
 
 cors_allow_origins = _parse_env_list(
