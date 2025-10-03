@@ -7,11 +7,11 @@ import json
 import math
 import os
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from statistics import mean, stdev
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 from urllib.parse import quote, urljoin
 
 import httpx
@@ -84,6 +84,25 @@ MARKETPLACE_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_MARKETPLACE_TIMEOUT
 FOLLOWER_FALLBACK_MESSAGE = (
     "Marketplace indisponible pour récupérer vos copies."
 )
+
+
+class MarketplaceServiceError(RuntimeError):
+    """Raised when the marketplace service cannot fulfil a request."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        context: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.context = context or {}
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def _fallback_portfolios() -> List[Portfolio]:
@@ -536,6 +555,15 @@ def _coerce_optional_float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
 
 
 def _format_report_type(value: object) -> str:
@@ -1435,6 +1463,302 @@ def load_follower_dashboard(viewer_id: str) -> FollowerDashboardContext:
             )
 
     return FollowerDashboardContext(copies=snapshots, viewer_id=viewer_id)
+
+
+def _build_marketplace_url(path: str) -> str:
+    base_url = _normalise_base_url(MARKETPLACE_BASE_URL)
+    clean_path = path.lstrip("/")
+    return urljoin(base_url, clean_path)
+
+
+def _extract_marketplace_error_payload(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except ValueError:
+        return response.text
+
+
+def _build_marketplace_error(
+    *,
+    message: str,
+    status_code: int | None = None,
+    url: str | None = None,
+    payload: object | None = None,
+) -> MarketplaceServiceError:
+    context: dict[str, object] = {}
+    if url:
+        context["url"] = url
+    if payload is not None:
+        context["payload"] = payload
+    if status_code is not None:
+        context["status_code"] = status_code
+    return MarketplaceServiceError(message, status_code=status_code, context=context)
+
+
+def _interpret_marketplace_error(
+    response: httpx.Response, *, url: str
+) -> MarketplaceServiceError:
+    payload = _extract_marketplace_error_payload(response)
+    message = "Erreur renvoyée par le service marketplace."
+    if isinstance(payload, dict):
+        for key in ("detail", "message", "error"):
+            candidate = payload.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                message = candidate.strip()
+                break
+    elif isinstance(payload, str) and payload.strip():
+        message = payload.strip()
+    return _build_marketplace_error(
+        message=message, status_code=response.status_code, url=url, payload=payload
+    )
+
+
+async def _request_marketplace_json(
+    path: str, *, params: Mapping[str, object] | None = None
+) -> object:
+    url = _build_marketplace_url(path)
+    query_params = {
+        key: value
+        for key, value in (params or {}).items()
+        if value not in (None, "")
+    }
+    try:
+        async with httpx.AsyncClient(timeout=MARKETPLACE_TIMEOUT_SECONDS) as client:
+            response = await client.get(
+                url,
+                params=query_params or None,
+                headers={"Accept": "application/json"},
+            )
+    except httpx.TimeoutException as exc:
+        message = "La marketplace n'a pas répondu dans le délai imparti."
+        raise _build_marketplace_error(
+            message=message,
+            url=url,
+            payload={"timeout_seconds": MARKETPLACE_TIMEOUT_SECONDS},
+        ) from exc
+    except httpx.HTTPError as exc:
+        message = "Impossible de contacter le service marketplace."
+        raise _build_marketplace_error(
+            message=message,
+            url=url,
+            payload={"error": str(exc)},
+        ) from exc
+
+    if response.status_code >= 400:
+        raise _interpret_marketplace_error(response, url=url)
+
+    try:
+        return response.json()
+    except ValueError as exc:
+        message = "Réponse JSON invalide reçue depuis la marketplace."
+        raise _build_marketplace_error(message=message, url=url) from exc
+
+
+def _derive_price_cents(entry: Mapping[str, Any]) -> int:
+    raw_price = entry.get("price_cents")
+    if raw_price is not None:
+        try:
+            return max(0, int(round(float(raw_price))))
+        except (TypeError, ValueError):
+            pass
+    for key in ("price_usd", "price", "monthly_price", "amount"):
+        candidate = entry.get(key)
+        if candidate is None:
+            continue
+        try:
+            value = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        cents = int(round(value * 100))
+        if cents >= 0:
+            return cents
+    return 0
+
+
+def _normalise_currency(value: object) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip().upper()
+    return "USD"
+
+
+def _normalise_listing_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
+    listing_id = entry.get("id", entry.get("listing_id"))
+    listing_id_int = _coerce_int(listing_id, default=0)
+
+    owner_value = (
+        entry.get("owner_id")
+        or entry.get("leader_id")
+        or entry.get("owner")
+        or entry.get("creator_id")
+    )
+    owner_id = str(owner_value).strip() if owner_value not in (None, "") else "inconnu"
+
+    strategy_name = entry.get("strategy_name") or entry.get("name")
+    if not isinstance(strategy_name, str) or not strategy_name.strip():
+        strategy_name = "Stratégie sans nom"
+    else:
+        strategy_name = strategy_name.strip()
+
+    description = entry.get("description")
+    if not isinstance(description, str) or not description.strip():
+        description = None
+    else:
+        description = description.strip()
+
+    raw_reviews = entry.get("reviews")
+    if isinstance(raw_reviews, list):
+        computed_count = len(raw_reviews)
+        computed_average = [
+            _coerce_optional_float(item.get("rating"))
+            for item in raw_reviews
+            if isinstance(item, Mapping)
+        ]
+        ratings = [value for value in computed_average if value is not None]
+        average_from_reviews = (
+            round(sum(ratings) / len(ratings), 2) if ratings else None
+        )
+    else:
+        computed_count = 0
+        average_from_reviews = None
+
+    reviews_count = entry.get("reviews_count")
+    reviews_count_int = _coerce_int(reviews_count, default=computed_count)
+    if reviews_count_int == 0 and computed_count:
+        reviews_count_int = computed_count
+
+    average_rating = (
+        _coerce_optional_float(entry.get("average_rating") or entry.get("rating"))
+        or average_from_reviews
+    )
+    if average_rating is not None:
+        average_rating = round(float(average_rating), 2)
+
+    performance_score = _coerce_optional_float(
+        entry.get("performance_score") or entry.get("performance")
+    )
+    risk_score = _coerce_optional_float(entry.get("risk_score") or entry.get("risk"))
+
+    return {
+        "id": listing_id_int,
+        "strategy_name": strategy_name,
+        "owner_id": owner_id,
+        "price_cents": _derive_price_cents(entry),
+        "currency": _normalise_currency(entry.get("currency")),
+        "description": description,
+        "performance_score": performance_score,
+        "risk_score": risk_score,
+        "average_rating": average_rating,
+        "reviews_count": reviews_count_int,
+    }
+
+
+def _format_timestamp_for_response(timestamp: datetime | None) -> str:
+    if timestamp is None:
+        return _EPOCH.isoformat()
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc).isoformat()
+
+
+def _normalise_review_entry(
+    entry: Mapping[str, Any], *, listing_id: int, index: int
+) -> dict[str, Any]:
+    review_identifier = (
+        entry.get("id")
+        or entry.get("review_id")
+        or entry.get("uuid")
+        or entry.get("reference")
+    )
+    if review_identifier in (None, ""):
+        review_identifier = f"review-{listing_id}-{index}"
+    review_id = str(review_identifier)
+
+    raw_rating = entry.get("rating") or entry.get("score")
+    rating_value = _coerce_optional_float(raw_rating)
+    if rating_value is None:
+        rating_value = 0.0
+    rating_value = min(5.0, max(0.0, float(rating_value)))
+    rating_value = round(rating_value, 2)
+
+    comment = entry.get("comment") or entry.get("body") or entry.get("content")
+    if isinstance(comment, str):
+        comment = comment.strip() or None
+    else:
+        comment = None
+
+    reviewer = entry.get("reviewer_id") or entry.get("user_id") or entry.get("author_id")
+    reviewer_id = str(reviewer).strip() if reviewer not in (None, "") else None
+
+    timestamp = (
+        entry.get("created_at")
+        or entry.get("createdAt")
+        or entry.get("submitted_at")
+        or entry.get("timestamp")
+    )
+    parsed_timestamp = _parse_timestamp(timestamp)
+
+    return {
+        "id": review_id,
+        "listing_id": listing_id,
+        "rating": rating_value,
+        "comment": comment,
+        "created_at": _format_timestamp_for_response(parsed_timestamp),
+        "reviewer_id": reviewer_id,
+    }
+
+
+async def fetch_marketplace_listings(
+    filters: Mapping[str, object] | None = None,
+) -> list[dict[str, Any]]:
+    payload = await _request_marketplace_json(
+        "marketplace/listings", params=filters or {}
+    )
+    items: list[Any]
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        for key in ("items", "results", "data"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                items = candidate
+                break
+        else:
+            items = []
+    else:
+        items = []
+
+    listings: list[dict[str, Any]] = []
+    for entry in items:
+        if isinstance(entry, Mapping):
+            listings.append(_normalise_listing_entry(entry))
+    return listings
+
+
+async def fetch_marketplace_reviews(listing_id: int) -> list[dict[str, Any]]:
+    payload = await _request_marketplace_json(
+        f"marketplace/listings/{listing_id}/reviews"
+    )
+    items: list[Any]
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        for key in ("items", "results", "data"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                items = candidate
+                break
+        else:
+            items = []
+    else:
+        items = []
+
+    reviews: list[dict[str, Any]] = []
+    for index, entry in enumerate(items):
+        if isinstance(entry, Mapping):
+            reviews.append(
+                _normalise_review_entry(entry, listing_id=listing_id, index=index)
+            )
+    return reviews
 
 
 def load_portfolio_history() -> List[PortfolioHistorySeries]:

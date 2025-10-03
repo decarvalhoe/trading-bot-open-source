@@ -36,6 +36,9 @@ from libs.alert_events import AlertEventBase, AlertEventRepository
 from .data import (
     ORDER_ROUTER_BASE_URL,
     ORDER_ROUTER_TIMEOUT_SECONDS,
+    MarketplaceServiceError,
+    fetch_marketplace_listings,
+    fetch_marketplace_reviews,
     load_dashboard_context,
     load_follower_dashboard,
     load_portfolio_history,
@@ -1044,6 +1047,55 @@ def render_marketplace(request: Request) -> HTMLResponse:
             },
         ),
     )
+
+
+def _format_marketplace_error(error: MarketplaceServiceError) -> dict[str, object]:
+    detail: dict[str, object] = {"message": error.message}
+    if error.context:
+        detail["context"] = error.context
+    return detail
+
+
+@app.get("/marketplace/listings", name="list_marketplace_listings")
+async def list_marketplace_listings(
+    search: str | None = Query(default=None, description="Recherche textuelle"),
+    min_performance: float | None = Query(
+        default=None, ge=0.0, description="Performance minimale"
+    ),
+    max_risk: float | None = Query(default=None, ge=0.0, description="Risque maximal"),
+    max_price: float | None = Query(
+        default=None, ge=0.0, description="Prix maximal en devise locale"
+    ),
+    sort: str = Query(default="created_desc", description="Clé de tri"),
+) -> list[dict[str, object]]:
+    """Proxy listings from the marketplace service."""
+
+    filters = {
+        "search": search,
+        "min_performance": min_performance,
+        "max_risk": max_risk,
+        "max_price": max_price,
+        "sort": sort,
+    }
+    try:
+        return await fetch_marketplace_listings(filters)
+    except MarketplaceServiceError as error:
+        status_code = error.status_code or status.HTTP_502_BAD_GATEWAY
+        raise HTTPException(status_code=status_code, detail=_format_marketplace_error(error))
+
+
+@app.get(
+    "/marketplace/listings/{listing_id}/reviews",
+    name="list_marketplace_listing_reviews",
+)
+async def list_marketplace_listing_reviews(listing_id: int) -> list[dict[str, object]]:
+    """Proxy listing reviews from the marketplace service."""
+
+    try:
+        return await fetch_marketplace_reviews(listing_id)
+    except MarketplaceServiceError as error:
+        status_code = error.status_code or status.HTTP_502_BAD_GATEWAY
+        raise HTTPException(status_code=status_code, detail=_format_marketplace_error(error))
 
 
 def _render_strategies_page(
