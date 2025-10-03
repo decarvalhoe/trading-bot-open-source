@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi.testclient import TestClient
 
@@ -186,3 +187,69 @@ def test_ibkr_symbol_search_requires_pattern() -> None:
 
     assert response.status_code == 400
     assert "pattern" in response.json()["detail"]
+
+
+class StreamingConnectorStub(_BaseConnector):
+    def __init__(self, sequences: list[list[Any]]) -> None:
+        super().__init__()
+        self._sequences = sequences
+        self.stream_calls = 0
+        self.stream_symbols: list[str] = []
+
+    async def stream_trades(self, symbol: str) -> AsyncIterator[Any]:
+        self.stream_calls += 1
+        self.stream_symbols.append(symbol)
+        index = self.stream_calls - 1
+        sequence = self._sequences[index] if index < len(self._sequences) else []
+        for item in sequence:
+            await asyncio.sleep(0)
+            if isinstance(item, Exception):
+                raise item
+            yield item
+        while True:
+            await asyncio.sleep(0.05)
+
+
+def test_market_data_stream_forwards_trades() -> None:
+    connector = StreamingConnectorStub(
+        [[{"trade_id": 1, "price": 100.0}, {"trade_id": 2, "price": 101.5}]]
+    )
+
+    app.dependency_overrides[get_binance_adapter] = lambda: connector
+    app.dependency_overrides[get_ibkr_adapter] = lambda: connector
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/market-data/stream?symbol=BTCUSDT") as websocket:
+            first = websocket.receive_json()
+            second = websocket.receive_json()
+
+    app.dependency_overrides.clear()
+
+    assert first["trade_id"] == 1
+    assert second["trade_id"] == 2
+    assert connector.stream_calls == 1
+    assert connector.stream_symbols == ["BTCUSDT"]
+
+
+def test_market_data_stream_recovers_after_error() -> None:
+    connector = StreamingConnectorStub(
+        [[{"sequence": 1}, ConnectionError("stream dropped")], [{"sequence": 2}]]
+    )
+
+    app.dependency_overrides[get_binance_adapter] = lambda: connector
+    app.dependency_overrides[get_ibkr_adapter] = lambda: connector
+
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/market-data/stream",
+            params={"symbol": "ES", "venue": ExecutionVenue.IBKR_PAPER.value},
+        ) as websocket:
+            first = websocket.receive_json()
+            second = websocket.receive_json()
+
+    app.dependency_overrides.clear()
+
+    assert first["sequence"] == 1
+    assert second["sequence"] == 2
+    assert connector.stream_calls >= 2
+    assert all(symbol == "ES" for symbol in connector.stream_symbols)

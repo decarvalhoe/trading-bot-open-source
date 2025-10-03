@@ -8,11 +8,22 @@ export default defineConfig({
     emptyOutDir: false,
     assetsDir: ".",
     rollupOptions: {
-      input: "src/main.jsx",
+      input: {
+        dashboard: "src/main.jsx",
+        account: "src/account/main.jsx"
+      },
       output: {
-        entryFileNames: "portfolio-chart.js",
-        chunkFileNames: "portfolio-chart.[hash].js",
-        assetFileNames: "portfolio-chart.[hash][extname]"
+        entryFileNames: (chunkInfo) => {
+          if (chunkInfo.name === "dashboard") {
+            return "portfolio-chart.js";
+          }
+          if (chunkInfo.name === "account") {
+            return "account-app.js";
+          }
+          return "[name].js";
+        },
+        chunkFileNames: "[name].[hash].js",
+        assetFileNames: "[name].[hash][extname]"
       }
     }
   },

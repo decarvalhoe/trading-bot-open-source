@@ -24,7 +24,10 @@ class Settings(BaseSettings):
         default_factory=_default_database_url,
         alias="MARKET_DATA_DATABASE_URL",
     )
-    tradingview_hmac_secret: str = Field(..., alias="TRADINGVIEW_HMAC_SECRET")
+    tradingview_hmac_secret: str = Field(
+        "demo-hmac-secret",
+        alias="TRADINGVIEW_HMAC_SECRET",
+    )
     binance_api_key: str | None = Field(None, alias="BINANCE_API_KEY")
     binance_api_secret: str | None = Field(None, alias="BINANCE_API_SECRET")
     ibkr_host: str = Field("127.0.0.1", alias="IBKR_HOST")

@@ -90,6 +90,13 @@ le backend FastAPI.
 
 La section « Setups en temps réel » propose un sélecteur de session (`Toutes les sessions`, `Londres`, `New York`, `Asie`). Le filtrage est appliqué côté navigateur et déclenche, si besoin, une requête `GET /inplay/watchlists/{id}?session=...` pour synchroniser l'instantané InPlay. Sans sélection particulière, toutes les sessions restent visibles et les mises à jour temps réel continuent d'être diffusées via le WebSocket.
 
+## Installation manuelle
+
+Pour lancer le service hors Docker, installez les dépendances Python via
+`pip install -r services/web_dashboard/requirements.txt`. Cette liste inclut désormais
+`python-multipart` (>=0.0.6) afin de permettre à FastAPI de parser les formulaires et
+fichiers envoyés par le designer de stratégies.
+
 ## Tests
 
 Deux familles de tests couvrent le service :

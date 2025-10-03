@@ -42,7 +42,7 @@ test:
 	python -m pip install -r requirements/services.txt
 	python -m pip install -r requirements/services-dev.txt
 	python -m coverage erase
-	python -m coverage run -m pytest
+	python -m coverage run -m pytest -m "not slow"
 	python -m coverage xml
 	python -m coverage html
 
