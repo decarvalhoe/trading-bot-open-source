@@ -111,9 +111,10 @@ AI_ASSISTANT_BASE_URL = os.getenv(
 )
 AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10.0"))
 DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
+USER_SERVICE_DEFAULT_BASE_URL = f"{default_service_url('user_service')}/"
 USER_SERVICE_BASE_URL = os.getenv(
     "WEB_DASHBOARD_USER_SERVICE_URL",
-    os.getenv("USER_SERVICE_URL", f"{default_service_url('user_service')}/"),
+    USER_SERVICE_DEFAULT_BASE_URL,
 )
 USER_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_USER_SERVICE_TIMEOUT", "5.0"))
 USER_SERVICE_JWT_SECRET = os.getenv(
@@ -136,13 +137,15 @@ def _env_bool(value: str | None, default: bool) -> bool:
 
 
 AUTH_SERVICE_DEFAULT_BASE_URL = f"{default_service_url('auth_service')}/"
-AUTH_SERVICE_BASE_URL = (
-    os.getenv("WEB_DASHBOARD_AUTH_SERVICE_URL")
-    or os.getenv("AUTH_SERVICE_URL")
-    or AUTH_SERVICE_DEFAULT_BASE_URL
+AUTH_SERVICE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_AUTH_SERVICE_URL",
+    AUTH_SERVICE_DEFAULT_BASE_URL,
 )
 AUTH_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AUTH_SERVICE_TIMEOUT", "5.0"))
-AUTH_PUBLIC_BASE_URL = os.getenv("AUTH_BASE_URL") or AUTH_SERVICE_BASE_URL
+AUTH_PUBLIC_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_AUTH_PUBLIC_URL",
+    AUTH_SERVICE_BASE_URL,
+)
 ACCESS_TOKEN_COOKIE_NAME = os.getenv("WEB_DASHBOARD_ACCESS_COOKIE", "dashboard_access_token")
 REFRESH_TOKEN_COOKIE_NAME = os.getenv("WEB_DASHBOARD_REFRESH_COOKIE", "dashboard_refresh_token")
 ACCESS_TOKEN_MAX_AGE = int(os.getenv("WEB_DASHBOARD_ACCESS_TOKEN_MAX_AGE", str(15 * 60)))
