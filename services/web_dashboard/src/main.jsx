@@ -7,6 +7,7 @@ import ReportsList from "./reports/ReportsList.jsx";
 import { AIStrategyAssistant } from "./strategies/assistant/index.js";
 import { StrategyDesigner, STRATEGY_PRESETS } from "./strategies/designer/index.js";
 import { StrategyBacktestConsole } from "./strategies/backtest/index.js";
+import { OneClickStrategyBuilder } from "./strategies/simple/index.js";
 import MarketplaceApp from "./marketplace/MarketplaceApp.jsx";
 import OnboardingApp from "./onboarding/OnboardingApp.jsx";
 import { I18nextProvider, useTranslation } from "react-i18next";
@@ -185,6 +186,33 @@ if (strategyDesignerRoot) {
       defaultFormat={initialFormat}
       presets={presetCatalog}
       initialStrategy={initialStrategy}
+    />
+  );
+}
+
+const oneClickRoot = document.getElementById("strategy-one-click-root");
+if (oneClickRoot) {
+  const dataset = oneClickRoot.dataset || {};
+  let defaults = {};
+  if (dataset.defaults) {
+    try {
+      const parsed = JSON.parse(dataset.defaults);
+      if (parsed && typeof parsed === "object") {
+        defaults = parsed;
+      }
+    } catch (error) {
+      console.error("Impossible de parser les valeurs par défaut de la stratégie one-click", error);
+    }
+  }
+  const root = createRoot(oneClickRoot);
+  renderWithI18n(
+    root,
+    <OneClickStrategyBuilder
+      saveEndpoint={dataset.saveEndpoint || "/strategies/save"}
+      runEndpoint={dataset.runEndpoint || "/backtests/run"}
+      historyEndpointTemplate={dataset.historyEndpointTemplate || ""}
+      backtestDetailTemplate={dataset.backtestDetailTemplate || ""}
+      defaults={defaults}
     />
   );
 }

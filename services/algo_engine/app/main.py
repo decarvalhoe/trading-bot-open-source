@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -262,6 +263,10 @@ class BacktestPayload(BaseModel):
     market_data: List[Dict[str, Any]]
     initial_balance: float = Field(default=10_000.0, gt=0)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BacktestCreatePayload(BacktestPayload):
+    strategy_id: str
 
 
 class ExecutionIntent(BaseModel):
@@ -556,13 +561,39 @@ def export_strategy(
 
 @app.post("/strategies/{strategy_id}/backtest")
 def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, Any]:
+    record = _load_strategy_record(strategy_id)
+    return _execute_backtest(record, payload)
+
+
+@app.post("/backtests", status_code=status.HTTP_201_CREATED)
+def create_backtest(payload: BacktestCreatePayload) -> Dict[str, Any]:
+    record = _load_strategy_record(payload.strategy_id)
+    return _execute_backtest(record, payload)
+
+
+@app.get("/backtests/{backtest_id}")
+def get_backtest(backtest_id: int) -> Dict[str, Any]:
     try:
-        record = strategy_repository.get(strategy_id)
-    except KeyError:
+        summary = strategy_repository.get_backtest(backtest_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Backtest not found"
+        ) from exc
+    response = dict(summary)
+    response["artifacts"] = _load_backtest_artifacts(summary)
+    return response
+
+
+def _load_strategy_record(strategy_id: str) -> StrategyRecord:
+    try:
+        return strategy_repository.get(strategy_id)
+    except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
+
+def _instantiate_strategy(record: StrategyRecord) -> base.StrategyBase:
     try:
-        strategy = registry.create(
+        return registry.create(
             record.strategy_type,
             StrategyConfig(
                 name=record.name,
@@ -577,6 +608,48 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+
+def _load_backtest_artifacts(summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+    artifacts: List[Dict[str, Any]] = []
+    metrics_path = summary.get("metrics_path")
+    if isinstance(metrics_path, str) and metrics_path:
+        path = Path(metrics_path)
+        if path.exists():
+            try:
+                metrics_content = json.loads(path.read_text(encoding="utf-8"))
+                content_type = "application/json"
+            except (json.JSONDecodeError, OSError):
+                metrics_content = path.read_text(encoding="utf-8", errors="ignore")
+                content_type = "text/plain"
+            artifacts.append(
+                {
+                    "type": "metrics",
+                    "path": str(path),
+                    "content_type": content_type,
+                    "content": metrics_content,
+                }
+            )
+    log_path = summary.get("log_path")
+    if isinstance(log_path, str) and log_path:
+        path = Path(log_path)
+        if path.exists():
+            try:
+                log_content = path.read_text(encoding="utf-8")
+            except OSError:
+                log_content = ""
+            artifacts.append(
+                {
+                    "type": "log",
+                    "path": str(path),
+                    "content_type": "text/plain",
+                    "content": log_content,
+                }
+            )
+    return artifacts
+
+
+def _execute_backtest(record: StrategyRecord, payload: BacktestPayload) -> Dict[str, Any]:
+    strategy = _instantiate_strategy(record)
     try:
         summary = backtester.run(
             strategy,
@@ -590,14 +663,16 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
     timestamp = datetime.now(timezone.utc)
     summary_dict["metadata"] = payload.metadata or {}
     summary_dict["ran_at"] = timestamp.isoformat()
-    strategy_repository.update(strategy_id, last_backtest=summary_dict)
-    strategy_repository.record_backtest(
-        strategy_id,
+    summary_dict["strategy_id"] = record.id
+    backtest_id = strategy_repository.record_backtest(
+        record.id,
         summary_dict,
         ran_at=timestamp,
     )
+    summary_dict["id"] = backtest_id
+    strategy_repository.update(record.id, last_backtest=summary_dict)
     publish_payload: Dict[str, Any] = {
-        "strategy_id": strategy_id,
+        "strategy_id": record.id,
         "strategy_name": record.name,
         "strategy_type": record.strategy_type,
         "account": (record.metadata or {}).get("account"),
@@ -608,10 +683,13 @@ def backtest_strategy(strategy_id: str, payload: BacktestPayload) -> Dict[str, A
         "tags": record.tags,
         "metadata": record.metadata,
         "summary": summary_dict,
+        "backtest_id": backtest_id,
     }
     reports_publisher.publish_backtest(publish_payload)
     orchestrator.record_simulation(summary.as_dict())
-    return summary.as_dict()
+    response_payload = dict(summary_dict)
+    response_payload["artifacts"] = _load_backtest_artifacts(summary_dict)
+    return response_payload
 
 
 @app.get("/strategies/{strategy_id}/backtest/ui")

@@ -7,7 +7,7 @@ import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, Iterable, List, MutableMapping, Tuple
+from typing import Any, Callable, Dict, Iterable, List, MutableMapping, Optional, Tuple
 
 from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.orm import Session
@@ -378,7 +378,7 @@ class StrategyRepository:
         summary: Dict[str, Any],
         *,
         ran_at: datetime | None = None,
-    ) -> None:
+    ) -> int:
         """Persist a backtest summary for historical reporting."""
 
         timestamp = ran_at or datetime.now(timezone.utc)
@@ -390,19 +390,25 @@ class StrategyRepository:
         payload["ran_at"] = timestamp.isoformat()
 
         with self._session_factory() as session:
-            session.add(
-                StrategyBacktest(
-                    strategy_id=strategy_id,
-                    ran_at=timestamp,
-                    initial_balance=float(summary.get("initial_balance", 0.0) or 0.0),
-                    profit_loss=float(summary.get("profit_loss", 0.0) or 0.0),
-                    total_return=float(summary.get("total_return", 0.0) or 0.0),
-                    max_drawdown=float(summary.get("max_drawdown", 0.0) or 0.0),
-                    equity_curve=list(equity_curve),
-                    summary=payload,
-                )
+            record = StrategyBacktest(
+                strategy_id=strategy_id,
+                ran_at=timestamp,
+                initial_balance=float(summary.get("initial_balance", 0.0) or 0.0),
+                profit_loss=float(summary.get("profit_loss", 0.0) or 0.0),
+                total_return=float(summary.get("total_return", 0.0) or 0.0),
+                max_drawdown=float(summary.get("max_drawdown", 0.0) or 0.0),
+                equity_curve=list(equity_curve),
+                summary=payload,
             )
+            session.add(record)
+            session.flush()
+            identifier = int(record.id)
+            payload_with_id = dict(payload)
+            payload_with_id["id"] = identifier
+            record.summary = payload_with_id
             session.commit()
+
+        return identifier
 
     def get_backtests(
         self,
@@ -438,8 +444,26 @@ class StrategyRepository:
             summary.setdefault("total_return", record.total_return)
             summary.setdefault("max_drawdown", record.max_drawdown)
             summary.setdefault("equity_curve", record.equity_curve or [])
+            summary.setdefault("id", int(record.id))
             items.append(summary)
         return items, int(total)
+
+    def get_backtest(self, backtest_id: int) -> Dict[str, Any]:
+        with self._session_factory() as session:
+            record: Optional[StrategyBacktest] = session.get(StrategyBacktest, backtest_id)
+        if record is None:
+            raise KeyError("backtest not found")
+
+        summary = dict(record.summary or {})
+        summary.setdefault("ran_at", record.ran_at.isoformat())
+        summary.setdefault("initial_balance", record.initial_balance)
+        summary.setdefault("profit_loss", record.profit_loss)
+        summary.setdefault("total_return", record.total_return)
+        summary.setdefault("max_drawdown", record.max_drawdown)
+        summary.setdefault("equity_curve", record.equity_curve or [])
+        summary.setdefault("id", int(record.id))
+        summary.setdefault("strategy_id", record.strategy_id)
+        return summary
 
     def _parse_timestamp(self, value: Any) -> datetime:
         if isinstance(value, datetime):
