@@ -23,7 +23,7 @@ from libs.observability.logging import RequestContextMiddleware, configure_loggi
 from libs.observability.metrics import setup_metrics
 from schemas.market import ExecutionVenue
 
-from ..adapters import BinanceMarketConnector, IBKRMarketConnector
+from ..adapters import BinanceMarketConnector, DTCAdapter, DTCConfig, IBKRMarketConnector
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
@@ -61,6 +61,33 @@ def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketCo
     )
 
 
+_dtc_adapter: DTCAdapter | None = None
+
+
+def get_dtc_adapter(settings: Settings = Depends(get_settings)) -> DTCAdapter | None:
+    global _dtc_adapter
+    if not settings.dtc_enabled:
+        return None
+    if not settings.dtc_host or settings.dtc_port is None:
+        logger.warning("DTC adapter enabled but host/port not configured; disabling")
+        return None
+
+    if _dtc_adapter is None:
+        config = DTCConfig(
+            host=settings.dtc_host,
+            port=settings.dtc_port,
+            client_user_id=settings.dtc_user or "",
+            client_password=settings.dtc_password or "",
+            client_name=settings.dtc_client_name,
+            protocol_version=settings.dtc_protocol_version,
+            heartbeat_interval=settings.dtc_heartbeat_interval,
+            reconnect_delay=settings.dtc_reconnect_delay,
+            handshake_timeout=settings.dtc_handshake_timeout,
+        )
+        _dtc_adapter = DTCAdapter(config)
+    return _dtc_adapter
+
+
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -79,7 +106,10 @@ def _resolve_connector(
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported venue")
 
 
-async def _persist_tradingview_tick(signal: TradingViewSignal) -> None:
+async def _persist_tradingview_tick(
+    signal: TradingViewSignal,
+    dtc: DTCAdapter | None = None,
+) -> None:
     tick = PersistedTick(
         exchange=signal.exchange,
         symbol=signal.symbol,
@@ -106,6 +136,11 @@ async def _persist_tradingview_tick(signal: TradingViewSignal) -> None:
                 }
             ],
         )
+    if dtc is not None:
+        try:
+            await dtc.publish_ticks([tick])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to forward TradingView tick to DTC: %s", exc)
 
 
 @app.post("/webhooks/tradingview", status_code=202)
@@ -114,6 +149,7 @@ async def tradingview_webhook(
     background_tasks: BackgroundTasks,
     signature: str = Header(..., alias="X-Signature"),
     settings: Settings = Depends(get_settings),
+    dtc: DTCAdapter | None = Depends(get_dtc_adapter),
 ) -> dict[str, str]:
     body = await request.body()
     expected = hmac.new(
@@ -130,7 +166,7 @@ async def tradingview_webhook(
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
 
     signal = TradingViewSignal(**payload)
-    background_tasks.add_task(_persist_tradingview_tick, signal)
+    background_tasks.add_task(_persist_tradingview_tick, signal, dtc)
     return {"status": "accepted"}
 
 
