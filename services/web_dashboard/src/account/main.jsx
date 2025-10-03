@@ -10,8 +10,8 @@ function bootstrap() {
     return;
   }
 
-  const { sessionEndpoint, loginEndpoint, logoutEndpoint } = container.dataset;
-  if (!sessionEndpoint || !loginEndpoint || !logoutEndpoint) {
+  const { sessionEndpoint, loginEndpoint, logoutEndpoint, brokerCredentialsEndpoint } = container.dataset;
+  if (!sessionEndpoint || !loginEndpoint || !logoutEndpoint || !brokerCredentialsEndpoint) {
     console.error("Endpoints manquants pour initialiser la gestion de compte");
     return;
   }
@@ -24,7 +24,8 @@ function bootstrap() {
           endpoints={{
             session: sessionEndpoint,
             login: loginEndpoint,
-            logout: logoutEndpoint
+            logout: logoutEndpoint,
+            brokerCredentials: brokerCredentialsEndpoint
           }}
         />
       </I18nextProvider>

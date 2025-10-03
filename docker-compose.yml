@@ -24,6 +24,7 @@ services:
     environment:
       PYTHONPATH: /app
       DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+      BROKER_CREDENTIALS_ENCRYPTION_KEY: ${BROKER_CREDENTIALS_ENCRYPTION_KEY:-}
       STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
       STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN:-reports-token}
       STREAMING_ROOM_ID: ${STREAMING_ROOM_ID:-public-room}

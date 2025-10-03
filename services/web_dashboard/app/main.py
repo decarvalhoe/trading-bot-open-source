@@ -173,7 +173,14 @@ def _build_user_service_token(user_id: int) -> str:
     )
 
 
-async def _forward_onboarding_request(method: str, path: str, user_id: int) -> dict[str, object]:
+async def _forward_user_service_request(
+    method: str,
+    path: str,
+    user_id: int,
+    *,
+    json: dict[str, Any] | None = None,
+    error_detail: str | None = None,
+) -> dict[str, object]:
     base_url = USER_SERVICE_BASE_URL.rstrip("/") + "/"
     target_url = urljoin(base_url, path)
     headers = {
@@ -184,22 +191,34 @@ async def _forward_onboarding_request(method: str, path: str, user_id: int) -> d
     }
     try:
         async with httpx.AsyncClient(timeout=USER_SERVICE_TIMEOUT) as client:
-            response = await client.request(method.upper(), target_url, headers=headers)
+            response = await client.request(
+                method.upper(), target_url, headers=headers, json=json
+            )
     except httpx.HTTPError as error:  # pragma: no cover - network failure
-        detail = "Service utilisateur indisponible pour l'onboarding."
+        detail = error_detail or "Service utilisateur indisponible."
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from error
 
     if response.status_code >= 400:
         try:
             payload = response.json()
         except ValueError:
-            payload = {"detail": response.text or "Erreur lors de la synchronisation de l'onboarding."}
+            fallback = error_detail or "Erreur lors de la synchronisation avec le service utilisateur."
+            payload = {"detail": fallback}
         raise HTTPException(status_code=response.status_code, detail=payload)
 
     try:
         return response.json()
     except ValueError:
         return {}
+
+
+async def _forward_onboarding_request(method: str, path: str, user_id: int) -> dict[str, object]:
+    return await _forward_user_service_request(
+        method,
+        path,
+        user_id,
+        error_detail="Service utilisateur indisponible pour l'onboarding.",
+    )
 
 
 ALERT_EVENTS_DATABASE_URL = os.getenv(
@@ -249,6 +268,33 @@ class AccountLoginRequest(BaseModel):
     email: EmailStr
     password: str
     totp: str | None = None
+
+
+class BrokerCredentialUpdatePayload(BaseModel):
+    broker: str = Field(min_length=1)
+    api_key: str | None = None
+    api_secret: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class BrokerCredentialsUpdateRequest(BaseModel):
+    credentials: List[BrokerCredentialUpdatePayload] = Field(default_factory=list)
+
+
+class BrokerCredentialPayload(BaseModel):
+    broker: str
+    has_api_key: bool = False
+    has_api_secret: bool = False
+    api_key_masked: str | None = None
+    api_secret_masked: str | None = None
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class BrokerCredentialsPayload(BaseModel):
+    credentials: List[BrokerCredentialPayload] = Field(default_factory=list)
 
 
 def _auth_service_url(path: str) -> str:
@@ -1195,6 +1241,47 @@ async def api_reset_onboarding_progress(request: Request) -> dict[str, object]:
     return await _forward_onboarding_request("POST", "users/me/onboarding/reset", user_id)
 
 
+@app.get(
+    "/api/account/broker-credentials",
+    response_model=BrokerCredentialsPayload,
+    name="api_get_broker_credentials",
+)
+async def api_get_broker_credentials(request: Request) -> dict[str, object]:
+    """Expose broker credential metadata proxied from the user service."""
+
+    user_id = _extract_dashboard_user_id(request)
+    payload = await _forward_user_service_request(
+        "GET",
+        "users/me/broker-credentials",
+        user_id,
+        error_detail="Service utilisateur indisponible pour les identifiants broker.",
+    )
+    model = BrokerCredentialsPayload.model_validate(payload)
+    return model.model_dump(mode="json")
+
+
+@app.put(
+    "/api/account/broker-credentials",
+    response_model=BrokerCredentialsPayload,
+    name="api_update_broker_credentials",
+)
+async def api_update_broker_credentials(
+    payload: BrokerCredentialsUpdateRequest, request: Request
+) -> dict[str, object]:
+    """Forward broker credential updates to the user service."""
+
+    user_id = _extract_dashboard_user_id(request)
+    result = await _forward_user_service_request(
+        "PUT",
+        "users/me/broker-credentials",
+        user_id,
+        json=payload.model_dump(exclude_none=True),
+        error_detail="Service utilisateur indisponible pour les identifiants broker.",
+    )
+    model = BrokerCredentialsPayload.model_validate(result)
+    return model.model_dump(mode="json")
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def render_dashboard(request: Request) -> HTMLResponse:
     """Render an HTML dashboard that surfaces key trading signals."""
@@ -1563,6 +1650,9 @@ def render_account(request: Request) -> HTMLResponse:
             request,
             {
                 "active_page": "account",
+                "broker_credentials_endpoint": request.url_for(
+                    "api_get_broker_credentials"
+                ),
             },
         ),
     )
