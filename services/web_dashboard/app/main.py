@@ -51,6 +51,7 @@ from .data import (
 )
 from .order_router_client import OrderRouterClient, OrderRouterError
 from .alerts_client import AlertsEngineClient, AlertsEngineError
+from .config import default_service_url
 from .schemas import (
     Alert,
     AlertCreateRequest,
@@ -94,9 +95,15 @@ def _template_context(request: Request, extra: dict[str, object] | None = None) 
 STREAMING_BASE_URL = os.getenv("WEB_DASHBOARD_STREAMING_BASE_URL", "http://localhost:8001/")
 STREAMING_ROOM_ID = os.getenv("WEB_DASHBOARD_STREAMING_ROOM_ID", "public-room")
 STREAMING_VIEWER_ID = os.getenv("WEB_DASHBOARD_STREAMING_VIEWER_ID", "demo-viewer")
-ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert_engine:8000/")
+ALERT_ENGINE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_ALERT_ENGINE_URL",
+    f"{default_service_url('alert_engine')}/",
+)
 ALERT_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
-ALGO_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALGO_ENGINE_URL", "http://algo_engine:8000/")
+ALGO_ENGINE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_ALGO_ENGINE_URL",
+    f"{default_service_url('algo_engine')}/",
+)
 ALGO_ENGINE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_ALGO_ENGINE_TIMEOUT", "5.0"))
 AI_ASSISTANT_BASE_URL = os.getenv(
     "WEB_DASHBOARD_AI_ASSISTANT_URL",
@@ -106,7 +113,7 @@ AI_ASSISTANT_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AI_ASSISTANT_TIMEOUT", "10
 DEFAULT_FOLLOWER_ID = os.getenv("WEB_DASHBOARD_DEFAULT_FOLLOWER_ID", "demo-investor")
 USER_SERVICE_BASE_URL = os.getenv(
     "WEB_DASHBOARD_USER_SERVICE_URL",
-    os.getenv("USER_SERVICE_URL", "http://user_service:8000/"),
+    os.getenv("USER_SERVICE_URL", f"{default_service_url('user_service')}/"),
 )
 USER_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_USER_SERVICE_TIMEOUT", "5.0"))
 USER_SERVICE_JWT_SECRET = os.getenv(
@@ -128,7 +135,7 @@ def _env_bool(value: str | None, default: bool) -> bool:
     return default
 
 
-AUTH_SERVICE_DEFAULT_BASE_URL = "http://auth_service:8000/"
+AUTH_SERVICE_DEFAULT_BASE_URL = f"{default_service_url('auth_service')}/"
 AUTH_SERVICE_BASE_URL = (
     os.getenv("WEB_DASHBOARD_AUTH_SERVICE_URL")
     or os.getenv("AUTH_SERVICE_URL")
