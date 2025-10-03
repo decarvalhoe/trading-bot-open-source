@@ -67,7 +67,7 @@ from .help_progress import (
 )
 from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
 from .localization import LocalizationMiddleware, template_base_context
-from .routes import account, status as status_routes
+from .routes import status as status_routes
 from pydantic import BaseModel, Field, ConfigDict, EmailStr, model_validator
 from schemas.order_router import PositionCloseRequest
 
@@ -81,7 +81,6 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 app.add_middleware(LocalizationMiddleware)
-app.include_router(account.router)
 app.include_router(status_routes.router)
 
 
@@ -2026,11 +2025,6 @@ async def account_logout(request: Request, response: Response) -> AccountSession
 
 
 def _account_template_context(request: Request) -> dict[str, object]:
-    created_flag = request.query_params.get("created")
-    account_created = False
-    if isinstance(created_flag, str):
-        account_created = created_flag.strip().lower() in {"1", "true", "yes"}
-
     return _template_context(
         request,
         {
@@ -2038,8 +2032,6 @@ def _account_template_context(request: Request) -> dict[str, object]:
             "broker_credentials_endpoint": request.url_for(
                 "api_get_broker_credentials"
             ),
-            "account_created": account_created,
-            "registration_url": request.url_for("render_account_register"),
         },
     )
 
