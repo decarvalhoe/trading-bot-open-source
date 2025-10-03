@@ -33,9 +33,10 @@
                   <span class="visually-hidden">Endpoint:</span>
                   <code>{{ service.health_url }}</code>
                 </p>
-                {% if service.detail %}
+                {% set detail = service.detail or status_codes.get(service.status_code) %}
+                {% if detail %}
                 <p class="text text--muted status-list__detail">
-                  {{ _('Détail :') }} {{ service.detail }}
+                  {{ _('Détail :') }} {{ detail }}
                 </p>
                 {% endif %}
               </div>
