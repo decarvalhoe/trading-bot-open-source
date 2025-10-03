@@ -36,16 +36,16 @@ class Settings(BaseSettings):
     ibkr_host: str = Field("127.0.0.1", alias="IBKR_HOST")
     ibkr_port: int = Field(4001, alias="IBKR_PORT")
     ibkr_client_id: int = Field(1, alias="IBKR_CLIENT_ID")
-    dtc_enabled: bool = Field(False, alias="DTC_ENABLED")
     dtc_host: str | None = Field(None, alias="DTC_HOST")
     dtc_port: int | None = Field(None, alias="DTC_PORT")
     dtc_user: str | None = Field(None, alias="DTC_USER")
     dtc_password: str | None = Field(None, alias="DTC_PASSWORD")
     dtc_client_name: str = Field("market-data-service", alias="DTC_CLIENT_NAME")
-    dtc_protocol_version: int = Field(8, alias="DTC_PROTOCOL_VERSION")
+    dtc_default_exchange: str = Field("", alias="DTC_DEFAULT_EXCHANGE")
     dtc_heartbeat_interval: int = Field(15, alias="DTC_HEARTBEAT_INTERVAL")
-    dtc_reconnect_delay: float = Field(0.5, alias="DTC_RECONNECT_DELAY")
-    dtc_handshake_timeout: float = Field(5.0, alias="DTC_HANDSHAKE_TIMEOUT")
+    topstep_base_url: str = Field("https://api.topstep.com", alias="TOPSTEP_BASE_URL")
+    topstep_client_id: str | None = Field(None, alias="TOPSTEP_CLIENT_ID")
+    topstep_client_secret: str | None = Field(None, alias="TOPSTEP_CLIENT_SECRET")
 
     class Config:
         env_file = ".env"
@@ -57,7 +57,10 @@ _SECRET_KEYS = [
     "TRADINGVIEW_HMAC_SECRET",
     "BINANCE_API_KEY",
     "BINANCE_API_SECRET",
+    "DTC_USER",
     "DTC_PASSWORD",
+    "TOPSTEP_CLIENT_ID",
+    "TOPSTEP_CLIENT_SECRET",
 ]
 
 

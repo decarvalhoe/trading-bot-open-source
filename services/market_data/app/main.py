@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
+from typing import Any, AsyncIterator, Awaitable, Callable, Iterable, TypeVar
 
 from fastapi import (
     BackgroundTasks,
@@ -27,7 +27,15 @@ from libs.observability.logging import RequestContextMiddleware, configure_loggi
 from libs.observability.metrics import setup_metrics
 from schemas.market import ExecutionVenue
 
-from ..adapters import BinanceMarketConnector, DTCAdapter, DTCConfig, IBKRMarketConnector
+import httpx
+
+from ..adapters import (
+    BinanceMarketConnector,
+    DTCAdapter,
+    DTCConfig,
+    IBKRMarketConnector,
+    TopStepAdapter,
+)
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
@@ -50,6 +58,10 @@ app.add_middleware(RequestContextMiddleware, service_name="market-data")
 setup_metrics(app, service_name="market-data")
 
 
+_dtc_adapter: DTCAdapter | None = None
+_dtc_adapter_lock = asyncio.Lock()
+
+
 def get_binance_adapter(settings: Settings = Depends(get_settings)) -> BinanceMarketConnector:
     return BinanceMarketConnector(
         api_key=settings.binance_api_key,
@@ -65,28 +77,34 @@ def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketCo
     )
 
 
-_dtc_adapter: DTCAdapter | None = None
+async def get_dtc_adapter(settings: Settings = Depends(get_settings)) -> DTCAdapter | None:
+    if not settings.dtc_host or not settings.dtc_port:
+        return None
 
-
-def get_dtc_adapter(settings: Settings = Depends(get_settings)) -> DTCAdapter | None:
     global _dtc_adapter
-    if not settings.dtc_enabled:
-        return None
-    if not settings.dtc_host or settings.dtc_port is None:
-        logger.warning("DTC adapter enabled but host/port not configured; disabling")
-        return None
-
     if _dtc_adapter is None:
-        config = DTCConfig(
-            host=settings.dtc_host,
-            port=settings.dtc_port,
-            client_user_id=settings.dtc_user or "",
-            client_password=settings.dtc_password or "",
-            client_name=settings.dtc_client_name,
-            protocol_version=settings.dtc_protocol_version,
-            heartbeat_interval=settings.dtc_heartbeat_interval,
-            reconnect_delay=settings.dtc_reconnect_delay,
-            handshake_timeout=settings.dtc_handshake_timeout,
+        async with _dtc_adapter_lock:
+            if _dtc_adapter is None:
+                config = DTCConfig(
+                    host=settings.dtc_host,
+                    port=settings.dtc_port,
+                    client_user_id=settings.dtc_user or "",
+                    client_password=settings.dtc_password or "",
+                    client_name=settings.dtc_client_name,
+                    heartbeat_interval=settings.dtc_heartbeat_interval,
+                    default_exchange=settings.dtc_default_exchange,
+                )
+                _dtc_adapter = DTCAdapter(config)
+    return _dtc_adapter
+
+
+async def get_topstep_adapter(
+    settings: Settings = Depends(get_settings),
+) -> AsyncIterator[TopStepAdapter]:
+    if not settings.topstep_client_id or not settings.topstep_client_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TopStep credentials are not configured",
         )
         _dtc_adapter = DTCAdapter(config)
     return _dtc_adapter
@@ -95,6 +113,14 @@ def get_dtc_adapter(settings: Settings = Depends(get_settings)) -> DTCAdapter | 
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.on_event("shutdown")
+async def _shutdown_dtc() -> None:
+    global _dtc_adapter
+    if _dtc_adapter is not None:
+        await _dtc_adapter.close()
+        _dtc_adapter = None
 
 
 def _resolve_connector(
@@ -110,11 +136,8 @@ def _resolve_connector(
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported venue")
 
 
-async def _persist_tradingview_tick(
-    signal: TradingViewSignal,
-    dtc: DTCAdapter | None = None,
-) -> None:
-    tick = PersistedTick(
+def _tick_from_tradingview_signal(signal: TradingViewSignal) -> PersistedTick:
+    return PersistedTick(
         exchange=signal.exchange,
         symbol=signal.symbol,
         source="tradingview",
@@ -124,6 +147,9 @@ async def _persist_tradingview_tick(
         side=signal.direction,
         extra={"strategy": signal.strategy, **signal.metadata},
     )
+
+
+def _persist_tick_record(tick: PersistedTick) -> None:
     with session_scope() as session:
         persist_ticks(
             session,
@@ -145,6 +171,23 @@ async def _persist_tradingview_tick(
             await dtc.publish_ticks([tick])
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to forward TradingView tick to DTC: %s", exc)
+
+
+async def publish_ticks_to_dtc(dtc: DTCAdapter, ticks: Iterable[PersistedTick]) -> None:
+    payload = [
+        {
+            "exchange": tick.exchange,
+            "symbol": tick.symbol,
+            "source": tick.source,
+            "timestamp": tick.timestamp,
+            "price": tick.price,
+            "size": tick.size,
+            "side": tick.side,
+        }
+        for tick in ticks
+    ]
+    if payload:
+        await dtc.publish_ticks(payload)
 
 
 @app.post("/webhooks/tradingview", status_code=202)
@@ -170,7 +213,10 @@ async def tradingview_webhook(
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
 
     signal = TradingViewSignal(**payload)
-    background_tasks.add_task(_persist_tradingview_tick, signal, dtc)
+    tick = _tick_from_tradingview_signal(signal)
+    background_tasks.add_task(_persist_tick_record, tick)
+    if dtc is not None:
+        await publish_ticks_to_dtc(dtc, [tick])
     return {"status": "accepted"}
 
 
