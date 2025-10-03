@@ -21,9 +21,26 @@
       </thead>
       <tbody>
         {% for name, up in services.items() %}
+          {% set service_names = {
+            'auth': 'Service d\'authentification',
+            'reports': 'Service de rapports', 
+            'algo': 'Moteur algorithmique',
+            'router': 'Routeur d\'ordres',
+            'market': 'Données de marché'
+          } %}
           <tr>
-            <td>{{ name }}</td>
-            <td class="{{ 'ok' if up else 'ko' }}">{{ 'UP' if up else 'DOWN' }}</td>
+            <td>{{ service_names.get(name, name) }}</td>
+            <td class="{{ 'ok' if up else 'ko' }}">
+              {% if up %}
+                <span class="badge badge--success">UP</span>
+              {% else %}
+                {% if status_codes[name] %}
+                  <span class="badge badge--critical">HTTP {{ status_codes[name] }} - Indisponible</span>
+                {% else %}
+                  <span class="badge badge--critical">Indisponible</span>
+                {% endif %}
+              {% endif %}
+            </td>
             <td><a href="{{ targets[name] }}" target="_blank">{{ targets[name] }}</a></td>
           </tr>
         {% endfor %}

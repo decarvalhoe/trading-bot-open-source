@@ -48,15 +48,15 @@ MARKET_BASE_URL = (
 STATUS_TIMEOUT = float(os.getenv("WEB_DASHBOARD_STATUS_TIMEOUT", "5.0"))
 
 
-async def _check_service(url: str) -> bool:
-    """Return ``True`` when the provided health endpoint answers successfully."""
+async def _check_service(url: str) -> tuple[bool, int | None]:
+    """Return ``(True, status_code)`` when the provided health endpoint answers successfully."""
 
     try:
         async with httpx.AsyncClient(timeout=STATUS_TIMEOUT) as client:
             response = await client.get(url)
     except httpx.HTTPError:
-        return False
-    return response.status_code == http_status.HTTP_200_OK
+        return False, None
+    return response.status_code == http_status.HTTP_200_OK, response.status_code
 
 
 @router.get("/status", response_class=HTMLResponse, name="render_status_page")
@@ -72,8 +72,11 @@ async def status_page(request: Request) -> HTMLResponse:
     }
 
     results: dict[str, bool] = {}
+    status_codes: dict[str, int | None] = {}
     for name, url in targets.items():
-        results[name] = await _check_service(url)
+        is_up, status_code = await _check_service(url)
+        results[name] = is_up
+        status_codes[name] = status_code
 
-    context = {"request": request, "services": results, "targets": targets}
+    context = {"request": request, "services": results, "targets": targets, "status_codes": status_codes}
     return templates.TemplateResponse("misc/status.html", context)
