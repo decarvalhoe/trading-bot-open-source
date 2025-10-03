@@ -94,7 +94,7 @@ La section « Setups en temps réel » propose un sélecteur de session (`Tout
 
 Pour lancer le service hors Docker, installez les dépendances Python via
 `pip install -r services/web_dashboard/requirements.txt`. Cette liste inclut désormais
-`python-multipart` (>=0.0.6) afin de permettre à FastAPI de parser les formulaires et
+`python-multipart` (>=0.0.7) afin de permettre à FastAPI de parser les formulaires et
 fichiers envoyés par le designer de stratégies.
 
 ## Tests

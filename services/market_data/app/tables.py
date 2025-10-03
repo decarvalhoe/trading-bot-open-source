@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-from sqlalchemy import (
-    Column,
-    DateTime,
-    Float,
-    Integer,
-    PrimaryKeyConstraint,
-    String,
-)
+from sqlalchemy import Column, DateTime, Float, Integer, PrimaryKeyConstraint, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+OHLCV_PK_COLUMNS = ("exchange", "symbol", "interval", "timestamp")
+TICKS_PK_COLUMNS = ("exchange", "symbol", "source", "timestamp")
+
 
 class MarketDataOHLCV(Base):
     __tablename__ = "market_data_ohlcv"
     __table_args__ = (
-        PrimaryKeyConstraint(
-            "exchange", "symbol", "interval", "timestamp", name="pk_market_data_ohlcv"
-        ),
+        PrimaryKeyConstraint(*OHLCV_PK_COLUMNS, name="pk_market_data_ohlcv"),
     )
 
     exchange = Column(String(32), nullable=False, primary_key=True)
@@ -39,9 +33,7 @@ class MarketDataOHLCV(Base):
 class MarketDataTick(Base):
     __tablename__ = "market_data_ticks"
     __table_args__ = (
-        PrimaryKeyConstraint(
-            "exchange", "symbol", "source", "timestamp", name="pk_market_data_ticks"
-        ),
+        PrimaryKeyConstraint(*TICKS_PK_COLUMNS, name="pk_market_data_ticks"),
     )
 
     exchange = Column(String(32), nullable=False, primary_key=True)
