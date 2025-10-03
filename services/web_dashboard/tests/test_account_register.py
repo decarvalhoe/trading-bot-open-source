@@ -13,7 +13,7 @@ from .utils import load_dashboard_app
 @pytest.fixture()
 def client(monkeypatch):
     load_dashboard_app.cache_clear()
-    monkeypatch.setenv("AUTH_BASE_URL", "http://auth.local/")
+    monkeypatch.setenv("WEB_DASHBOARD_AUTH_PUBLIC_URL", "http://auth.local/")
     monkeypatch.setenv("WEB_DASHBOARD_AUTH_SERVICE_URL", "http://auth.local/")
     app = load_dashboard_app()
     module = importlib.import_module("web_dashboard.app.main")

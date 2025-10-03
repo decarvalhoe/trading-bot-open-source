@@ -130,7 +130,7 @@ def dashboard_app(user_service_base_url, auth_service_base_url):
     os.environ.setdefault("USER_SERVICE_JWT_SECRET", TEST_JWT_SECRET)
     os.environ.setdefault("WEB_DASHBOARD_DEFAULT_USER_ID", "1")
     os.environ.setdefault("WEB_DASHBOARD_AUTH_SERVICE_URL", auth_service_base_url)
-    os.environ.setdefault("AUTH_SERVICE_URL", auth_service_base_url)
+    os.environ.setdefault("WEB_DASHBOARD_AUTH_PUBLIC_URL", auth_service_base_url)
     os.environ.setdefault("WEB_DASHBOARD_ALGO_ENGINE_URL", "http://algo-engine:8000/")
     os.environ.setdefault("WEB_DASHBOARD_REPORTS_BASE_URL", "http://reports:8000/")
     os.environ.setdefault("WEB_DASHBOARD_ORDER_ROUTER_BASE_URL", "http://order-router:8000/")
