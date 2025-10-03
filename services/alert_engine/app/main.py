@@ -97,6 +97,12 @@ def create_app(
             for client in app.state.clients:
                 await client.aclose()
 
+    @app.get("/health", tags=["system"])
+    async def health() -> dict[str, str]:
+        """Expose a minimal readiness check for orchestrators and dashboards."""
+
+        return {"status": "ok"}
+
     def get_engine() -> AlertEngine:
         return app.state.alert_engine
 
