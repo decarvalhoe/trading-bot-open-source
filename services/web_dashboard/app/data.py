@@ -19,6 +19,7 @@ import httpx
 from schemas.order_router import OrderRecord
 from libs.portfolio import encode_portfolio_key, encode_position_key
 
+from .config import default_service_url
 from .order_router_client import OrderRouterClient, OrderRouterError
 from .schemas import (
     Alert,
@@ -48,7 +49,10 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
-REPORTS_BASE_URL = os.getenv("WEB_DASHBOARD_REPORTS_BASE_URL", "http://reports:8000/")
+REPORTS_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_REPORTS_BASE_URL",
+    f"{default_service_url('reports')}/",
+)
 REPORTS_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_REPORTS_TIMEOUT", "5.0"))
 ORCHESTRATOR_BASE_URL = os.getenv(
     "WEB_DASHBOARD_ORCHESTRATOR_BASE_URL",
@@ -73,13 +77,19 @@ INPLAY_DEGRADED_MESSAGE = (
     "Flux InPlay partiellement disponible : certains instantanés proviennent du cache."
 )
 
-ORDER_ROUTER_BASE_URL = os.getenv("WEB_DASHBOARD_ORDER_ROUTER_BASE_URL", "http://order_router:8000/")
+ORDER_ROUTER_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_ORDER_ROUTER_BASE_URL",
+    f"{default_service_url('order_router')}/",
+)
 ORDER_ROUTER_TIMEOUT_SECONDS = float(
     os.getenv("WEB_DASHBOARD_ORDER_ROUTER_TIMEOUT", "5.0")
 )
 ORDER_ROUTER_LOG_LIMIT = int(os.getenv("WEB_DASHBOARD_ORDER_LOG_LIMIT", "200"))
 MAX_TRANSACTIONS = int(os.getenv("WEB_DASHBOARD_MAX_TRANSACTIONS", "25"))
-MARKETPLACE_BASE_URL = os.getenv("WEB_DASHBOARD_MARKETPLACE_URL", "http://marketplace:8000/")
+MARKETPLACE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_MARKETPLACE_URL",
+    f"{default_service_url('marketplace')}/",
+)
 MARKETPLACE_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_MARKETPLACE_TIMEOUT", "5.0"))
 FOLLOWER_FALLBACK_MESSAGE = (
     "Marketplace indisponible pour récupérer vos copies."
