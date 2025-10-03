@@ -56,14 +56,20 @@ REPORTS_BASE_URL = os.getenv(
 REPORTS_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_REPORTS_TIMEOUT", "5.0"))
 ORCHESTRATOR_BASE_URL = os.getenv(
     "WEB_DASHBOARD_ORCHESTRATOR_BASE_URL",
-    "http://algo_engine:8000/",
+    f"{default_service_url('algo_engine')}/",
 )
 ORCHESTRATOR_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ORCHESTRATOR_TIMEOUT", "5.0"))
 MAX_LOG_ENTRIES = int(os.getenv("WEB_DASHBOARD_MAX_LOG_ENTRIES", "100"))
-ALERT_ENGINE_BASE_URL = os.getenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alert_engine:8000/")
+ALERT_ENGINE_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_ALERT_ENGINE_URL",
+    f"{default_service_url('alert_engine')}/",
+)
 ALERT_ENGINE_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_ALERT_ENGINE_TIMEOUT", "5.0"))
 MAX_ALERTS = int(os.getenv("WEB_DASHBOARD_MAX_ALERTS", "20"))
-INPLAY_BASE_URL = os.getenv("WEB_DASHBOARD_INPLAY_BASE_URL", "http://inplay:8000/")
+INPLAY_BASE_URL = os.getenv(
+    "WEB_DASHBOARD_INPLAY_BASE_URL",
+    f"{default_service_url('inplay')}/",
+)
 INPLAY_TIMEOUT_SECONDS = float(os.getenv("WEB_DASHBOARD_INPLAY_TIMEOUT", "3.0"))
 INPLAY_WATCHLISTS = [
     watchlist.strip()
