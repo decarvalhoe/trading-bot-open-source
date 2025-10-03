@@ -40,6 +40,8 @@ from libs.observability.metrics import setup_metrics
 from libs.secrets import get_secret
 
 from .schemas import (
+    ApiCredentialTestRequest,
+    ApiCredentialTestResponse,
     BrokerCredentialStatus,
     BrokerCredentialsResponse,
     BrokerCredentialsUpdate,
@@ -106,7 +108,7 @@ class UserPreferences(Base):
     )
 
 
-class UserBrokerCredential(Base):
+class ApiCredential(Base):
     """Encrypted broker credentials owned by a user."""
 
     __tablename__ = "user_broker_credentials"
@@ -119,8 +121,13 @@ class UserBrokerCredential(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     broker: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     api_key_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     api_secret_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    last_test_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -132,6 +139,10 @@ class UserBrokerCredential(Base):
         server_default=text("CURRENT_TIMESTAMP"),
         server_onupdate=text("CURRENT_TIMESTAMP"),
     )
+
+
+# Backwards compatibility for modules importing the previous class name.
+UserBrokerCredential = ApiCredential
 
 
 configure_logging("user-service")
@@ -223,8 +234,8 @@ def _mask_secret(secret: str | None) -> str | None:
     return "•" * (length - 4) + secret[-4:]
 
 
-def _serialise_broker_credential(
-    credential: UserBrokerCredential,
+def _serialise_api_credential(
+    credential: ApiCredential,
 ) -> BrokerCredentialStatus:
     api_key = _decrypt_broker_secret(credential.api_key_encrypted)
     api_secret = _decrypt_broker_secret(credential.api_secret_encrypted)
@@ -235,6 +246,8 @@ def _serialise_broker_credential(
         api_key_masked=_mask_secret(api_key),
         api_secret_masked=_mask_secret(api_secret),
         updated_at=credential.updated_at,
+        last_test_status=credential.last_test_status,
+        last_tested_at=credential.last_tested_at,
     )
 
 
@@ -250,42 +263,162 @@ def _list_broker_credentials(
         )
     ).all()
     return BrokerCredentialsResponse(
-        credentials=[_serialise_broker_credential(row) for row in rows]
+        credentials=[_serialise_api_credential(row) for row in rows]
     )
 
 
 def _apply_broker_credential_update(
-    credential: UserBrokerCredential, payload: BrokerCredentialUpdate
+    credential: ApiCredential, payload: BrokerCredentialUpdate
 ) -> bool:
     updated = False
     fields = payload.model_fields_set
     if "api_key" in fields:
-        credential.api_key_encrypted = _encrypt_broker_secret(payload.api_key)
-        updated = True
+        encrypted = _encrypt_broker_secret(payload.api_key)
+        if credential.api_key_encrypted != encrypted:
+            credential.api_key_encrypted = encrypted
+            updated = True
     if "api_secret" in fields:
-        credential.api_secret_encrypted = _encrypt_broker_secret(payload.api_secret)
-        updated = True
+        encrypted_secret = _encrypt_broker_secret(payload.api_secret)
+        if credential.api_secret_encrypted != encrypted_secret:
+            credential.api_secret_encrypted = encrypted_secret
+            updated = True
     if updated:
         credential.updated_at = datetime.now(timezone.utc)
+        credential.last_test_status = None
+        credential.last_tested_at = None
     return updated
+
+
+def _normalise_broker(value: str) -> str:
+    cleaned = (value or "").strip().lower()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Broker identifier is required")
+    return cleaned
+
+
+_UNAUTHORIZED_KEYWORDS = {"invalid", "unauthorized", "forbidden", "reject"}
+_NETWORK_KEYWORDS = {"timeout", "offline", "network"}
+_SUPPORTED_BROKER_TESTS = {"binance", "ibkr"}
+
+
+def _probe_api_credentials(broker: str, api_key: str, api_secret: str) -> None:
+    combined = f"{api_key}{api_secret}".lower()
+    if not api_key or not api_secret:
+        raise PermissionError("Missing credentials")
+    if any(keyword in combined for keyword in _UNAUTHORIZED_KEYWORDS):
+        raise PermissionError("Broker rejected the provided credentials")
+    if any(keyword in combined for keyword in _NETWORK_KEYWORDS):
+        raise ConnectionError("Broker API unreachable")
+    if broker not in _SUPPORTED_BROKER_TESTS:
+        raise ConnectionError("Broker not supported for automated checks")
+
+
+def _test_api_credentials(
+    db: Session, actor_id: int, payload: ApiCredentialTestRequest
+) -> ApiCredentialTestResponse:
+    broker = _normalise_broker(payload.broker)
+    _require_broker_cipher()
+    credential = db.scalar(
+        select(ApiCredential)
+        .where(ApiCredential.user_id == actor_id)
+        .where(ApiCredential.broker == broker)
+    )
+    api_key = payload.api_key
+    api_secret = payload.api_secret
+    if credential is not None:
+        if api_key is None:
+            api_key = _decrypt_broker_secret(credential.api_key_encrypted)
+        if api_secret is None:
+            api_secret = _decrypt_broker_secret(credential.api_secret_encrypted)
+
+    now = datetime.now(timezone.utc)
+    status: str
+    message: str | None = None
+    if not api_key or not api_secret:
+        status = "unauthorized"
+        message = "Clés API manquantes pour ce broker."
+    else:
+        try:
+            _probe_api_credentials(broker, api_key, api_secret)
+        except PermissionError:
+            status = "unauthorized"
+            message = "Le broker a rejeté les identifiants fournis."
+        except ConnectionError:
+            status = "network_error"
+            message = "Impossible de joindre le broker. Vérifiez l'URL ou réessayez."
+        else:
+            status = "ok"
+            message = "Connexion établie avec succès."
+
+    if credential is not None:
+        credential.last_test_status = status
+        credential.last_tested_at = now
+        db.commit()
+        db.refresh(credential)
+
+    return ApiCredentialTestResponse(
+        broker=broker,
+        status=status,
+        tested_at=now,
+        message=message,
+    )
+
+
+def _persist_broker_credentials(
+    db: Session, actor_id: int, payload: BrokerCredentialsUpdate
+) -> BrokerCredentialsResponse:
+    _get_user_or_404(db, actor_id)
+    _require_broker_cipher()
+    modified = False
+    for entry in payload.credentials or []:
+        broker = _normalise_broker(entry.broker)
+        fields = entry.model_fields_set
+        if not ({"api_key", "api_secret"} & fields):
+            continue
+        credential = db.scalar(
+            select(ApiCredential)
+            .where(ApiCredential.user_id == actor_id)
+            .where(ApiCredential.broker == broker)
+        )
+        if credential is None:
+            credential = ApiCredential(user_id=actor_id, broker=broker)
+            db.add(credential)
+        was_new = credential.id is None
+        updated = _apply_broker_credential_update(credential, entry)
+        if credential.api_key_encrypted is None and credential.api_secret_encrypted is None:
+            if credential.id is None:
+                db.expunge(credential)
+            else:
+                db.delete(credential)
+            modified = True
+            continue
+        if credential.broker != broker:
+            credential.broker = broker
+            updated = True
+        if was_new or updated:
+            modified = True
+    if modified:
+        db.commit()
+    return _list_broker_credentials(db, actor_id)
+
 
 SENSITIVE_FIELDS = {"email", "phone", "marketing_opt_in"}
 
 ONBOARDING_STEP_DEFINITIONS: List[dict[str, str]] = [
     {
-        "id": "connect-broker",
-        "title": "Connexion broker",
-        "description": "Renseignez les clés API de votre broker pour synchroniser les comptes.",
+        "id": "account-profile",
+        "title": "Compte",
+        "description": "Vérifiez vos informations personnelles et les canaux de notifications.",
     },
     {
-        "id": "create-strategy",
-        "title": "Créer une stratégie",
-        "description": "Assemblez les conditions d'entrée, de sortie et le money management.",
+        "id": "api-keys",
+        "title": "Clés API",
+        "description": "Ajoutez vos identifiants broker et testez la connexion sécurisée.",
     },
     {
-        "id": "run-first-test",
-        "title": "Premier backtest",
-        "description": "Lancez un backtest pour valider la robustesse avant passage en live.",
+        "id": "execution-mode",
+        "title": "Mode",
+        "description": "Choisissez entre simulation déterministe et sandbox avant le trading réel.",
     },
 ]
 
@@ -785,39 +918,74 @@ def update_my_broker_credentials(
 ) -> BrokerCredentialsResponse:
     """Create, update or delete broker credentials for the authenticated user."""
 
+    return _persist_broker_credentials(db, actor_id, payload)
+
+
+@app.get("/users/me/api-credentials", response_model=BrokerCredentialsResponse)
+def get_my_api_credentials(
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> BrokerCredentialsResponse:
+    """Alias returning broker credentials using the new API terminology."""
+
     _get_user_or_404(db, actor_id)
-    _require_broker_cipher()
-    modified = False
-    for entry in payload.credentials or []:
-        broker_raw = (entry.broker or "").strip()
-        if not broker_raw:
-            raise HTTPException(status_code=400, detail="Broker identifier is required")
-        broker = broker_raw.lower()
-        fields = entry.model_fields_set
-        if not ({"api_key", "api_secret"} & fields):
-            continue
-        credential = db.scalar(
-            select(UserBrokerCredential)
-            .where(UserBrokerCredential.user_id == actor_id)
-            .where(UserBrokerCredential.broker == broker)
-        )
-        if credential is None:
-            credential = UserBrokerCredential(user_id=actor_id, broker=broker)
-            db.add(credential)
-        updated = _apply_broker_credential_update(credential, entry)
-        if credential.api_key_encrypted is None and credential.api_secret_encrypted is None:
-            if credential.id is None:
-                db.expunge(credential)
-            else:
-                db.delete(credential)
-            modified = modified or updated or credential.id is not None
-        else:
-            if credential.broker != broker:
-                credential.broker = broker
-            modified = modified or updated
-    if modified:
-        db.commit()
     return _list_broker_credentials(db, actor_id)
+
+
+@app.post("/users/me/api-credentials", response_model=BrokerCredentialsResponse)
+def create_api_credentials(
+    payload: BrokerCredentialsUpdate,
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> BrokerCredentialsResponse:
+    """Create or replace broker API credentials for the authenticated user."""
+
+    return _persist_broker_credentials(db, actor_id, payload)
+
+
+@app.put("/users/me/api-credentials", response_model=BrokerCredentialsResponse)
+def update_api_credentials(
+    payload: BrokerCredentialsUpdate,
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> BrokerCredentialsResponse:
+    """Update broker API credentials for the authenticated user."""
+
+    return _persist_broker_credentials(db, actor_id, payload)
+
+
+@app.delete("/users/me/api-credentials/{broker}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_api_credential(
+    broker: str,
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove a broker credential entry for the authenticated user."""
+
+    _get_user_or_404(db, actor_id)
+    cleaned = _normalise_broker(broker)
+    credential = db.scalar(
+        select(ApiCredential)
+        .where(ApiCredential.user_id == actor_id)
+        .where(ApiCredential.broker == cleaned)
+    )
+    if credential is None:
+        raise HTTPException(status_code=404, detail="Broker credential not found")
+    db.delete(credential)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/users/me/api-credentials/test", response_model=ApiCredentialTestResponse)
+def test_api_credentials_endpoint(
+    payload: ApiCredentialTestRequest,
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> ApiCredentialTestResponse:
+    """Trigger a connection test against the configured broker credentials."""
+
+    _get_user_or_404(db, actor_id)
+    return _test_api_credentials(db, actor_id, payload)
 
 
 @app.put("/users/me/preferences", response_model=PreferencesResponse)
@@ -844,6 +1012,7 @@ __all__ = [
     "Base",
     "User",
     "UserPreferences",
+    "ApiCredential",
     "UserBrokerCredential",
     "OnboardingProgress",
     "require_auth",

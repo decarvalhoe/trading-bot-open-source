@@ -110,7 +110,7 @@ def clean_database(db_module, router) -> Generator[None, None, None]:
     finally:
         session.close()
 
-    router.update_state(mode="paper", limit=1_000_000.0)
+    router.update_state(mode="sandbox", limit=1_000_000.0)
     router._state.notional_routed = 0.0  # type: ignore[attr-defined]
     router.set_stop_loss("default", 50_000.0)
 

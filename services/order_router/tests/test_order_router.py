@@ -374,9 +374,44 @@ def test_streaming_event_emitted_on_cancellation(client):
 
 
 @pytest.mark.usefixtures("clean_database")
+def test_mode_endpoint_reflects_current_router_state(client, router):
+    router.update_state(mode="dry_run")
+
+    response = client.get("/mode")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "dry_run"
+    assert payload["allowed_modes"] == ["sandbox", "dry_run"]
+
+
+@pytest.mark.usefixtures("clean_database")
+def test_mode_endpoint_switches_between_sandbox_and_dry_run(client, router):
+    initial = client.get("/mode")
+    assert initial.status_code == 200
+    assert initial.json()["mode"] == "sandbox"
+
+    switched = client.post("/mode", json={"mode": "dry_run"})
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["mode"] == "dry_run"
+    assert router.current_mode() == "dry_run"
+
+    back = client.post("/mode", json={"mode": "sandbox"})
+    assert back.status_code == 200, back.text
+    assert back.json()["mode"] == "sandbox"
+    assert router.current_mode() == "sandbox"
+
+
+@pytest.mark.usefixtures("clean_database")
 def test_dry_run_records_simulations_and_restores_state(client, db_session):
-    response = client.put("/state", json={"mode": "dry_run"})
+    initial_mode = client.get("/mode")
+    assert initial_mode.status_code == 200
+    initial_payload = initial_mode.json()
+    assert initial_payload["mode"] == "sandbox"
+    assert set(initial_payload["allowed_modes"]) == {"sandbox", "dry_run"}
+
+    response = client.post("/mode", json={"mode": "dry_run"})
     assert response.status_code == 200, response.text
+    assert response.json()["mode"] == "dry_run"
 
     report = _submit_order(
         client,
@@ -413,8 +448,9 @@ def test_dry_run_records_simulations_and_restores_state(client, db_session):
     assert live_positions.status_code == 200
     assert _find_holding(live_positions.json()["items"], "BTCUSDT") is None
 
-    back_to_dry = client.put("/state", json={"mode": "dry_run"})
+    back_to_dry = client.post("/mode", json={"mode": "dry_run"})
     assert back_to_dry.status_code == 200
+    assert back_to_dry.json()["mode"] == "dry_run"
     restored = client.get("/positions")
     assert restored.status_code == 200
     restored_holding = _find_holding(restored.json()["items"], "BTCUSDT")
