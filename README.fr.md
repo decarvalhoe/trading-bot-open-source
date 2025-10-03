@@ -46,7 +46,7 @@ trading-bot-open-source/
 
 | Domaine | Périmètre | Statut | Prérequis d'Activation |
 | --- | --- | --- | --- |
-| Stratégies & recherche | Strategy Designer visuel, imports déclaratifs, assistant IA, API de backtest | Livré (designer & backtests), Bêta opt-in (assistant) | `make demo-up`, `pip install -r services/algo_engine/requirements.txt`, `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| Stratégies & recherche | Strategy Designer visuel, imports déclaratifs, assistant IA, API de backtest | Livré (designer & backtests), Bêta opt-in (assistant) | `make demo-up`, `pip install -r services/algo_engine/requirements.txt` (assistant activé par défaut), `OPENAI_API_KEY`; définissez `AI_ASSISTANT_ENABLED=0` pour le désactiver |
 | Trading & exécution | Routeur d'ordres sandbox, script bootstrap, connecteurs marché (Binance, IBKR, DTC) | Livré (sandbox + Binance/IBKR), Expérimental (DTC) | `scripts/dev/bootstrap_demo.py`, identifiants exchanges selon besoin |
 | Monitoring temps réel | Passerelle streaming, flux WebSocket InPlay, intégrations OBS/overlay | Livré (dashboard + alertes), Bêta (automatisation OBS) | Jetons de service (`reports`, `inplay`, `streaming`), secrets OAuth optionnels |
 | Reporting & analytics | API rapports quotidiens, exports PDF, métriques de risque | Livré (rapports), Enrichissement en cours (dashboards risque) | Répertoire `data/generated-reports/` accessible ; stack Prometheus/Grafana |
@@ -113,9 +113,17 @@ La commande construit les services FastAPI additionnels, applique les migrations
 
 ```bash
 pip install -r services/algo_engine/requirements.txt
-export AI_ASSISTANT_ENABLED=1
+# L'assistant s'active automatiquement une fois les dépendances installées.
+# Exportez AI_ASSISTANT_ENABLED=0 pour rester en mode sans assistant.
 export OPENAI_API_KEY="sk-votre-cle"
 ```
+
+> ℹ️ Installer `services/algo_engine/requirements.txt` ne fait que préparer les
+> dépendances de l'assistant. Le flag `AI_ASSISTANT_ENABLED` (lu dans
+> [`services/algo_engine/app/main.py`](services/algo_engine/app/main.py)) décide
+> ensuite du démarrage de la fonctionnalité. Laissez-le non défini pour garder le
+> comportement activé par défaut ou positionnez `AI_ASSISTANT_ENABLED=0` pour la
+> désactiver même avec les dépendances disponibles.
 
 **Services Disponibles :**
 - `8013` — `order-router` (plans d'exécution et courtiers simulés)
