@@ -18,13 +18,15 @@ def test_account_page_exposes_login_and_api_forms():
 
     html = response.text
 
-    # The template should expose the correct lang attribute and login form inputs.
+    # The template should expose the correct lang attribute and account mount point.
     assert "<html lang=\"fr\"" in html
-    assert '<form class="form-grid" action="#" method="post">' in html
-    assert '<input type="email" name="email" autocomplete="email" required />' in html
-    assert '<input type="password" name="password" autocomplete="current-password" required />' in html
+    assert '<div' in html and 'id="account-app"' in html
+    assert 'data-session-endpoint="' in html and "/account/session" in html
+    assert 'data-login-endpoint="' in html and "/account/login" in html
+    assert 'data-logout-endpoint="' in html and "/account/logout" in html
 
-    # The API key management form and its inputs must also be present.
-    assert '<select name="exchange">' in html
-    assert '<input type="text" name="public" autocomplete="off" required />' in html
-    assert '<input type="password" name="secret" autocomplete="off" required />' in html
+    # The hydration placeholder should encourage enabling JavaScript.
+    assert "Activez JavaScript pour gérer votre session" in html
+
+    # The React bundle is loaded as an ES module.
+    assert '<script type="module" src="/static/dist/account-app.js"></script>' in html
