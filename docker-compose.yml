@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: timescale/timescaledb:2.14.2-pg14
     environment:
       POSTGRES_DB: trading
       POSTGRES_USER: trading
