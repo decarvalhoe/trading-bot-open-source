@@ -26,6 +26,37 @@ from services.algo_engine.app.order_router_client import OrderRouterClient
 from services.web_dashboard.app.alerts_client import AlertsEngineClient
 
 
+def _running_inside_container() -> bool:
+    """Return ``True`` when the script is executed from within a container."""
+
+    docker_flags = {"IN_DOCKER", "DOCKER_CONTAINER", "RUNNING_IN_DOCKER"}
+    if any(os.getenv(flag, "").lower() in {"1", "true", "yes"} for flag in docker_flags):
+        return True
+
+    if Path("/.dockerenv").exists():
+        return True
+
+    try:
+        with open("/proc/1/cgroup", "r", encoding="utf-8") as handle:
+            content = handle.read()
+    except OSError:
+        return False
+
+    return "docker" in content or "containerd" in content
+
+
+def _service_default(env_var: str, *, docker_host: str, docker_port: int, local_port: int) -> str:
+    """Return the appropriate default URL for a downstream service."""
+
+    if value := os.getenv(env_var):
+        return value
+
+    if _running_inside_container():
+        return f"http://{docker_host}:{docker_port}"
+
+    return f"http://127.0.0.1:{local_port}"
+
+
 @dataclass
 class AuthTokens:
     """Container for authentication tokens issued by the auth service."""
@@ -371,42 +402,64 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--auth-url",
-        default=os.getenv("BOOTSTRAP_AUTH_URL", "http://127.0.0.1:8011"),
+        default=_service_default(
+            "BOOTSTRAP_AUTH_URL", docker_host="auth_service", docker_port=8000, local_port=8011
+        ),
         help="Auth service base URL",
     )
     parser.add_argument(
         "--user-url",
-        default=os.getenv("BOOTSTRAP_USER_URL", "http://127.0.0.1:8012"),
+        default=_service_default(
+            "BOOTSTRAP_USER_URL", docker_host="user_service", docker_port=8000, local_port=8012
+        ),
         help="User service base URL",
     )
     parser.add_argument(
         "--algo-url",
-        default=os.getenv("BOOTSTRAP_ALGO_URL", "http://127.0.0.1:8014"),
+        default=_service_default(
+            "BOOTSTRAP_ALGO_URL", docker_host="algo_engine", docker_port=8000, local_port=8014
+        ),
         help="Algo engine base URL",
     )
     parser.add_argument(
         "--order-router-url",
-        default=os.getenv("BOOTSTRAP_ORDER_ROUTER_URL", "http://127.0.0.1:8013"),
+        default=_service_default(
+            "BOOTSTRAP_ORDER_ROUTER_URL",
+            docker_host="order_router",
+            docker_port=8000,
+            local_port=8013,
+        ),
         help="Order router base URL",
     )
     parser.add_argument(
         "--reports-url",
-        default=os.getenv("BOOTSTRAP_REPORTS_URL", "http://127.0.0.1:8016"),
+        default=_service_default(
+            "BOOTSTRAP_REPORTS_URL", docker_host="reports", docker_port=8000, local_port=8016
+        ),
         help="Reports service base URL",
     )
     parser.add_argument(
         "--billing-url",
-        default=os.getenv("BOOTSTRAP_BILLING_URL", "http://127.0.0.1:8005"),
+        default=_service_default(
+            "BOOTSTRAP_BILLING_URL",
+            docker_host="billing_service",
+            docker_port=8000,
+            local_port=8005,
+        ),
         help="Billing service base URL",
     )
     parser.add_argument(
         "--dashboard-url",
-        default=os.getenv("BOOTSTRAP_DASHBOARD_URL", "http://127.0.0.1:8022"),
+        default=_service_default(
+            "BOOTSTRAP_DASHBOARD_URL", docker_host="web_dashboard", docker_port=8000, local_port=8022
+        ),
         help="Web dashboard base URL",
     )
     parser.add_argument(
         "--streaming-url",
-        default=os.getenv("BOOTSTRAP_STREAMING_URL", "http://127.0.0.1:8019"),
+        default=_service_default(
+            "BOOTSTRAP_STREAMING_URL", docker_host="streaming", docker_port=8000, local_port=8019
+        ),
         help="Streaming service base URL",
     )
     parser.add_argument(

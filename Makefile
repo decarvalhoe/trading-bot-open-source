@@ -61,7 +61,16 @@ fix-makefile:
 
 # lance bootstrap dans le conteneur (robuste)
 demo-bootstrap:
-	docker compose exec auth_service python /app/scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
+	docker compose exec \
+		-e BOOTSTRAP_AUTH_URL=http://auth_service:8000 \
+		-e BOOTSTRAP_USER_URL=http://user_service:8000 \
+		-e BOOTSTRAP_ALGO_URL=http://algo_engine:8000 \
+		-e BOOTSTRAP_ORDER_ROUTER_URL=http://order_router:8000 \
+		-e BOOTSTRAP_REPORTS_URL=http://reports:8000 \
+		-e BOOTSTRAP_BILLING_URL=http://billing_service:8000 \
+		-e BOOTSTRAP_DASHBOARD_URL=http://web_dashboard:8000 \
+		-e BOOTSTRAP_STREAMING_URL=http://streaming:8000 \
+		auth_service python /app/scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
 
 migrate-generate:
 	@if [ -z "$(message)" ]; then \
