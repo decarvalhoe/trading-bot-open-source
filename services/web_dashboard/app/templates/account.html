@@ -25,6 +25,12 @@
         <div class="account-fallback" aria-live="polite">
           <p class="text text--muted">{{ _('Activez JavaScript pour gérer votre session.') }}</p>
 
+          {% if request.query_params.get('created') %}
+          <p class="text text--muted" role="status">
+            {{ _('Votre compte a été créé avec succès. Connectez-vous pour accéder au tableau de bord.') }}
+          </p>
+          {% endif %}
+
           <section class="card" aria-labelledby="login-title-fallback">
             <div class="card__header">
               <h2 id="login-title-fallback" class="heading heading--lg">{{ _('Connexion') }}</h2>
@@ -44,6 +50,10 @@
                 </label>
                 <button type="submit" class="button button--primary">{{ _('Se connecter') }}</button>
               </form>
+              <p class="text text--muted">
+                {{ _('Pas encore de compte ?') }}
+                <a href="{{ request.url_for('render_account_register') }}">{{ _('Créer mon compte') }}</a>
+              </p>
             </div>
           </section>
 
