@@ -10,6 +10,8 @@ from fastapi import APIRouter, Request, status as http_status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from ..config import default_service_url
+
 router = APIRouter(tags=["Status"])
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
@@ -18,12 +20,26 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 AUTH_BASE_URL = (
     os.getenv("AUTH_BASE_URL")
     or os.getenv("AUTH_SERVICE_URL")
-    or "http://auth_service:8000"
+    or default_service_url(
+        "http://auth_service:8000", native_port=8011, trailing_slash=False
+    )
 )
-REPORTS_BASE_URL = os.getenv("REPORTS_BASE_URL", "http://reports:8000")
-ALGO_BASE_URL = os.getenv("ALGO_ENGINE_BASE_URL", "http://algo_engine:8000")
-ROUTER_BASE_URL = os.getenv("ORDER_ROUTER_BASE_URL", "http://order_router:8000")
-MARKET_BASE_URL = os.getenv("MARKET_DATA_BASE_URL", "http://market_data:8000")
+REPORTS_BASE_URL = os.getenv(
+    "REPORTS_BASE_URL",
+    default_service_url("http://reports:8000", native_port=8016, trailing_slash=False),
+)
+ALGO_BASE_URL = os.getenv(
+    "ALGO_ENGINE_BASE_URL",
+    default_service_url("http://algo_engine:8000", native_port=8014, trailing_slash=False),
+)
+ROUTER_BASE_URL = os.getenv(
+    "ORDER_ROUTER_BASE_URL",
+    default_service_url("http://order_router:8000", native_port=8013, trailing_slash=False),
+)
+MARKET_BASE_URL = os.getenv(
+    "MARKET_DATA_BASE_URL",
+    default_service_url("http://market_data:8000", native_port=8015, trailing_slash=False),
+)
 STATUS_TIMEOUT = float(os.getenv("WEB_DASHBOARD_STATUS_TIMEOUT", "5.0"))
 
 

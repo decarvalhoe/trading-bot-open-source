@@ -104,6 +104,20 @@ Both the configuration service and the shared helpers use the
 `DATABASE_URL`, `REDIS_URL` and `RABBITMQ_URL` to target `localhost` while the
 Docker-based environments keep pointing at the internal container hostnames.
 
+The native `.env` also ships overrides for the web dashboard proxies so FastAPI
+targets the host services directly:
+
+- `WEB_DASHBOARD_AUTH_SERVICE_URL` / `AUTH_BASE_URL` → `http://localhost:8011`
+- `WEB_DASHBOARD_USER_SERVICE_URL` → `http://localhost:8012`
+- `WEB_DASHBOARD_ORDER_ROUTER_BASE_URL` / `ORDER_ROUTER_BASE_URL` →
+  `http://localhost:8013`
+- `WEB_DASHBOARD_ALGO_ENGINE_URL` / `ALGO_ENGINE_BASE_URL` →
+  `http://localhost:8014`
+- `MARKET_DATA_BASE_URL` → `http://localhost:8015`
+- `WEB_DASHBOARD_REPORTS_BASE_URL` / `REPORTS_BASE_URL` →
+  `http://localhost:8016`
+- `WEB_DASHBOARD_ALERT_ENGINE_URL` → `http://localhost:8017`
+
 ### Demo Trading Stack
 
 To explore the monitoring and alerting services together, start the full demo stack:
