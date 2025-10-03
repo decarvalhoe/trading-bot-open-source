@@ -46,7 +46,7 @@ trading-bot-open-source/
 
 | Domain | Scope | Status | Activation Prerequisites |
 | --- | --- | --- | --- |
-| Strategies & research | Visual Strategy Designer, declarative imports, AI assistant, backtesting API | Delivered (designer & backtests), Beta opt-in (assistant) | `make demo-up`, `pip install -r services/algo_engine/requirements.txt`, `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| Strategies & research | Visual Strategy Designer, declarative imports, AI assistant, backtesting API | Delivered (designer & backtests), Beta opt-in (assistant) | `make demo-up`, `pip install -r services/algo_engine/requirements.txt` (assistant auto-enabled), `OPENAI_API_KEY`; set `AI_ASSISTANT_ENABLED=0` to disable |
 | Trading & execution | Sandbox order router, strategy bootstrap script, market connectors (Binance, IBKR, DTC stub) | Delivered (sandbox + Binance/IBKR), Experimental (DTC) | `scripts/dev/bootstrap_demo.py`, connector credentials when available |
 | Real-time monitoring | Streaming gateway, InPlay WebSocket feed, OBS/overlay integrations | Delivered (dashboard + alerts), Beta (OBS automation) | Service tokens (`reports`, `inplay`, `streaming`), optional OAuth secrets |
 | Reporting & analytics | Daily reports API, PDF exports, risk metrics | Delivered (reports), In progress (extended risk dashboards) | Ensure `data/generated-reports/` is writable; enable Prometheus/Grafana stack |
@@ -116,9 +116,17 @@ The command builds the additional FastAPI services, applies Alembic migrations a
 
 ```bash
 pip install -r services/algo_engine/requirements.txt
-export AI_ASSISTANT_ENABLED=1
+# Assistant runs by default once the optional dependencies are installed.
+# Export AI_ASSISTANT_ENABLED=0 to opt out if you prefer to keep it disabled.
 export OPENAI_API_KEY="sk-your-key"
 ```
+
+> ℹ️ Installing `services/algo_engine/requirements.txt` only makes the assistant
+> dependencies available; the runtime flag `AI_ASSISTANT_ENABLED` (read in
+> [`services/algo_engine/app/main.py`](services/algo_engine/app/main.py))
+> controls whether the feature starts. Leave it unset for the default enabled
+> behaviour or export `AI_ASSISTANT_ENABLED=0` to disable it even with the
+> dependencies present.
 
 **Available Services:**
 - `8005` — `billing-service` (Stripe-style subscription orchestration and webhook replay tools)

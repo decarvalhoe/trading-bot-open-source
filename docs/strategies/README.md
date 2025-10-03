@@ -8,7 +8,7 @@ The algo engine now accepts declarative strategies that can be defined either in
 | --- | --- | --- |
 | Declarative imports | General availability | Available by default via `/strategies/import` |
 | Visual Strategy Designer | Beta in the web dashboard | Access `/strategies` route on `web-dashboard`; enable streaming tokens |
-| AI Strategy Assistant | Opt-in beta | `pip install -r services/algo-engine/requirements.txt`, set `AI_ASSISTANT_ENABLED=1`, `OPENAI_API_KEY` |
+| AI Strategy Assistant | Opt-in beta | `pip install -r services/algo-engine/requirements.txt` (assistant auto-enabled), `OPENAI_API_KEY`; set `AI_ASSISTANT_ENABLED=0` to disable |
 | Backtesting API | General availability | Ensure `data/backtests/` is writable; run via `/strategies/{id}/backtest` |
 
 ## Declarative schema
@@ -94,7 +94,7 @@ block validation remains consistent when adding new components.
 The `ai-strategy-assistant` microservice leverages LangChain and OpenAI to transform natural language prompts into declarative or Python strategies. This capability is opt-in and requires the following configuration before calling `/strategies/generate`:
 
 - Install optional dependencies via `pip install -r services/algo-engine/requirements.txt`.
-- Export `AI_ASSISTANT_ENABLED=1` for the algo engine service.
+- The assistant starts automatically once those dependencies are present; export `AI_ASSISTANT_ENABLED=0` if you want the algo engine to stay in non-assistant mode.
 - Provide a valid `OPENAI_API_KEY` to the assistant microservice.
 
 The algo engine exposes
@@ -114,8 +114,11 @@ payload to the algo engine.
 > ℹ️ **Runtime requirements** – Installing
 > `pip install -r services/algo-engine/requirements.txt` now pulls the optional
 > `langchain`, `langchain-openai` and `openai` dependencies needed by the assistant.
-> Set `AI_ASSISTANT_ENABLED=0` to boot the algo engine without the feature; in that
-> case `/strategies/generate` returns HTTP 503 with a clear message.
+> The feature is enabled by default once those packages are available; toggle it via
+> the `AI_ASSISTANT_ENABLED` environment flag handled in
+> [`services/algo_engine/app/main.py`](../../services/algo_engine/app/main.py). Set
+> `AI_ASSISTANT_ENABLED=0` to boot the algo engine without the feature; in that case
+> `/strategies/generate` returns HTTP 503 with a clear message.
 
 ## Simulation & artefacts
 
