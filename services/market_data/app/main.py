@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 
 from fastapi import (
     BackgroundTasks,
@@ -23,7 +23,9 @@ from libs.observability.logging import RequestContextMiddleware, configure_loggi
 from libs.observability.metrics import setup_metrics
 from schemas.market import ExecutionVenue
 
-from ..adapters import BinanceMarketConnector, IBKRMarketConnector
+import httpx
+
+from ..adapters import BinanceMarketConnector, IBKRMarketConnector, TopStepAdapter
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
@@ -59,6 +61,27 @@ def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketCo
         port=settings.ibkr_port,
         client_id=settings.ibkr_client_id,
     )
+
+
+async def get_topstep_adapter(
+    settings: Settings = Depends(get_settings),
+) -> AsyncIterator[TopStepAdapter]:
+    if not settings.topstep_client_id or not settings.topstep_client_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TopStep credentials are not configured",
+        )
+
+    adapter = TopStepAdapter(
+        base_url=settings.topstep_base_url,
+        client_id=settings.topstep_client_id,
+        client_secret=settings.topstep_client_secret,
+    )
+
+    try:
+        yield adapter
+    finally:
+        await adapter.aclose()
 
 
 @app.get("/health", tags=["system"])
@@ -301,4 +324,78 @@ async def get_history(
     )
 
 
-__all__ = ["app", "get_binance_adapter", "get_ibkr_adapter"]
+def _extract_error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except Exception:  # noqa: BLE001
+        return response.text or "Upstream error"
+    if isinstance(payload, dict):
+        return payload.get("detail") or payload.get("message") or response.text
+    return response.text or "Upstream error"
+
+
+@app.get(
+    "/market-data/topstep/accounts/{account_id}/metrics",
+    tags=["topstep"],
+)
+async def topstep_account_metrics(
+    account_id: str,
+    adapter: TopStepAdapter = Depends(get_topstep_adapter),
+) -> dict[str, Any]:
+    try:
+        metrics = await adapter.get_account_metrics(account_id)
+    except httpx.HTTPStatusError as exc:
+        detail = _extract_error_detail(exc.response)
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("TopStep metrics fetch failed for %s", account_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
+    return {"account_id": account_id, "metrics": metrics}
+
+
+@app.get(
+    "/market-data/topstep/accounts/{account_id}/performance",
+    tags=["topstep"],
+)
+async def topstep_performance_history(
+    account_id: str,
+    start: str | None = Query(None, description="Optional ISO start date"),
+    end: str | None = Query(None, description="Optional ISO end date"),
+    adapter: TopStepAdapter = Depends(get_topstep_adapter),
+) -> dict[str, Any]:
+    try:
+        history = await adapter.get_performance_history(account_id, start=start, end=end)
+    except httpx.HTTPStatusError as exc:
+        detail = _extract_error_detail(exc.response)
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("TopStep performance fetch failed for %s", account_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
+    return {"account_id": account_id, "performance": history, "start": start, "end": end}
+
+
+@app.get(
+    "/market-data/topstep/accounts/{account_id}/risk-rules",
+    tags=["topstep"],
+)
+async def topstep_risk_rules(
+    account_id: str,
+    adapter: TopStepAdapter = Depends(get_topstep_adapter),
+) -> dict[str, Any]:
+    try:
+        rules = await adapter.get_risk_rules(account_id)
+    except httpx.HTTPStatusError as exc:
+        detail = _extract_error_detail(exc.response)
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("TopStep risk rules fetch failed for %s", account_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream error") from exc
+    return {"account_id": account_id, "risk_rules": rules}
+
+
+__all__ = [
+    "app",
+    "get_binance_adapter",
+    "get_ibkr_adapter",
+    "get_topstep_adapter",
+]
