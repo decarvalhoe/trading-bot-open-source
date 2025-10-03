@@ -1,576 +1,569 @@
 from __future__ import annotations
 
-import anyio
-import contextlib
-import functools
-import hmac
-import json
+import asyncio
+import importlib
 import sys
-import time
-import types
-from datetime import datetime, timezone
-from hashlib import sha256
-from typing import Any, Mapping
+import threading
+from pathlib import Path
+from typing import Any, Callable, Coroutine
 
 import httpx
 import pytest
-from fastapi import Response
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from fastapi import FastAPI
+from sqlalchemy import text
 
-from schemas.market import ExecutionVenue, OrderSide, OrderType
-from schemas.order_router import ExecutionIntent, RiskOverrides
+from scripts.dev import bootstrap_demo
+
+pytestmark = pytest.mark.end_to_end
 
 
-class _ClosableASGITransport(httpx.ASGITransport):
-    def close(self) -> None:  # type: ignore[override]
+def _normalise_base_url(url: str | httpx.URL | None) -> str | None:
+    if url is None:
         return None
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:  # type: ignore[override]
-        async def _call() -> tuple[int, httpx.Headers, bytes, dict[str, object]]:
-            response = await super(_ClosableASGITransport, self).handle_async_request(request)
-            try:
-                body = await response.aread()
-            finally:
-                await response.aclose()
-            return (
-                response.status_code,
-                response.headers,
-                body,
-                dict(response.extensions),
-            )
-
-        status_code, headers, body, extensions = anyio.run(_call)
-        return httpx.Response(
-            status_code=status_code,
-            headers=headers,
-            content=body,
-            extensions=extensions,
-            request=request,
-        )
+    if isinstance(url, httpx.URL):
+        url = str(url)
+    return url.rstrip("/")
 
 
-def _post_subscription(
-    client: TestClient,
-    *,
-    plan_code: str,
-    customer_id: str,
-    webhook_secret: str,
-) -> None:
-    event = {
-        "type": "customer.subscription.updated",
-        "data": {
-            "object": {
-                "id": f"sub_{customer_id}",
-                "customer": customer_id,
-                "status": "active",
-                "plan": {
-                    "id": f"price_{plan_code}",
-                    "nickname": plan_code,
-                    "product": "demo-product",
-                },
-                "current_period_end": int(time.time()) + 30 * 24 * 3600,
-            }
-        },
-    }
-    body = json.dumps(event, separators=(",", ":"))
-    timestamp = str(int(time.time()))
-    signed_payload = f"{timestamp}.{body}".encode()
-    signature = hmac.new(
-        webhook_secret.encode(), msg=signed_payload, digestmod=sha256
-    ).hexdigest()
-    headers = {"stripe-signature": f"t={timestamp},v1={signature}"}
-    response = client.post("/webhooks/stripe", data=body, headers=headers)
-    assert response.status_code < 400, response.text
+def _prepare_database(tmp_path: Path) -> str:
+    db_path = tmp_path / "bootstrap_demo.sqlite"
+    database_url = f"sqlite+pysqlite:///{db_path}"
 
+    import os
 
-class _DummyAsyncClient:
-    async def aclose(self) -> None:  # pragma: no cover - trivial helper
-        return None
+    os.environ["DATABASE_URL"] = database_url
 
+    db_module = importlib.import_module("libs.db.db")
+    db_module = importlib.reload(db_module)
 
-class _DummyMarketClient(_DummyAsyncClient):
-    async def fetch_context(self, symbol: str) -> dict[str, Any]:
-        return {"symbol": symbol, "price": 0.0}
-
-
-class _DummyReportsClient(_DummyAsyncClient):
-    async def fetch_context(self, symbol: str) -> dict[str, Any]:
-        return {"symbol": symbol, "pnl": 0.0}
-
-
-class _DummyPublisher(_DummyAsyncClient):
-    async def publish(self, payload: dict[str, Any]) -> None:
-        return None
-
-
-class _DummyStreamProcessor:
-    async def start(self, symbols: list[str] | tuple[str, ...]) -> None:
-        return None
-
-    async def stop(self) -> None:
-        return None
-
-
-@pytest.mark.end_to_end
-def test_bootstrap_demo_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.PathLike[str]) -> None:
-    plan_code = "demo-enterprise"
-    email = "demo.trader@example.com"
-    password = "BootstrapPassw0rd!"
-    symbol = "BTCUSDT"
-    quantity = 0.1
-    webhook_secret = "whsec_test"
-    service_customer_id = "bootstrap-service"
-    streaming_token = "reports-token"
-    alerts_token = "demo-alerts-token"
-
-    reports_dir = tmp_path / "reports"
-    reports_db = tmp_path / "reports.db"
-    alerts_db = tmp_path / "alerts.db"
-    alerts_events_db = tmp_path / "alerts-events.db"
-
-    monkeypatch.setenv("JWT_SECRET", "bootstrap-demo-secret")
-    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", webhook_secret)
-    monkeypatch.setenv("STREAMING_SERVICE_TOKEN_REPORTS", streaming_token)
-    monkeypatch.setenv("WEB_DASHBOARD_ALERTS_TOKEN", alerts_token)
-    monkeypatch.setenv("WEB_DASHBOARD_ALERT_ENGINE_URL", "http://alerts-engine.local")
-    monkeypatch.setenv("REPORTS_STORAGE_PATH", str(reports_dir))
-    monkeypatch.setenv("REPORTS_DATABASE_URL", f"sqlite+pysqlite:///{reports_db}")
-    monkeypatch.setenv("ALERT_ENGINE_DATABASE_URL", f"sqlite+pysqlite:///{alerts_db}")
-    monkeypatch.setenv(
-        "ALERT_ENGINE_EVENTS_DATABASE_URL", f"sqlite+pysqlite:///{alerts_events_db}"
+    from infra import (  # noqa: WPS433 - imported after DB reload on purpose
+        AuditBase,
+        EntitlementsBase,
+        MarketplaceBase,
+        ScreenerBase,
+        SocialBase,
+        TradingBase,
     )
+    from services.reports.app import tables as report_tables
 
-    from services.reports.app import config as reports_config
-    from services.streaming.app import config as streaming_config
+    for base in (AuditBase, EntitlementsBase, MarketplaceBase, ScreenerBase, SocialBase):
+        base.metadata.drop_all(bind=db_module.engine)
+        base.metadata.create_all(bind=db_module.engine)
 
-    reports_config.get_settings.cache_clear()
-    streaming_config.get_settings.cache_clear()
+    TradingBase.metadata.drop_all(bind=db_module.engine)
+    TradingBase.metadata.create_all(bind=db_module.engine)
 
-    if "python_multipart" not in sys.modules:
-        multipart_module = types.ModuleType("python_multipart")
-        multipart_module.__version__ = "0.0.20"
-        sys.modules.setdefault("python_multipart", multipart_module)
+    report_tables.Base.metadata.drop_all(bind=db_module.engine)
+    report_tables.Base.metadata.create_all(bind=db_module.engine)
 
-    from services.auth_service.app import models as auth_models
-    from services.auth_service.app import security as auth_security
-    from services.user_service.app import main as user_main
+    from datetime import datetime, timezone
 
-    auth_engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        future=True,
-    )
-    user_engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        future=True,
-    )
+    from schemas.report import StrategyName, Timeframe
 
-    auth_models.Base.metadata.create_all(bind=auth_engine)
-    user_main.Base.metadata.create_all(bind=user_engine)
-
-    AuthSessionLocal = sessionmaker(bind=auth_engine, autoflush=False, autocommit=False, future=True)
-    UserSessionLocal = sessionmaker(bind=user_engine, autoflush=False, autocommit=False, future=True)
-
-    def _auth_get_db():
-        session = AuthSessionLocal()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    def _user_get_db():
-        session = UserSessionLocal()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    monkeypatch.setattr(
-        auth_security,
-        "hash_password",
-        lambda password: f"hashed::{password}",
-    )
-    monkeypatch.setattr(
-        auth_security,
-        "verify_password",
-        lambda password, hashed: hashed == f"hashed::{password}",
-    )
-    original_jwt_encode = auth_security.jwt.encode
-
-    def _encode(payload: dict, key: str, algorithm: str, *args, **kwargs):
-        coerced = dict(payload)
-        if "sub" in coerced:
-            coerced["sub"] = str(coerced["sub"])
-        return original_jwt_encode(coerced, key, algorithm=algorithm, *args, **kwargs)
-
-    monkeypatch.setattr(auth_security.jwt, "encode", _encode)
-
-    original_verify_token = auth_security.verify_token
-
-    def _verify_token(token: str) -> dict:
-        payload = original_verify_token(token)
-        sub = payload.get("sub")
-        if isinstance(sub, str) and sub.isdigit():
-            payload["sub"] = int(sub)
-        return payload
-
-    monkeypatch.setattr(auth_security, "verify_token", _verify_token)
-
-    from services.billing_service.app.main import app as billing_app
-    from services.auth_service.app.main import app as auth_app
-    from services.user_service.app.main import app as user_app
-    from services.algo_engine.app.main import app as algo_app
-    from services.order_router.app.main import app as order_router_app
-    from services.reports.app import main as reports_main
-    from services.reports.app.main import app as reports_app
-    from services.streaming.app.main import create_app as create_streaming_app
-    from services.alert_engine.app.config import AlertEngineSettings
-    from services.alert_engine.app.main import create_app as create_alert_engine_app
-    from services.web_dashboard.app import main as dashboard_main
-    from services.web_dashboard.app.alerts_client import AlertsEngineClient
-    from services.web_dashboard.app.main import app as dashboard_app
-    from libs.entitlements.client import Entitlements
-    import libs.entitlements.client as entitlements_client
-
-    from services.auth_service.app.main import get_db as auth_get_db
-    from services.user_service.app.main import get_db as user_get_db
-
-    auth_app.dependency_overrides[auth_get_db] = _auth_get_db
-    user_app.dependency_overrides[user_get_db] = _user_get_db
-
-    generated_at = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
-
-    def _fake_build_render_payload(request, session, render_symbol):
-        context = {
-            "title": f"{render_symbol} strategy report",
-            "report": {"symbol": render_symbol, "daily": None, "intraday": None},
-            "generated_at": generated_at,
-        }
-        return "bootstrap-symbol-report.html", context
-
-    def _fake_render_template(name: str, **context: object) -> str:
-        payload = {
-            "template": name,
-            "title": context.get("title"),
-            "symbol": (context.get("report") or {}).get("symbol"),
-            "generated_at": generated_at.isoformat(),
-        }
-        return json.dumps(payload, separators=(",", ":"))
-
-    def _fake_render_pdf(html: str) -> bytes:
-        return b"%PDF-1.4\n" + html.encode("utf-8") + b"\n%%EOF"
-
-    monkeypatch.setattr(reports_main, "_build_render_payload", _fake_build_render_payload)
-    monkeypatch.setattr(reports_main, "_render_template", _fake_render_template)
-    monkeypatch.setattr(reports_main, "_render_pdf", _fake_render_pdf)
-
-    alert_settings = AlertEngineSettings(
-        database_url=f"sqlite+pysqlite:///{alerts_db}",
-        events_database_url=f"sqlite+pysqlite:///{alerts_events_db}",
-        market_data_url="http://market-data",
-        market_data_stream_url="http://market-data",
-        reports_url="http://reports",
-        notification_url="http://notification",
-        evaluation_interval_seconds=15.0,
-        market_snapshot_ttl_seconds=30.0,
-        market_event_ttl_seconds=2.0,
-        reports_ttl_seconds=60.0,
-        stream_symbols=(),
-    )
-
-    alert_app = create_alert_engine_app(
-        settings=alert_settings,
-        market_client=_DummyMarketClient(),
-        reports_client=_DummyReportsClient(),
-        publisher=_DummyPublisher(),
-        stream_processor=_DummyStreamProcessor(),
-        start_background_tasks=False,
-    )
-
-    streaming_app = create_streaming_app()
-
-    alert_transport = _ClosableASGITransport(app=alert_app)
-
-    def _alerts_client_factory() -> AlertsEngineClient:
-        return AlertsEngineClient(
-            base_url="http://alerts-engine.local",
-            timeout=5.0,
-            transport=alert_transport,
-        )
-
-    dashboard_client_factory = functools.lru_cache(maxsize=1)(_alerts_client_factory)
-    monkeypatch.setattr(dashboard_main, "_alerts_client_factory", dashboard_client_factory)
-    monkeypatch.setattr(dashboard_main, "get_alerts_client", lambda: dashboard_client_factory())
-
-    original_create_alert = AlertsEngineClient.create_alert
-
-    def _create_alert_with_str_id(self: AlertsEngineClient, payload: Mapping[str, Any]):
-        response_payload = original_create_alert(self, payload)
-        if isinstance(response_payload, Mapping):
-            coerced = dict(response_payload)
-            if "id" in coerced:
-                coerced["id"] = str(coerced["id"])
-            return coerced
-        return response_payload
-
-    monkeypatch.setattr(AlertsEngineClient, "create_alert", _create_alert_with_str_id)
-    async def _fake_require(self, customer_id, capabilities=None, quotas=None):
-        features = {capability: True for capability in (capabilities or [])}
-        quotas_map = {key: value for key, value in (quotas or {}).items()}
-        return Entitlements(customer_id=str(customer_id), features=features, quotas=quotas_map)
-
-    monkeypatch.setattr(entitlements_client.EntitlementsClient, "require", _fake_require)
-
-    with contextlib.ExitStack() as stack:
-        billing_client = stack.enter_context(TestClient(billing_app))
-        auth_client = stack.enter_context(TestClient(auth_app))
-        user_client = stack.enter_context(TestClient(user_app))
-        algo_client = stack.enter_context(TestClient(algo_app))
-        order_router_client = stack.enter_context(TestClient(order_router_app))
-        reports_client = stack.enter_context(TestClient(reports_app))
-        streaming_client = stack.enter_context(TestClient(streaming_app))
-        stack.enter_context(TestClient(alert_app))
-        dashboard_client = stack.enter_context(TestClient(dashboard_app))
-
-        plan_payload = {"code": plan_code, "name": plan_code, "stripe_price_id": plan_code}
-        response = billing_client.post("/billing/plans", json=plan_payload)
-        assert response.status_code == 201, response.text
-
-        for capability in [
-            "can.use_auth",
-            "can.use_users",
-            "can.manage_strategies",
-            "can.route_orders",
-            "can.stream_public",
-        ]:
-            feature_payload = {"code": capability, "name": capability, "kind": "capability"}
-            feature_resp = billing_client.post("/billing/features", json=feature_payload)
-            assert feature_resp.status_code == 201, feature_resp.text
-            mapping_payload = {
-                "plan_code": plan_code,
-                "feature_code": capability,
-                "limit": None,
-            }
-            mapping_resp = billing_client.post(
-                f"/billing/plans/{plan_code}/features", json=mapping_payload
-            )
-            assert mapping_resp.status_code == 202, mapping_resp.text
-
-        quota_payload = {"code": "quota.active_algos", "name": "quota.active_algos", "kind": "quota"}
-        quota_resp = billing_client.post("/billing/features", json=quota_payload)
-        assert quota_resp.status_code == 201, quota_resp.text
-        quota_mapping = {
-            "plan_code": plan_code,
-            "feature_code": "quota.active_algos",
-            "limit": 5,
-        }
-        quota_map_resp = billing_client.post(
-            f"/billing/plans/{plan_code}/features", json=quota_mapping
-        )
-        assert quota_map_resp.status_code == 202, quota_map_resp.text
-
-        _post_subscription(
-            billing_client,
-            plan_code=plan_code,
-            customer_id=service_customer_id,
-            webhook_secret=webhook_secret,
-        )
-
-        auth_headers = {"x-customer-id": service_customer_id}
-        registration_resp = auth_client.post(
-            "/auth/register",
-            json={"email": email, "password": password},
-            headers=auth_headers,
-        )
-        assert registration_resp.status_code in {201, 409}, registration_resp.text
-        registration_payload = (
-            registration_resp.json() if registration_resp.status_code == 201 else None
-        )
-
-        login_resp = auth_client.post(
-            "/auth/login",
-            json={"email": email, "password": password},
-            headers=auth_headers,
-        )
-        assert login_resp.status_code == 200, login_resp.text
-        tokens = login_resp.json()
-        assert "access_token" in tokens and "refresh_token" in tokens
-
-        me_resp = auth_client.get(
-            "/auth/me",
-            headers={
-                "Authorization": f"Bearer {tokens['access_token']}",
-                "x-customer-id": service_customer_id,
-            },
-        )
-        assert me_resp.status_code == 200, me_resp.text
-        me_payload = me_resp.json()
-        user_id = int(me_payload["id"])
-
-        _post_subscription(
-            billing_client,
-            plan_code=plan_code,
-            customer_id=str(user_id),
-            webhook_secret=webhook_secret,
-        )
-
-        user_headers = {
-            "Authorization": f"Bearer {tokens['access_token']}",
-            "x-customer-id": str(user_id),
-        }
-        user_registration_resp = user_client.post(
-            "/users/register",
-            json={
-                "email": email,
-                "first_name": "Demo",
-                "last_name": "Trader",
-                "marketing_opt_in": True,
-            },
-            headers=user_headers,
-        )
-        assert user_registration_resp.status_code == 201, user_registration_resp.text
-        user_registration = user_registration_resp.json()
-
-        activation_resp = user_client.post(
-            f"/users/{user_id}/activate",
-            headers=user_headers,
-        )
-        assert activation_resp.status_code == 200, activation_resp.text
-        activated_profile = activation_resp.json()
-
-        strategy_resp = algo_client.post(
-            "/strategies",
-            json={
-                "name": "Bootstrap Trend Follower",
-                "strategy_type": "gap_fill",
-                "parameters": {"gap_pct": 0.8, "fade_pct": 0.4, "symbol": symbol},
-                "enabled": True,
-                "tags": ["demo"],
-                "metadata": {"source": "bootstrap-demo"},
-            },
-            headers={"x-customer-id": str(user_id)},
-        )
-        assert strategy_resp.status_code == 201, strategy_resp.text
-        strategy_payload = strategy_resp.json()
-
-        intent = ExecutionIntent(
-            broker="binance",
-            venue=ExecutionVenue.BINANCE_SPOT,
-            symbol=symbol,
-            side=OrderSide.BUY,
-            order_type=OrderType.MARKET,
-            quantity=quantity,
-            price=None,
-            account_id=f"acct-{user_id}",
-            risk=RiskOverrides(account_id=f"acct-{user_id}", realized_pnl=0.0),
-            tags=["bootstrap-demo"],
-        )
-        order_resp = order_router_client.post(
-            "/orders",
-            json=intent.model_dump(mode="json", exclude_none=True),
-            headers={"x-customer-id": str(user_id)},
-        )
-        assert order_resp.status_code == 201, order_resp.text
-        order_payload = order_resp.json()
-
-        report_resp = reports_client.post(
-            f"/reports/{symbol}/render",
-            json={"report_type": "symbol", "timeframe": "both"},
-        )
-        assert report_resp.status_code == 200, report_resp.text
-        report_summary = {
-            "content_type": report_resp.headers.get("content-type"),
-            "size_bytes": len(report_resp.content),
-            "storage_path": report_resp.headers.get("X-Report-Path"),
-        }
-
-        alert_payload = {
-            "title": f"{symbol} order executed",
-            "detail": f"Bootstrap routed {quantity} {symbol} ({OrderSide.BUY.value}).",
-            "risk": "info",
-            "symbol": symbol,
-            "throttle_seconds": 900,
-            "rule": {
-                "symbol": symbol,
-                "timeframe": "1h",
-                "conditions": {
-                    "pnl": {"enabled": True, "operator": "below", "value": -150.0},
-                    "drawdown": {"enabled": True, "operator": "above", "value": 5.0},
-                    "indicators": [],
-                },
-            },
-            "channels": [
-                {"type": "email", "target": "alerts@example.com", "enabled": True},
+    with db_module.engine.begin() as connection:
+        connection.execute(report_tables.ReportSnapshot.__table__.delete())
+        connection.execute(
+            report_tables.ReportSnapshot.__table__.insert(),
+            [
                 {
-                    "type": "webhook",
-                    "target": "https://hooks.example.com/alerts",
-                    "enabled": True,
+                    "symbol": "BTCUSDT",
+                    "timeframe": Timeframe.DAILY,
+                    "strategy": StrategyName.GAP_FILL,
+                    "probability": 0.68,
+                    "target": 45000.0,
+                    "stop": 42000.0,
+                    "expectancy": 0.12,
+                    "sample_size": 125,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+                {
+                    "symbol": "BTCUSDT",
+                    "timeframe": Timeframe.INTRADAY,
+                    "strategy": StrategyName.ORB,
+                    "probability": 0.55,
+                    "target": 45500.0,
+                    "stop": 43000.0,
+                    "expectancy": 0.09,
+                    "sample_size": 87,
+                    "updated_at": datetime.now(timezone.utc),
                 },
             ],
+        )
+
+    return database_url
+
+
+def _build_alerts_stub() -> tuple[FastAPI, list[dict[str, Any]]]:
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    storage: list[dict[str, Any]] = []
+
+    @app.post("/alerts")  # type: ignore[no-redef]
+    def create_alert(payload: dict[str, Any]) -> dict[str, Any]:
+        from datetime import datetime, timezone
+
+        alert_id = f"alert-{len(storage) + 1}"
+        record = {
+            "id": alert_id,
+            "title": payload.get("title", ""),
+            "detail": payload.get("detail", ""),
+            "risk": payload.get("risk", "info"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "acknowledged": payload.get("acknowledged", False),
+            "rule": payload.get("rule", {"symbol": payload.get("symbol", "BTCUSDT"), "conditions": {}}),
+            "channels": payload.get("channels", []),
+            "throttle_seconds": payload.get("throttle_seconds", 0),
         }
-        dashboard_alert_resp = dashboard_client.post(
-            "/alerts",
-            json=alert_payload,
-            headers={"Authorization": f"Bearer {alerts_token}"},
-        )
-        assert dashboard_alert_resp.status_code == 201, dashboard_alert_resp.text
-        alert_record = dashboard_alert_resp.json()
+        storage.append(record)
+        return record
 
-        stream_resp = streaming_client.post(
-            "/ingest/reports",
-            json={
-                "room_id": "public-room",
-                "source": "reports",
-                "payload": {
-                    "symbol": symbol,
-                    "side": OrderSide.BUY.value,
-                    "quantity": quantity,
-                    "status": order_payload.get("status"),
-                    "order_id": order_payload.get("order_id"),
-                },
-            },
-            headers={"X-Service-Token": streaming_token},
-        )
-        assert stream_resp.status_code == 202, stream_resp.text
-        stream_payload = stream_resp.json()
+    @app.get("/alerts")  # type: ignore[no-redef]
+    def list_alerts() -> list[dict[str, Any]]:
+        return list(storage)
 
-    assert registration_payload is None or registration_payload["email"] == email
-    assert me_payload["email"] == email
-    assert user_registration["email"] == email
-    assert activated_profile["is_active"] is True
-    assert strategy_payload["name"] == "Bootstrap Trend Follower"
-    assert strategy_payload["strategy_type"] == "gap_fill"
-    assert strategy_payload["parameters"]["symbol"] == symbol
-    assert order_payload["symbol"].upper() == symbol
-    assert pytest.approx(order_payload["quantity"], rel=0.01) == quantity
-    assert report_summary["content_type"] == "application/pdf"
-    assert report_summary["size_bytes"] > 0
-    assert report_summary["storage_path"] is not None
-    assert alert_record["rule"]["symbol"].upper() == symbol
-    assert alert_record["title"] == alert_payload["title"]
-    assert stream_payload == {"status": "queued"}
+    return app, storage
 
-    summary = {
-        "auth": {"registration": registration_payload, "me": me_payload},
-        "user": {
-            "id": user_id,
-            "email": email,
-            "registration": user_registration,
-            "profile": activated_profile,
-        },
-        "tokens": tokens,
-        "strategy": strategy_payload,
-        "order": order_payload,
-        "report": report_summary,
-        "alert": alert_record,
-        "stream": stream_payload,
+
+@pytest.fixture()
+def bootstrap_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    monkeypatch.setenv("ENTITLEMENTS_BYPASS", "1")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setenv("STREAMING_PIPELINE_BACKEND", "memory")
+    monkeypatch.setenv("STREAMING_SERVICE_TOKEN_REPORTS", "reports-token")
+    monkeypatch.delenv("STREAMING_SERVICE_TOKEN", raising=False)
+    monkeypatch.delenv("STREAMING_INGEST_URL", raising=False)
+    monkeypatch.setenv("STREAMING_ROOM_ID", "public-room")
+    monkeypatch.setenv("WEB_DASHBOARD_ALERTS_TOKEN", "demo-alerts-token")
+    monkeypatch.setenv("JWT_SECRET", "test-bootstrap-secret")
+    alerts_db = tmp_path / "dashboard_alerts.sqlite"
+    database_url = _prepare_database(tmp_path)
+    monkeypatch.setenv("WEB_DASHBOARD_ALERT_EVENTS_DATABASE_URL", f"sqlite+pysqlite:///{alerts_db}")
+    monkeypatch.setenv("ALERT_EVENTS_DATABASE_URL", f"sqlite+pysqlite:///{alerts_db}")
+    monkeypatch.setenv("ORDER_ROUTER_URL", "http://order-router.local")
+    monkeypatch.setenv("REPORTS_DATABASE_URL", database_url)
+
+    urls = {
+        "auth": "http://auth.local",
+        "user": "http://user.local",
+        "algo": "http://algo.local",
+        "order_router": "http://order-router.local",
+        "reports": "http://reports.local",
+        "billing": "http://billing.local",
+        "dashboard": "http://dashboard.local",
+        "streaming": "http://streaming.local",
+        "alerts_engine": "http://alerts.local",
+    }
+    return urls
+
+
+@pytest.fixture()
+def local_app_map(
+    bootstrap_environment: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[
+    dict[str, FastAPI],
+    list[dict[str, Any]],
+    Callable[[str | httpx.URL | None], FastAPI | None],
+    dict[str, FastAPI],
+]:
+    urls = bootstrap_environment
+
+    alerts_app, alerts_storage = _build_alerts_stub()
+
+    from fastapi.dependencies import utils as fastapi_utils
+
+    monkeypatch.setattr(fastapi_utils, "ensure_multipart_is_installed", lambda: None)
+
+    modules = {
+        "auth": importlib.import_module("services.auth_service.app.main"),
+        "user": importlib.import_module("services.user_service.app.main"),
+        "algo": importlib.import_module("services.algo_engine.app.main"),
+        "order_router": importlib.import_module("services.order_router.app.main"),
+        "reports": importlib.import_module("services.reports.app.main"),
+        "dashboard": importlib.import_module("services.web_dashboard.app.main"),
+        "streaming": importlib.import_module("services.streaming.app.main"),
     }
 
+    reports_db_module = importlib.import_module("services.reports.app.database")
+    reports_db_module.reset_engine()
+
+    from libs.entitlements.client import Entitlements, EntitlementsClient
+
+    async def _mock_resolve(self, customer_id: str) -> Entitlements:
+        features = {
+            "can.use_auth": True,
+            "can.use_users": True,
+            "can.manage_strategies": True,
+            "can.route_orders": True,
+            "can.stream_public": True,
+            "can.manage_users": True,
+        }
+        quotas = {"quota.active_algos": 10}
+        return Entitlements(customer_id=str(customer_id), features=features, quotas=quotas)
+
+    async def _mock_require(
+        self,
+        customer_id: str,
+        capabilities: list[str] | None = None,
+        quotas: dict[str, int] | None = None,
+    ) -> Entitlements:
+        entitlements = await _mock_resolve(self, customer_id)
+        for capability in capabilities or []:
+            entitlements.features.setdefault(capability, True)
+        for name, required in (quotas or {}).items():
+            current = entitlements.quotas.get(name)
+            entitlements.quotas[name] = max(required, current or 0)
+        return entitlements
+
+    monkeypatch.setattr(EntitlementsClient, "resolve", _mock_resolve)
+    monkeypatch.setattr(EntitlementsClient, "require", _mock_require)
+
+    auth_main = modules["auth"]
+    monkeypatch.setattr(auth_main, "hash_password", lambda password: f"hashed::{password}")
+    monkeypatch.setattr(
+        auth_main, "verify_password", lambda password, hashed: hashed == f"hashed::{password}"
+    )
+
+    db_module = importlib.import_module("libs.db.db")
+    with db_module.engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS users"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL UNIQUE,
+                    password_hash VARCHAR(255) NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 0,
+                    is_superuser BOOLEAN NOT NULL DEFAULT 0,
+                    first_name VARCHAR(120),
+                    last_name VARCHAR(120),
+                    phone VARCHAR(32),
+                    marketing_opt_in BOOLEAN NOT NULL DEFAULT 0,
+                    deleted_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+
+    with db_module.engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS roles"))
+        connection.execute(
+            text(
+                "CREATE TABLE roles (id INTEGER PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)"
+            )
+        )
+        connection.execute(text("DROP TABLE IF EXISTS user_roles"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE user_roles (
+                    user_id INTEGER NOT NULL,
+                    role_id INTEGER NOT NULL,
+                    PRIMARY KEY (user_id, role_id)
+                )
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE IF EXISTS mfa_totp"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE mfa_totp (
+                    user_id INTEGER PRIMARY KEY,
+                    secret VARCHAR(64) NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 0
+                )
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE IF EXISTS user_preferences"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE user_preferences (
+                    user_id INTEGER PRIMARY KEY,
+                    preferences TEXT NOT NULL DEFAULT '{}'
+                )
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE IF EXISTS onboarding_progress"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE onboarding_progress (
+                    user_id INTEGER PRIMARY KEY,
+                    current_step VARCHAR(64),
+                    completed_steps TEXT NOT NULL DEFAULT '[]',
+                    restarted_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    user_db_dir = tmp_path_factory.mktemp("user-service")
+    user_db_url = f"sqlite+pysqlite:///{user_db_dir / 'user_service.sqlite'}"
+    user_engine = create_engine(
+        user_db_url,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    user_session_factory = sessionmaker(
+        bind=user_engine, autoflush=False, autocommit=False, future=True
+    )
+
+    user_base = modules["user"].Base
+    user_base.metadata.drop_all(bind=user_engine)
+    user_base.metadata.create_all(bind=user_engine)
+
+    def _user_get_db():
+        db = user_session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    user_app = modules["user"].app  # type: ignore[attr-defined]
+    original_user_get_db = modules["user"].get_db
+    user_app.dependency_overrides[original_user_get_db] = _user_get_db
+
+    app_map: dict[str, FastAPI] = {
+        _normalise_base_url(urls["auth"]): modules["auth"].app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["user"]): modules["user"].app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["algo"]): modules["algo"].app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["order_router"]): modules["order_router"].app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["reports"]): modules["reports"].app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["billing"]): importlib.import_module(
+            "services.billing_service.app.main"
+        ).app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["dashboard"]): modules["dashboard"].app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["streaming"]): modules["streaming"].app,  # type: ignore[attr-defined]
+        _normalise_base_url(urls["alerts_engine"]): alerts_app,
+    }
+
+    monkeypatch.setenv("WEB_DASHBOARD_ALERT_ENGINE_URL", urls["alerts_engine"])
+    modules["dashboard"].ALERT_ENGINE_BASE_URL = urls["alerts_engine"]
+
+    def resolve_app(base_url: str | httpx.URL | None) -> FastAPI | None:
+        normalised = _normalise_base_url(base_url)
+        if normalised is None:
+            return None
+        return app_map.get(normalised)
+
+    started_apps: list[FastAPI] = []
+    lifespan_contexts: list[tuple[FastAPI, Any]] = []
+
+    streaming_app = modules["streaming"].app  # type: ignore[attr-defined]
+    streaming_lifespan = getattr(modules["streaming"], "lifespan", None)
+    if callable(streaming_lifespan):
+        context = streaming_lifespan(streaming_app)
+        asyncio.run(context.__aenter__())
+        lifespan_contexts.append((streaming_app, context))
+        started_apps.append(streaming_app)
+
+    for application in app_map.values():
+        if application is streaming_app:
+            continue
+        asyncio.run(application.router.startup())
+        started_apps.append(application)
+
+    try:
+        yield urls, alerts_storage, resolve_app, app_map
+    finally:
+        for application, context in reversed(lifespan_contexts):
+            asyncio.run(context.__aexit__(None, None, None))
+        for application in reversed(started_apps):
+            if application is streaming_app:
+                continue
+            asyncio.run(application.router.shutdown())
+
+
+@pytest.fixture(autouse=True)
+def patch_httpx_clients(local_app_map, monkeypatch: pytest.MonkeyPatch):
+    _, _, resolve_app, app_map = local_app_map
+    original_client = httpx.Client
+    original_async_client = httpx.AsyncClient
+
+    class _AsyncRequestRunner:
+        def __init__(self) -> None:
+            self._loop = asyncio.new_event_loop()
+            self._started = threading.Event()
+            self._thread = threading.Thread(target=self._run_loop, daemon=True)
+            self._thread.start()
+            self._started.wait()
+
+        def _run_loop(self) -> None:
+            asyncio.set_event_loop(self._loop)
+            self._started.set()
+            self._loop.run_forever()
+
+        def call(self, coro: Coroutine[Any, Any, Any]) -> Any:
+            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return future.result()
+
+        def close(self) -> None:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join()
+            self._loop.close()
+
+    class _LocalSyncClient:
+        def __init__(self, client: httpx.AsyncClient) -> None:
+            self._client = client
+            self.headers = client.headers
+            self.base_url = client.base_url
+            self.cookies = client.cookies
+            self._runner = _AsyncRequestRunner()
+
+        def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+            return self._runner.call(self._client.request(method, url, **kwargs))
+
+        def get(self, url: str, **kwargs: Any) -> httpx.Response:
+            return self._runner.call(self._client.get(url, **kwargs))
+
+        def post(self, url: str, **kwargs: Any) -> httpx.Response:
+            return self._runner.call(self._client.post(url, **kwargs))
+
+        def put(self, url: str, **kwargs: Any) -> httpx.Response:
+            return self._runner.call(self._client.put(url, **kwargs))
+
+        def delete(self, url: str, **kwargs: Any) -> httpx.Response:
+            return self._runner.call(self._client.delete(url, **kwargs))
+
+        def close(self) -> None:
+            try:
+                self._runner.call(self._client.aclose())
+            finally:
+                self._runner.close()
+
+        def __enter__(self) -> _LocalSyncClient:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:  # noqa: D401 - standard signature
+            self.close()
+
+        def __getattr__(self, item: str) -> Any:
+            return getattr(self._client, item)
+
+    def client_factory(*args: Any, **kwargs: Any):
+        base_url = kwargs.get("base_url")
+        if base_url is None and args:
+            base_url = args[0]
+        app = resolve_app(base_url)
+        if app is not None:
+            async_kwargs = dict(kwargs)
+            if "base_url" not in async_kwargs and base_url is not None:
+                async_kwargs["base_url"] = base_url
+            async_kwargs["transport"] = httpx.ASGITransport(app=app)
+            async_client = original_async_client(*args, **async_kwargs)
+            return _LocalSyncClient(async_client)
+        return original_client(*args, **kwargs)
+
+    def async_client_factory(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        base_url = kwargs.get("base_url")
+        if base_url is None and args:
+            base_url = args[0]
+        app = resolve_app(base_url)
+        if app is not None:
+            kwargs["transport"] = httpx.ASGITransport(app=app)
+            if "base_url" not in kwargs:
+                kwargs["base_url"] = base_url
+        return original_async_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", client_factory)
+    monkeypatch.setattr(httpx, "AsyncClient", async_client_factory)
+    try:
+        yield
+    finally:
+        monkeypatch.setattr(httpx, "Client", original_client)
+        monkeypatch.setattr(httpx, "AsyncClient", original_async_client)
+
+
+def test_bootstrap_demo_flow(local_app_map):
+    urls, alerts_storage, _, _ = local_app_map
+
+    # Clear cached alert engine client to ensure patched transport is used
+    dashboard_module = importlib.import_module("services.web_dashboard.app.main")
+    cache_clear = getattr(dashboard_module._alerts_client_factory, "cache_clear", None)  # type: ignore[attr-defined]
+    if callable(cache_clear):
+        cache_clear()
+
+    args = [
+        "BTCUSDT",
+        "0.5",
+        "--auth-url",
+        urls["auth"],
+        "--user-url",
+        urls["user"],
+        "--algo-url",
+        urls["algo"],
+        "--order-router-url",
+        urls["order_router"],
+        "--reports-url",
+        urls["reports"],
+        "--billing-url",
+        urls["billing"],
+        "--dashboard-url",
+        urls["dashboard"],
+        "--streaming-url",
+        urls["streaming"],
+        "--alerts-token",
+        "demo-alerts-token",
+        "--streaming-token",
+        "reports-token",
+        "--password",
+        "P@ssw0rd123!",
+    ]
+
+    summary = bootstrap_demo.run(args)
+
+    email = "demo.trader@example.com"
+
+    assert summary["auth"]["registration"]["email"] == email
     assert summary["auth"]["me"]["email"] == email
-    assert summary["stream"]["status"] == "queued"
+
+    user_section = summary["user"]
+    assert user_section["email"] == email
+    assert user_section["profile"]["is_active"] is True
+
+    tokens = summary["tokens"]
+    assert "access_token" in tokens and tokens["access_token"]
+    assert "refresh_token" in tokens and tokens["refresh_token"]
+
+    strategy = summary["strategy"]
+    assert strategy["name"] == "Bootstrap Trend Follower"
+    assert strategy["parameters"]["symbol"] == "BTCUSDT"
+
+    order = summary["order"]
+    assert order["symbol"] == "BTCUSDT"
+    assert float(order["quantity"]) == pytest.approx(0.5)
+    assert order["status"] == "filled"
+
+    report = summary["report"]
+    assert report["content_type"] == "application/pdf"
+    assert report["size_bytes"] > 0
+
+    alert = summary["alert"]
+    assert alert["title"].startswith("BTCUSDT order executed")
+    assert alerts_storage and alerts_storage[0]["id"] == alert["id"]
+
+    stream = summary["stream"]
+    assert stream == {"status": "queued"}
+
+    streaming_module = importlib.import_module("services.streaming.app.main")
+    bridge = streaming_module.app.state.bridge  # type: ignore[attr-defined]
+    queue = bridge._publisher._queue  # type: ignore[attr-defined]
+    queued_event = asyncio.run(queue.get())
+    assert queued_event.room_id == "public-room"
+    assert queued_event.payload["symbol"] == "BTCUSDT"
