@@ -24,5 +24,11 @@ if [[ -f "${ENCRYPTED_ENV_FILE}" ]]; then
     trap cleanup EXIT
 fi
 
+if [[ "${USE_NATIVE:-0}" == "1" ]]; then
+    "${SCRIPT_DIR}/native_up.sh"
+    echo "-> native dependencies up. start services manually as needed."
+    exit 0
+fi
+
 docker compose up -d --build
 echo "-> dev up. config_service: http://localhost:8000"

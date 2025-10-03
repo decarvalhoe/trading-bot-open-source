@@ -59,6 +59,10 @@ Track detailed milestones and owners in [`docs/release-highlights/2025-12.md`](d
 
 ### Basic Setup
 
+**Prerequisites:**
+
+- [Docker](https://docs.docker.com/get-docker/) (default workflow), **or** native installations of `postgresql` (providing `pg_ctl`, `pg_isready`, `initdb`) and `redis` (`redis-server`, `redis-cli`).
+
 ```bash
 # 1. Clone the project
 git clone https://github.com/decarvalhoe/trading-bot-open-source.git
@@ -67,7 +71,7 @@ cd trading-bot-open-source
 # 2. Install development tools
 make setup
 
-# 3. Start the development environment
+# 3. Start the development environment (Docker)
 make dev-up
 
 # 4. Check that everything is working (auth-service health)
