@@ -67,7 +67,7 @@ def test_openapi_document_is_valid(api_schema):
 
 def test_contract_flows_cover_totp_cycle(client, session_factory, api_schema):
     email = f"contract-{secrets.token_hex(4)}@example.com"
-    password = "Passw0rd!"
+    password = "Passw0rd!xyz"
 
     register_payload = {"email": email, "password": password}
     register_response = client.post("/auth/register", json=register_payload)
