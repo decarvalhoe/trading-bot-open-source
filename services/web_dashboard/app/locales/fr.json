@@ -125,5 +125,21 @@
   "{rating} / 5": "{rating} / 5",
   "{value} / 5": "{value} / 5",
   "Aucun avis pour le moment.": "Aucun avis pour le moment.",
-  "Aucune stratégie ne correspond à vos filtres.": "Aucune stratégie ne correspond à vos filtres."
+  "Aucune stratégie ne correspond à vos filtres.": "Aucune stratégie ne correspond à vos filtres.",
+  "Activez JavaScript pour gérer votre session.": "Activez JavaScript pour gérer votre session.",
+  "Connexion": "Connexion",
+  "Authentifiez-vous pour débloquer les fonctions de sauvegarde et d'orchestration.": "Authentifiez-vous pour débloquer les fonctions de sauvegarde et d'orchestration.",
+  "Adresse e-mail": "Adresse e-mail",
+  "Mot de passe": "Mot de passe",
+  "Se connecter": "Se connecter",
+  "Clés API exchanges": "Clés API exchanges",
+  "Stockez vos identifiants chiffrés. Ils seront synchronisés avec l'orchestrateur lors des déploiements.": "Stockez vos identifiants chiffrés. Ils seront synchronisés avec l'orchestrateur lors des déploiements.",
+  "Sélectionnez un exchange": "Sélectionnez un exchange",
+  "Exchange": "Exchange",
+  "Binance": "Binance",
+  "Coinbase Pro": "Coinbase Pro",
+  "Kraken": "Kraken",
+  "Clé publique": "Clé publique",
+  "Clé secrète": "Clé secrète",
+  "Associer la clé": "Associer la clé"
 }

@@ -42,7 +42,7 @@ test:
 	python -m pip install -r requirements/services.txt
 	python -m pip install -r requirements/services-dev.txt
 	python -m coverage erase
-	python -m coverage run -m pytest
+	python -m coverage run -m pytest -m "not slow"
 	python -m coverage xml
 	python -m coverage html
 
@@ -53,7 +53,8 @@ e2e-sh:
 	bash ./scripts/e2e/auth_e2e.sh
 
 web_dashboard-e2e:
-	python -m pytest services/web_dashboard/tests/e2e
+        python -m playwright install --with-deps chromium firefox
+        python -m pytest services/web_dashboard/tests/e2e
 
 migrate-generate:
 	@if [ -z "$(message)" ]; then \

@@ -15,93 +15,69 @@
       </p>
     </header>
     <main class="layout__main layout__main--wide">
-      <section class="card" aria-labelledby="login-title">
-        <div class="card__header">
-          <h2 id="login-title" class="heading heading--lg">Connexion</h2>
-          <p class="text text--muted">Authentifiez-vous pour débloquer les fonctions de sauvegarde et d'orchestration.</p>
-        </div>
-        <div class="card__body">
-          <form class="form-grid" action="#" method="post">
-            <label class="designer-field">
-              <span class="designer-field__label text text--muted">Adresse e-mail</span>
-              <input type="email" name="email" autocomplete="email" required />
-            </label>
-            <label class="designer-field">
-              <span class="designer-field__label text text--muted">Mot de passe</span>
-              <input type="password" name="password" autocomplete="current-password" required />
-            </label>
-            <button type="submit" class="button button--primary">Se connecter</button>
-          </form>
-        </div>
-      </section>
+      <div
+        id="account-app"
+        data-session-endpoint="{{ request.url_for('account_session') }}"
+        data-login-endpoint="{{ request.url_for('account_login') }}"
+        data-logout-endpoint="{{ request.url_for('account_logout') }}"
+      >
+        <div class="account-fallback" aria-live="polite">
+          <p class="text text--muted">{{ _('Activez JavaScript pour gérer votre session.') }}</p>
 
-      <section class="card" aria-labelledby="api-keys-title">
-        <div class="card__header">
-          <h2 id="api-keys-title" class="heading heading--lg">Clés API exchanges</h2>
-          <p class="text text--muted">
-            Stockez vos identifiants chiffrés. Ils seront synchronisés avec l'orchestrateur lors des déploiements.
-          </p>
+          <section class="card" aria-labelledby="login-title-fallback">
+            <div class="card__header">
+              <h2 id="login-title-fallback" class="heading heading--lg">{{ _('Connexion') }}</h2>
+              <p class="text text--muted">
+                {{ _("Authentifiez-vous pour débloquer les fonctions de sauvegarde et d'orchestration.") }}
+              </p>
+            </div>
+            <div class="card__body">
+              <form class="form-grid" action="{{ request.url_for('account_login') }}" method="post">
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Adresse e-mail') }}</span>
+                  <input type="email" name="email" autocomplete="email" required />
+                </label>
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Mot de passe') }}</span>
+                  <input type="password" name="password" autocomplete="current-password" required />
+                </label>
+                <button type="submit" class="button button--primary">{{ _('Se connecter') }}</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="card" aria-labelledby="api-keys-title-fallback">
+            <div class="card__header">
+              <h2 id="api-keys-title-fallback" class="heading heading--lg">{{ _('Clés API exchanges') }}</h2>
+              <p class="text text--muted">
+                {{ _("Stockez vos identifiants chiffrés. Ils seront synchronisés avec l'orchestrateur lors des déploiements.") }}
+              </p>
+            </div>
+            <div class="card__body">
+              <form class="form-grid" action="#" method="post">
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Sélectionnez un exchange') }}</span>
+                  <select name="exchange" required>
+                    <option value="" disabled selected>{{ _('Exchange') }}</option>
+                    <option value="binance">{{ _('Binance') }}</option>
+                    <option value="coinbase">{{ _('Coinbase Pro') }}</option>
+                    <option value="kraken">{{ _('Kraken') }}</option>
+                  </select>
+                </label>
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Clé publique') }}</span>
+                  <input type="text" name="public" autocomplete="off" required />
+                </label>
+                <label class="designer-field">
+                  <span class="designer-field__label text text--muted">{{ _('Clé secrète') }}</span>
+                  <input type="password" name="secret" autocomplete="off" required />
+                </label>
+                <button type="submit" class="button button--secondary">{{ _('Associer la clé') }}</button>
+              </form>
+            </div>
+          </section>
         </div>
-        <div class="card__body">
-          <form class="form-grid" action="#" method="post">
-            <label class="designer-field">
-              <span class="designer-field__label text text--muted">Exchange</span>
-              <select name="exchange">
-                <option value="binance">Binance</option>
-                <option value="ftx">FTX</option>
-                <option value="kraken">Kraken</option>
-                <option value="bitstamp">Bitstamp</option>
-              </select>
-            </label>
-            <label class="designer-field">
-              <span class="designer-field__label text text--muted">Clé publique</span>
-              <input type="text" name="public" autocomplete="off" required />
-            </label>
-            <label class="designer-field">
-              <span class="designer-field__label text text--muted">Clé secrète</span>
-              <input type="password" name="secret" autocomplete="off" required />
-            </label>
-            <label class="designer-field">
-              <span class="designer-field__label text text--muted">Passphrase</span>
-              <input type="password" name="passphrase" autocomplete="off" />
-            </label>
-            <button type="submit" class="button button--secondary">Ajouter la clé</button>
-          </form>
-          <div class="api-keys-table" role="region" aria-live="polite">
-            <table class="table" role="grid" aria-label="Clés API enregistrées">
-              <thead>
-                <tr>
-                  <th scope="col">Exchange</th>
-                  <th scope="col">Identifiant</th>
-                  <th scope="col">Permissions</th>
-                  <th scope="col">Dernière mise à jour</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td data-label="Exchange">Binance</td>
-                  <td data-label="Identifiant">binance-001</td>
-                  <td data-label="Permissions"><span class="badge badge--info">Trading</span></td>
-                  <td data-label="Dernière mise à jour">02/05/2024</td>
-                  <td data-label="Actions">
-                    <button type="button" class="button button--ghost">Révoquer</button>
-                  </td>
-                </tr>
-                <tr>
-                  <td data-label="Exchange">Kraken</td>
-                  <td data-label="Identifiant">kraken-pro</td>
-                  <td data-label="Permissions"><span class="badge badge--success">Trading + Retraits</span></td>
-                  <td data-label="Dernière mise à jour">15/04/2024</td>
-                  <td data-label="Actions">
-                    <button type="button" class="button button--ghost">Révoquer</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+      </div>
     </main>
     <footer class="layout__footer">
       <p class="text text--muted">{{ _('Les identifiants sont chiffrés avant synchronisation avec l\'algo-engine.') }}</p>
@@ -109,6 +85,6 @@
     <script id="i18n-bootstrap" type="application/json">
       {{ i18n_bundle|tojson }}
     </script>
-    <script type="module" src="/static/dist/portfolio-chart.js"></script>
+    <script type="module" src="/static/dist/account-app.js"></script>
   </body>
 </html>

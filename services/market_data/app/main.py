@@ -6,24 +6,36 @@ import json
 import logging
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, AsyncIterator, Awaitable, Callable, Iterable, TypeVar
 
 from fastapi import (
     BackgroundTasks,
     Depends,
     FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
     Header,
     HTTPException,
     Query,
     Request,
     status,
 )
+from fastapi.encoders import jsonable_encoder
+from fastapi.websockets import WebSocketState
 
 from libs.observability.logging import RequestContextMiddleware, configure_logging
 from libs.observability.metrics import setup_metrics
 from schemas.market import ExecutionVenue
 
-from ..adapters import BinanceMarketConnector, IBKRMarketConnector
+import httpx
+
+from ..adapters import (
+    BinanceMarketConnector,
+    DTCAdapter,
+    DTCConfig,
+    IBKRMarketConnector,
+    TopStepAdapter,
+)
 from .config import Settings, get_settings
 from .database import session_scope
 from .persistence import persist_ticks
@@ -46,6 +58,10 @@ app.add_middleware(RequestContextMiddleware, service_name="market-data")
 setup_metrics(app, service_name="market-data")
 
 
+_dtc_adapter: DTCAdapter | None = None
+_dtc_adapter_lock = asyncio.Lock()
+
+
 def get_binance_adapter(settings: Settings = Depends(get_settings)) -> BinanceMarketConnector:
     return BinanceMarketConnector(
         api_key=settings.binance_api_key,
@@ -61,9 +77,50 @@ def get_ibkr_adapter(settings: Settings = Depends(get_settings)) -> IBKRMarketCo
     )
 
 
+async def get_dtc_adapter(settings: Settings = Depends(get_settings)) -> DTCAdapter | None:
+    if not settings.dtc_host or not settings.dtc_port:
+        return None
+
+    global _dtc_adapter
+    if _dtc_adapter is None:
+        async with _dtc_adapter_lock:
+            if _dtc_adapter is None:
+                config = DTCConfig(
+                    host=settings.dtc_host,
+                    port=settings.dtc_port,
+                    client_user_id=settings.dtc_user or "",
+                    client_password=settings.dtc_password or "",
+                    client_name=settings.dtc_client_name,
+                    heartbeat_interval=settings.dtc_heartbeat_interval,
+                    default_exchange=settings.dtc_default_exchange,
+                )
+                _dtc_adapter = DTCAdapter(config)
+    return _dtc_adapter
+
+
+async def get_topstep_adapter(
+    settings: Settings = Depends(get_settings),
+) -> AsyncIterator[TopStepAdapter]:
+    if not settings.topstep_client_id or not settings.topstep_client_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TopStep credentials are not configured",
+        )
+        _dtc_adapter = DTCAdapter(config)
+    return _dtc_adapter
+
+
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.on_event("shutdown")
+async def _shutdown_dtc() -> None:
+    global _dtc_adapter
+    if _dtc_adapter is not None:
+        await _dtc_adapter.close()
+        _dtc_adapter = None
 
 
 def _resolve_connector(
@@ -79,8 +136,8 @@ def _resolve_connector(
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported venue")
 
 
-async def _persist_tradingview_tick(signal: TradingViewSignal) -> None:
-    tick = PersistedTick(
+def _tick_from_tradingview_signal(signal: TradingViewSignal) -> PersistedTick:
+    return PersistedTick(
         exchange=signal.exchange,
         symbol=signal.symbol,
         source="tradingview",
@@ -90,6 +147,9 @@ async def _persist_tradingview_tick(signal: TradingViewSignal) -> None:
         side=signal.direction,
         extra={"strategy": signal.strategy, **signal.metadata},
     )
+
+
+def _persist_tick_record(tick: PersistedTick) -> None:
     with session_scope() as session:
         persist_ticks(
             session,
@@ -106,6 +166,28 @@ async def _persist_tradingview_tick(signal: TradingViewSignal) -> None:
                 }
             ],
         )
+    if dtc is not None:
+        try:
+            await dtc.publish_ticks([tick])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to forward TradingView tick to DTC: %s", exc)
+
+
+async def publish_ticks_to_dtc(dtc: DTCAdapter, ticks: Iterable[PersistedTick]) -> None:
+    payload = [
+        {
+            "exchange": tick.exchange,
+            "symbol": tick.symbol,
+            "source": tick.source,
+            "timestamp": tick.timestamp,
+            "price": tick.price,
+            "size": tick.size,
+            "side": tick.side,
+        }
+        for tick in ticks
+    ]
+    if payload:
+        await dtc.publish_ticks(payload)
 
 
 @app.post("/webhooks/tradingview", status_code=202)
@@ -114,6 +196,7 @@ async def tradingview_webhook(
     background_tasks: BackgroundTasks,
     signature: str = Header(..., alias="X-Signature"),
     settings: Settings = Depends(get_settings),
+    dtc: DTCAdapter | None = Depends(get_dtc_adapter),
 ) -> dict[str, str]:
     body = await request.body()
     expected = hmac.new(
@@ -130,12 +213,18 @@ async def tradingview_webhook(
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
 
     signal = TradingViewSignal(**payload)
-    background_tasks.add_task(_persist_tradingview_tick, signal)
+    tick = _tick_from_tradingview_signal(signal)
+    background_tasks.add_task(_persist_tick_record, tick)
+    if dtc is not None:
+        await publish_ticks_to_dtc(dtc, [tick])
     return {"status": "accepted"}
 
 
 
 T = TypeVar("T")
+
+_STREAM_RETRY_INITIAL_DELAY = 0.5
+_STREAM_RETRY_MAX_DELAY = 8.0
 
 
 async def _call_with_retries(
@@ -182,6 +271,58 @@ async def list_symbols(
 
     symbols = [MarketSymbol(**record) for record in records[:limit]]
     return SymbolListResponse(venue=venue, symbols=symbols)
+
+
+async def _aclose_stream(stream: Any) -> None:
+    """Best-effort close helper for async generators returned by connectors."""
+
+    aclose = getattr(stream, "aclose", None)
+    if aclose is None:
+        return
+
+    try:
+        result = aclose()
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception:  # noqa: BLE001
+        logger.debug("Failed to close trade stream cleanly", exc_info=True)
+
+
+async def _forward_trade_stream(
+    websocket: WebSocket,
+    connector: BinanceMarketConnector | IBKRMarketConnector,
+    stream_symbol: str,
+) -> None:
+    delay = _STREAM_RETRY_INITIAL_DELAY
+    while True:
+        stream = connector.stream_trades(stream_symbol)
+        try:
+            async for trade in stream:
+                payload = jsonable_encoder(trade)
+                await websocket.send_json(payload)
+                delay = _STREAM_RETRY_INITIAL_DELAY
+        except RuntimeError as exc:
+            if websocket.application_state != WebSocketState.CONNECTED:
+                raise WebSocketDisconnect(code=1006) from exc
+            raise
+        except (asyncio.CancelledError, WebSocketDisconnect):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Trade stream bridge error for %s: %s", stream_symbol, exc
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _STREAM_RETRY_MAX_DELAY)
+        finally:
+            await _aclose_stream(stream)
+
+
+async def _drain_websocket(websocket: WebSocket) -> None:
+    try:
+        while True:
+            await websocket.receive()
+    except WebSocketDisconnect:
+        return
 
 
 @app.get(
@@ -301,4 +442,125 @@ async def get_history(
     )
 
 
-__all__ = ["app", "get_binance_adapter", "get_ibkr_adapter"]
+@app.websocket("/market-data/stream")
+async def stream_market_data(
+    websocket: WebSocket,
+    symbol: str,
+    venue: ExecutionVenue = Query(
+        ExecutionVenue.BINANCE_SPOT, description="Market data venue"
+    ),
+    binance: BinanceMarketConnector = Depends(get_binance_adapter),
+    ibkr: IBKRMarketConnector = Depends(get_ibkr_adapter),
+) -> None:
+    await websocket.accept()
+
+    connector = _resolve_connector(venue, binance=binance, ibkr=ibkr)
+    stream_symbol = symbol.upper() if venue == ExecutionVenue.BINANCE_SPOT else symbol
+
+    forward_task = asyncio.create_task(
+        _forward_trade_stream(websocket, connector, stream_symbol)
+    )
+    listener_task = asyncio.create_task(_drain_websocket(websocket))
+    tasks = {forward_task, listener_task}
+
+    try:
+        done, pending = await asyncio.wait(
+            tasks, return_when=asyncio.FIRST_COMPLETED
+        )
+
+        for task in pending:
+            task.cancel()
+
+        if forward_task in done:
+            exc = forward_task.exception()
+            if exc and not isinstance(exc, (WebSocketDisconnect, asyncio.CancelledError)):
+                logger.exception(
+                    "Market data stream failed for %s on %s", symbol, venue
+                )
+                if websocket.application_state == WebSocketState.CONNECTED:
+                    await websocket.close(code=1011)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@app.get(
+    "/market-data/topstep/accounts/{account_id}/metrics",
+    tags=["topstep"],
+)
+async def get_topstep_metrics(
+    account_id: str,
+    adapter: TopStepAdapter = Depends(get_topstep_adapter),
+) -> dict[str, Any]:
+    try:
+        metrics = await adapter.get_account_metrics(account_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to fetch TopStep metrics for %s", account_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TopStep upstream error",
+        ) from exc
+
+    return {"account_id": account_id, "metrics": metrics}
+
+
+@app.get(
+    "/market-data/topstep/accounts/{account_id}/performance",
+    tags=["topstep"],
+)
+async def get_topstep_performance(
+    account_id: str,
+    start: str | None = Query(None, description="Start date (ISO 8601)"),
+    end: str | None = Query(None, description="End date (ISO 8601)"),
+    adapter: TopStepAdapter = Depends(get_topstep_adapter),
+) -> dict[str, Any]:
+    try:
+        performance = await adapter.get_performance_history(
+            account_id,
+            start=start,
+            end=end,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to fetch TopStep performance for %s", account_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TopStep upstream error",
+        ) from exc
+
+    payload: dict[str, Any] = {"account_id": account_id, "performance": performance}
+    if start is not None:
+        payload["start"] = start
+    if end is not None:
+        payload["end"] = end
+    return payload
+
+
+@app.get(
+    "/market-data/topstep/accounts/{account_id}/risk-rules",
+    tags=["topstep"],
+)
+async def get_topstep_risk_rules(
+    account_id: str,
+    adapter: TopStepAdapter = Depends(get_topstep_adapter),
+) -> dict[str, Any]:
+    try:
+        risk_rules = await adapter.get_risk_rules(account_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to fetch TopStep risk rules for %s", account_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TopStep upstream error",
+        ) from exc
+
+    return {"account_id": account_id, "risk_rules": risk_rules}
+
+
+__all__ = ["app", "get_binance_adapter", "get_ibkr_adapter", "get_topstep_adapter"]

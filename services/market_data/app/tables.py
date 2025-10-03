@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, Integer, PrimaryKeyConstraint, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+OHLCV_PK_COLUMNS = ("exchange", "symbol", "interval", "timestamp")
+TICKS_PK_COLUMNS = ("exchange", "symbol", "source", "timestamp")
+
 
 class MarketDataOHLCV(Base):
     __tablename__ = "market_data_ohlcv"
     __table_args__ = (
-        UniqueConstraint("exchange", "symbol", "interval", "timestamp", name="uq_ohlcv_bar"),
+        PrimaryKeyConstraint(*OHLCV_PK_COLUMNS, name="pk_market_data_ohlcv"),
     )
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    exchange = Column(String(32), nullable=False)
-    symbol = Column(String(64), nullable=False)
-    interval = Column(String(16), nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False)
+    exchange = Column(String(32), nullable=False, primary_key=True)
+    symbol = Column(String(64), nullable=False, primary_key=True)
+    interval = Column(String(16), nullable=False, primary_key=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, primary_key=True)
     open = Column(Float, nullable=False)
     high = Column(Float, nullable=False)
     low = Column(Float, nullable=False)
@@ -31,14 +33,13 @@ class MarketDataOHLCV(Base):
 class MarketDataTick(Base):
     __tablename__ = "market_data_ticks"
     __table_args__ = (
-        UniqueConstraint("exchange", "symbol", "timestamp", "source", name="uq_tick"),
+        PrimaryKeyConstraint(*TICKS_PK_COLUMNS, name="pk_market_data_ticks"),
     )
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    exchange = Column(String(32), nullable=False)
-    symbol = Column(String(64), nullable=False)
-    source = Column(String(32), nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False)
+    exchange = Column(String(32), nullable=False, primary_key=True)
+    symbol = Column(String(64), nullable=False, primary_key=True)
+    source = Column(String(32), nullable=False, primary_key=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, primary_key=True)
     price = Column(Float, nullable=False)
     size = Column(Float, nullable=True)
     side = Column(String(8), nullable=True)
