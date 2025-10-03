@@ -1,12 +1,14 @@
 import os
 import urllib.parse
 from datetime import datetime, timezone
+from typing import Iterable
 
 from fastapi import Depends, FastAPI, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from starlette.middleware.sessions import SessionMiddleware
 
 from .schemas import (
     LoginRequest,
@@ -56,6 +58,14 @@ AUTH_SKIP_ENDPOINTS = (
 DOCS_ENDPOINTS = ("/docs", "/redoc", "/openapi.json")
 
 
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None:
+            return value
+    return None
+
+
 def _parse_env_list(value: str | None, default: list[str]) -> list[str]:
     if value is None:
         return default
@@ -74,10 +84,52 @@ def _parse_env_bool(value: str | None, default: bool) -> bool:
     return default
 
 
-enable_docs = _parse_env_bool(os.getenv("AUTH_SERVICE_ENABLE_DOCS"), True)
+def _normalise_root_path(value: str | None) -> str:
+    if not value:
+        return ""
+    cleaned = value.strip()
+    if not cleaned or cleaned == "/":
+        return ""
+    if not cleaned.startswith("/"):
+        cleaned = f"/{cleaned}"
+    if cleaned.endswith("/"):
+        cleaned = cleaned.rstrip("/")
+    return cleaned
+
+
+def _normalise_path(path: str) -> str:
+    if not path:
+        return "/"
+    if not path.startswith("/"):
+        path = f"/{path}"
+    if len(path) > 1 and path.endswith("/"):
+        path = path.rstrip("/")
+    return path
+
+
+def _extend_with_root_path(paths: Iterable[str], root_path: str) -> tuple[str, ...]:
+    normalised = []
+    seen: set[str] = set()
+    for path in paths:
+        cleaned = _normalise_path(path)
+        if cleaned not in seen:
+            normalised.append(cleaned)
+            seen.add(cleaned)
+        if root_path:
+            prefixed = _normalise_path(f"{root_path.rstrip('/')}{cleaned}")
+            if prefixed not in seen:
+                normalised.append(prefixed)
+                seen.add(prefixed)
+    return tuple(normalised)
+
+
+enable_docs = _parse_env_bool(_first_env("AUTH_SERVICE_ENABLE_DOCS", "ENABLE_DOCS"), True)
 docs_url = "/docs" if enable_docs else None
 redoc_url = "/redoc" if enable_docs else None
 openapi_url = "/openapi.json" if enable_docs else None
+
+
+root_path = _normalise_root_path(_first_env("AUTH_SERVICE_ROOT_PATH", "ROOT_PATH"))
 
 
 app = FastAPI(
@@ -86,32 +138,89 @@ app = FastAPI(
     docs_url=docs_url,
     redoc_url=redoc_url,
     openapi_url=openapi_url,
+    root_path=root_path or "",
 )
 install_entitlements_middleware(
     app,
     required_capabilities=["can.use_auth"],
     required_quotas={"quota.active_algos": 1},
-    skip_paths=AUTH_SKIP_ENDPOINTS + (DOCS_ENDPOINTS if enable_docs else ()),
+    skip_paths=(
+        _extend_with_root_path(AUTH_SKIP_ENDPOINTS, root_path)
+        + (_extend_with_root_path(DOCS_ENDPOINTS, root_path) if enable_docs else ())
+    ),
 )
 app.add_middleware(RequestContextMiddleware, service_name="auth-service")
 setup_metrics(app, service_name="auth-service")
 
 
 cors_allow_origins = _parse_env_list(
-    os.getenv("AUTH_SERVICE_ALLOWED_ORIGINS"),
+    _first_env("AUTH_SERVICE_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"),
     ["http://localhost:3000", "http://localhost:8022"],
 )
 cors_allow_methods = _parse_env_list(
-    os.getenv("AUTH_SERVICE_ALLOWED_METHODS"),
+    _first_env("AUTH_SERVICE_ALLOWED_METHODS", "ALLOWED_METHODS"),
     ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 cors_allow_headers = _parse_env_list(
-    os.getenv("AUTH_SERVICE_ALLOWED_HEADERS"),
+    _first_env("AUTH_SERVICE_ALLOWED_HEADERS", "ALLOWED_HEADERS"),
     ["Authorization", "Content-Type"],
 )
 cors_allow_credentials = _parse_env_bool(
-    os.getenv("AUTH_SERVICE_ALLOW_CREDENTIALS"),
+    _first_env("AUTH_SERVICE_ALLOW_CREDENTIALS", "ALLOW_CREDENTIALS"),
     True,
+)
+
+session_secret = _first_env("AUTH_SERVICE_SESSION_SECRET", "SESSION_SECRET")
+if not session_secret:
+    session_secret = os.getenv("JWT_SECRET", "dev-session-secret")
+
+session_cookie_name = _first_env(
+    "AUTH_SERVICE_SESSION_COOKIE_NAME",
+    "SESSION_COOKIE_NAME",
+) or "session"
+session_cookie_domain = _first_env(
+    "AUTH_SERVICE_SESSION_COOKIE_DOMAIN",
+    "SESSION_COOKIE_DOMAIN",
+)
+session_cookie_path = _first_env(
+    "AUTH_SERVICE_SESSION_COOKIE_PATH",
+    "SESSION_COOKIE_PATH",
+) or (root_path or "/")
+session_same_site = (
+    _first_env(
+        "AUTH_SERVICE_SESSION_COOKIE_SAMESITE",
+        "SESSION_COOKIE_SAMESITE",
+    )
+    or "none"
+).lower()
+if session_same_site not in {"lax", "strict", "none"}:
+    session_same_site = "none"
+session_https_only = _parse_env_bool(
+    _first_env(
+        "AUTH_SERVICE_SESSION_COOKIE_SECURE",
+        "SESSION_COOKIE_SECURE",
+    ),
+    False,
+)
+session_max_age_env = _first_env(
+    "AUTH_SERVICE_SESSION_MAX_AGE",
+    "SESSION_MAX_AGE",
+)
+session_max_age: int | None
+try:
+    session_max_age = int(session_max_age_env) if session_max_age_env else None
+except ValueError:
+    session_max_age = None
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=session_secret,
+    session_cookie=session_cookie_name,
+    domain=session_cookie_domain,
+    path=session_cookie_path,
+    same_site=session_same_site,
+    https_only=session_https_only,
+    max_age=session_max_age,
 )
 
 app.add_middleware(
