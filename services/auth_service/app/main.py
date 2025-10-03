@@ -33,8 +33,31 @@ from libs.observability.metrics import setup_metrics
 
 configure_logging("auth-service")
 
+
+def _auth_path(*segments: str) -> str:
+    """Join one or more path segments onto the "/auth" prefix."""
+
+    joined = "/".join(segment.strip("/") for segment in segments if segment)
+    return f"/auth/{joined}" if joined else "/auth"
+
+
+AUTH_SKIP_ENDPOINTS = (
+    _auth_path("login"),
+    _auth_path("register"),
+    _auth_path("refresh"),
+    _auth_path("me"),
+    _auth_path("totp", "setup"),
+    _auth_path("totp", "enable"),
+)
+
+
 app = FastAPI(title="Auth Service", version="0.1.0")
-install_entitlements_middleware(app, required_capabilities=["can.use_auth"], required_quotas={"quota.active_algos": 1})
+install_entitlements_middleware(
+    app,
+    required_capabilities=["can.use_auth"],
+    required_quotas={"quota.active_algos": 1},
+    skip_paths=AUTH_SKIP_ENDPOINTS,
+)
 app.add_middleware(RequestContextMiddleware, service_name="auth-service")
 setup_metrics(app, service_name="auth-service")
 
