@@ -12,7 +12,7 @@ from pathlib import Path
 MODULE_PATH = Path(__file__).resolve().parents[1] / "app" / "main.py"
 PACKAGE_NAME = "web_dashboard"
 USER_SERVICE_MODULE_PATH = (
-    Path(__file__).resolve().parents[2] / "user-service" / "app" / "main.py"
+    Path(__file__).resolve().parents[2] / "user_service" / "app" / "main.py"
 )
 USER_SERVICE_PACKAGE_NAME = "user_service_dashboard_proxy"
 

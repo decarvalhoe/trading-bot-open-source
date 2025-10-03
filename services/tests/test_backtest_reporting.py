@@ -35,7 +35,7 @@ def reports_client(tmp_path: Path) -> TestClient:
 
 
 def _load_algo_main() -> Any:
-    package_root = Path(__file__).resolve().parents[1] / "algo-engine"
+    package_root = Path(__file__).resolve().parents[1] / "algo_engine"
 
     def _load_package(alias: str, path: Path) -> None:
         spec = importlib.util.spec_from_file_location(alias, path / "__init__.py")
