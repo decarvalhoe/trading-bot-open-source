@@ -57,6 +57,28 @@ services:
     ports:
       - "8012:8000"
 
+  billing_service:
+    build:
+      context: .
+      dockerfile: infra/docker/fastapi-service.Dockerfile
+      args:
+        SERVICE_DIR: billing_service
+        SERVICE_PACKAGE: billing_service
+        SERVICE_MODULE: app.main
+    env_file:
+      - .env.dev
+    environment:
+      DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./infra/migrations:/app/infra/migrations:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "8005:8000"
+
   order_router:
     build:
       context: .
