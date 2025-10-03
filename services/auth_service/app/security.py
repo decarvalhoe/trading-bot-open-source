@@ -64,11 +64,25 @@ def verify_password(password: str, hashed: str) -> bool:
     return pwd.verify(password, hashed)
 
 
+def _encode_subject(subject: int) -> str:
+    """Return a JWT-compliant representation of ``subject``."""
+
+    return str(subject)
+
+
+def _normalise_subject(value: object) -> int | object:
+    """Coerce JWT subject claims back to integers when possible."""
+
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return value
+
+
 def create_token_pair(sub: int, roles: list[str]) -> tuple[str, str]:
     now = datetime.now(timezone.utc)
     access = jwt.encode(
         {
-            "sub": sub,
+            "sub": _encode_subject(sub),
             "roles": roles,
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(minutes=ACCESS_MIN)).timestamp()),
@@ -78,7 +92,7 @@ def create_token_pair(sub: int, roles: list[str]) -> tuple[str, str]:
     )
     refresh = jwt.encode(
         {
-            "sub": sub,
+            "sub": _encode_subject(sub),
             "type": "refresh",
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(days=REFRESH_DAYS)).timestamp()),
@@ -90,7 +104,12 @@ def create_token_pair(sub: int, roles: list[str]) -> tuple[str, str]:
 
 
 def verify_token(token: str) -> dict:
-    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    subject = payload.get("sub")
+    normalised_subject = _normalise_subject(subject)
+    if normalised_subject is not subject:
+        payload["sub"] = normalised_subject
+    return payload
 
 
 def generate_totp_secret() -> str:
