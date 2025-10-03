@@ -28,7 +28,7 @@ jobs:
           pip install -r requirements/services-dev.txt
 
       - name: Install Playwright browsers
-        run: python -m playwright install --with-deps chromium
+        run: python -m playwright install --with-deps chromium firefox
       - name: Run tests
         run: pytest -q
       - name: Build config-service Docker image
