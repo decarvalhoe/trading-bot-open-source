@@ -129,9 +129,11 @@ def _env_bool(value: str | None, default: bool) -> bool:
     return default
 
 
-AUTH_SERVICE_BASE_URL = os.getenv(
-    "WEB_DASHBOARD_AUTH_SERVICE_URL",
-    os.getenv("AUTH_SERVICE_URL", "http://auth_service:8000/"),
+AUTH_SERVICE_DEFAULT_BASE_URL = "http://auth_service:8000/"
+AUTH_SERVICE_BASE_URL = (
+    os.getenv("WEB_DASHBOARD_AUTH_SERVICE_URL")
+    or os.getenv("AUTH_SERVICE_URL")
+    or AUTH_SERVICE_DEFAULT_BASE_URL
 )
 AUTH_SERVICE_TIMEOUT = float(os.getenv("WEB_DASHBOARD_AUTH_SERVICE_TIMEOUT", "5.0"))
 AUTH_PUBLIC_BASE_URL = os.getenv("AUTH_BASE_URL") or AUTH_SERVICE_BASE_URL
