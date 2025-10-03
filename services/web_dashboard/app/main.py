@@ -311,6 +311,11 @@ class AccountLoginRequest(BaseModel):
     totp: str | None = None
 
 
+class AccountRegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class BrokerCredentialUpdatePayload(BaseModel):
     broker: str = Field(min_length=1)
     api_key: str | None = None
@@ -368,9 +373,15 @@ class ExecutionModeUpdatePayload(BaseModel):
     mode: str = Field(pattern="^(sandbox|dry_run)$")
 
 
-def _auth_service_url(path: str) -> str:
-    base = AUTH_SERVICE_BASE_URL.rstrip("/") + "/"
+def default_service_url(base_url: str | None, path: str) -> str:
+    """Return an absolute URL by joining a base service URL with a path."""
+
+    base = (base_url or "").rstrip("/") + "/"
     return urljoin(base, path.lstrip("/"))
+
+
+def _auth_service_url(path: str) -> str:
+    return default_service_url(AUTH_SERVICE_BASE_URL, path)
 
 
 def _extract_auth_error(response: httpx.Response) -> str:
@@ -2033,6 +2044,77 @@ def _account_template_context(request: Request) -> dict[str, object]:
                 "api_get_broker_credentials"
             ),
         },
+    )
+
+
+def _account_register_template_context(
+    request: Request,
+    *,
+    email: str | None = None,
+    error_message: str | None = None,
+) -> dict[str, object]:
+    return _template_context(
+        request,
+        {
+            "active_page": "account",
+            "form_email": email or "",
+            "error_message": error_message,
+        },
+    )
+
+
+@app.get("/account/register", response_class=HTMLResponse, name="render_account_register")
+def render_account_register(request: Request) -> HTMLResponse:
+    """Render the user registration form."""
+
+    return templates.TemplateResponse(
+        "account/register.html",
+        _account_register_template_context(request),
+    )
+
+
+@app.post("/account/register", response_class=HTMLResponse, name="submit_account_register")
+async def submit_account_register(
+    request: Request,
+    email: EmailStr = Form(...),
+    password: str = Form(...),
+) -> Response:
+    payload = AccountRegisterRequest(email=email, password=password)
+    register_url = default_service_url(AUTH_SERVICE_BASE_URL, "/auth/register")
+    try:
+        async with httpx.AsyncClient(timeout=AUTH_SERVICE_TIMEOUT) as client:
+            service_response = await client.post(
+                register_url,
+                json=payload.model_dump(),
+                headers={"Accept": "application/json"},
+            )
+    except httpx.HTTPError:
+        context = _account_register_template_context(
+            request,
+            email=str(email),
+            error_message="Service d'authentification indisponible.",
+        )
+        return templates.TemplateResponse(
+            "account/register.html",
+            context,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if service_response.status_code < 400:
+        login_url = request.url_for("render_account_login")
+        redirect_target = f"{login_url}?created=1"
+        return RedirectResponse(redirect_target, status_code=status.HTTP_303_SEE_OTHER)
+
+    error_message = _extract_auth_error(service_response)
+    context = _account_register_template_context(
+        request,
+        email=str(email),
+        error_message=error_message,
+    )
+    return templates.TemplateResponse(
+        "account/register.html",
+        context,
+        status_code=service_response.status_code,
     )
 
 
