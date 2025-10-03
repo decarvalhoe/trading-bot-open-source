@@ -18,7 +18,7 @@ def test_account_page_exposes_login_and_api_forms():
 
     html = response.text
 
-    # The template should expose the correct lang attribute and login form inputs.
+    # The template should expose the correct lang attribute and account mount point.
     assert "<html lang=\"fr\"" in html
     login_url = f"{client.base_url}/account/login"
     assert f'data-login-endpoint="{login_url}"' in html

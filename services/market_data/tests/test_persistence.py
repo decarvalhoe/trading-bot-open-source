@@ -1,11 +1,10 @@
 import importlib
-import importlib
 from datetime import datetime, timezone
 from types import ModuleType
 from typing import Callable, Iterator, NamedTuple
 
 import pytest
-from sqlalchemy import Integer, create_engine, func, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.sqlite import JSON as SQLITE_JSON
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -43,16 +42,10 @@ def sqlite_session_scope(monkeypatch: pytest.MonkeyPatch) -> "PersistenceTestCon
     tick_table = tables_module.MarketDataTick.__table__
     ohlcv_extra_column = ohlcv_table.c.extra
     tick_extra_column = tick_table.c.extra
-    ohlcv_id_column = ohlcv_table.c.id
-    tick_id_column = tick_table.c.id
     original_ohlcv_extra_type = ohlcv_extra_column.type
     original_tick_extra_type = tick_extra_column.type
-    original_ohlcv_id_type = ohlcv_id_column.type
-    original_tick_id_type = tick_id_column.type
     ohlcv_extra_column.type = SQLITE_JSON()
     tick_extra_column.type = SQLITE_JSON()
-    ohlcv_id_column.type = Integer()
-    tick_id_column.type = Integer()
     tables_module.Base.metadata.create_all(engine)
 
     database = importlib.import_module("services.market_data.app.database")
@@ -70,8 +63,6 @@ def sqlite_session_scope(monkeypatch: pytest.MonkeyPatch) -> "PersistenceTestCon
         engine.dispose()
         ohlcv_extra_column.type = original_ohlcv_extra_type
         tick_extra_column.type = original_tick_extra_type
-        ohlcv_id_column.type = original_ohlcv_id_type
-        tick_id_column.type = original_tick_id_type
         config.get_settings.cache_clear()
         secrets.get_secret_manager.cache_clear()
 

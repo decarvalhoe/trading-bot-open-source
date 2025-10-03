@@ -4,6 +4,9 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+OHLCV_PK_COLUMNS = ("exchange", "symbol", "interval", "timestamp")
+TICKS_PK_COLUMNS = ("exchange", "symbol", "source", "timestamp")
+
 revision = "0002_market_data"
 down_revision = "0001_init"
 branch_labels = None
@@ -27,9 +30,7 @@ def upgrade() -> None:
         sa.Column("quote_volume", sa.Float, nullable=True),
         sa.Column("trades", sa.Integer, nullable=True),
         sa.Column("extra", postgresql.JSONB, nullable=True),
-        sa.PrimaryKeyConstraint(
-            "exchange", "symbol", "interval", "timestamp", name="pk_market_data_ohlcv"
-        ),
+        sa.PrimaryKeyConstraint(*OHLCV_PK_COLUMNS, name="pk_market_data_ohlcv"),
     )
     op.execute(
         "SELECT create_hypertable('market_data_ohlcv', 'timestamp', if_not_exists => TRUE, migrate_data => TRUE);"
@@ -45,9 +46,7 @@ def upgrade() -> None:
         sa.Column("size", sa.Float, nullable=True),
         sa.Column("side", sa.String(length=8), nullable=True),
         sa.Column("extra", postgresql.JSONB, nullable=True),
-        sa.PrimaryKeyConstraint(
-            "exchange", "symbol", "source", "timestamp", name="pk_market_data_ticks"
-        ),
+        sa.PrimaryKeyConstraint(*TICKS_PK_COLUMNS, name="pk_market_data_ticks"),
     )
     op.execute(
         "SELECT create_hypertable('market_data_ticks', 'timestamp', if_not_exists => TRUE, migrate_data => TRUE);"
