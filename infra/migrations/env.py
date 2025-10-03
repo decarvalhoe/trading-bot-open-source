@@ -69,13 +69,13 @@ def _ensure_package_hierarchy(module_name: str, module_path: Path) -> None:
             package.__path__ = package_paths  # type: ignore[attr-defined]
 
 
-def _load_module_from_path(module_name: str, relative_path: str):
+def _load_module_from_path(module_name: str, relative_path: Path | str):
     existing = sys.modules.get(module_name)
     if existing is not None:
         return existing
 
     repo_root = Path(__file__).resolve().parents[2]
-    module_path = repo_root / relative_path
+    module_path = repo_root / Path(relative_path)
     if not module_path.exists():
         raise FileNotFoundError(f"Cannot find module file at {module_path}.")
 
@@ -102,30 +102,32 @@ def _collect_target_metadata() -> tuple[MetaData, ...]:
         StrategyBase.metadata,
     ]
 
+    service_root = Path("services")
+
     service_modules = [
         (
             "alembic.autoload.auth_service.app.models",
-            "services/auth_service/app/models.py",
+            service_root / "auth_service" / "app" / "models.py",
             (),
         ),
         (
             "alembic.autoload.user_service.app.main",
-            "services/user_service/app/main.py",
+            service_root / "user_service" / "app" / "main.py",
             (
                 (
                     "alembic.autoload.user_service.app.schemas",
-                    "services/user_service/app/schemas.py",
+                    service_root / "user_service" / "app" / "schemas.py",
                 ),
             ),
         ),
         (
             "alembic.autoload.market_data.app.tables",
-            "services/market_data/app/tables.py",
+            service_root / "market_data" / "app" / "tables.py",
             (),
         ),
         (
             "alembic.autoload.reports.app.tables",
-            "services/reports/app/tables.py",
+            service_root / "reports" / "app" / "tables.py",
             (),
         ),
     ]
