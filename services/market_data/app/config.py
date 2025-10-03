@@ -11,6 +11,9 @@ from libs.secrets import get_secret
 from libs.env import DEFAULT_POSTGRES_DSN_NATIVE
 
 
+DEFAULT_TRADINGVIEW_HMAC_SECRET = "demo-hmac-secret"
+
+
 def _default_database_url() -> str:
     for env_var in ("MARKET_DATA_DATABASE_URL", "DATABASE_URL", "POSTGRES_DSN"):
         value = os.getenv(env_var)
@@ -25,7 +28,7 @@ class Settings(BaseSettings):
         alias="MARKET_DATA_DATABASE_URL",
     )
     tradingview_hmac_secret: str = Field(
-        "demo-hmac-secret",
+        DEFAULT_TRADINGVIEW_HMAC_SECRET,
         alias="TRADINGVIEW_HMAC_SECRET",
     )
     binance_api_key: str | None = Field(None, alias="BINANCE_API_KEY")

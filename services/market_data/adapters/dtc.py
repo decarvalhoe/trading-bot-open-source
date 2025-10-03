@@ -43,7 +43,7 @@ class _SymbolSubscription:
 
 
 class DTCAdapter:
-    """Stub adapter for the Sierra Chart Data and Trading Communications protocol."""
+    """Coroutine based client for the Sierra Chart DTC protocol."""
 
     _SEND_TIMEOUT = 2.0
 

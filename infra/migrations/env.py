@@ -107,27 +107,27 @@ def _collect_target_metadata() -> tuple[MetaData, ...]:
     service_modules = [
         (
             "alembic.autoload.auth_service.app.models",
-            service_root / "auth_service" / "app" / "models.py",
+            service_root / Path("auth_service/app/models.py"),
             (),
         ),
         (
             "alembic.autoload.user_service.app.main",
-            service_root / "user_service" / "app" / "main.py",
+            service_root / Path("user_service/app/main.py"),
             (
                 (
                     "alembic.autoload.user_service.app.schemas",
-                    service_root / "user_service" / "app" / "schemas.py",
+                    service_root / Path("user_service/app/schemas.py"),
                 ),
             ),
         ),
         (
             "alembic.autoload.market_data.app.tables",
-            service_root / "market_data" / "app" / "tables.py",
+            service_root / Path("market_data/app/tables.py"),
             (),
         ),
         (
             "alembic.autoload.reports.app.tables",
-            service_root / "reports" / "app" / "tables.py",
+            service_root / Path("reports/app/tables.py"),
             (),
         ),
     ]
