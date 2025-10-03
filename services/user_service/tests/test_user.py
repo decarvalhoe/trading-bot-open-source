@@ -2,13 +2,14 @@ import importlib
 import importlib.util
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
 import os
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 from jose import jwt
-from sqlalchemy import create_engine
+from cryptography.fernet import Fernet
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -44,6 +45,19 @@ OnboardingProgress = main.OnboardingProgress  # type: ignore[attr-defined]
 JWT_SECRET = main.JWT_SECRET  # type: ignore[attr-defined]
 JWT_ALG = main.JWT_ALG  # type: ignore[attr-defined]
 get_db = importlib.import_module("libs.db.db").get_db
+
+
+@pytest.fixture()
+def broker_encryption_key(monkeypatch):
+    key = Fernet.generate_key()
+    key_str = key.decode("utf-8")
+    monkeypatch.setenv("BROKER_CREDENTIALS_ENCRYPTION_KEY", key_str)
+    if hasattr(main, "_BROKER_CREDENTIALS_CIPHER"):
+        main._BROKER_CREDENTIALS_CIPHER = None
+    yield key
+    if hasattr(main, "_BROKER_CREDENTIALS_CIPHER"):
+        main._BROKER_CREDENTIALS_CIPHER = None
+    monkeypatch.delenv("BROKER_CREDENTIALS_ENCRYPTION_KEY", raising=False)
 
 
 @pytest.fixture()
@@ -172,6 +186,113 @@ def test_signup_activation_profile_flow(client, session_factory):
         assert prefs_row.preferences == prefs_payload["preferences"]
 
     app.dependency_overrides.pop(main.get_entitlements, None)
+
+
+def test_manage_broker_credentials(client, session_factory, broker_encryption_key):
+    with session_factory() as session:
+        user = User(
+            email="broker@example.com",
+            first_name="Broker",
+            last_name="Trader",
+            is_active=True,
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+    entitlements = Entitlements(
+        customer_id=str(user_id), features={"can.use_users": True}, quotas={}
+    )
+    app.dependency_overrides[main.get_entitlements] = lambda: entitlements
+
+    headers = _auth_header(user_id)
+
+    initial_payload = {
+        "credentials": [
+            {
+                "broker": "Binance",
+                "api_key": "binance-api-key-1234",
+                "api_secret": "binance-api-secret-9876",
+            },
+            {
+                "broker": "ibkr",
+                "api_key": "IBKR-USER",
+                "api_secret": "IBKR-SECRET-INIT",
+            },
+        ]
+    }
+
+    try:
+        create_resp = client.put(
+            "/users/me/broker-credentials",
+            json=initial_payload,
+            headers=headers,
+        )
+        assert create_resp.status_code == 200
+        body = create_resp.json()
+        assert {item["broker"] for item in body["credentials"]} == {"binance", "ibkr"}
+        binance_entry = next(
+            item for item in body["credentials"] if item["broker"] == "binance"
+        )
+        assert binance_entry["has_api_key"] is True
+        assert binance_entry["has_api_secret"] is True
+        assert binance_entry["api_key_masked"].endswith("1234")
+        assert binance_entry["api_secret_masked"].endswith("9876")
+
+        get_resp = client.get("/users/me/broker-credentials", headers=headers)
+        assert get_resp.status_code == 200
+        listed = get_resp.json()
+        assert len(listed["credentials"]) == 2
+
+        with session_factory() as check_session:
+            stored = check_session.scalars(select(main.UserBrokerCredential)).all()
+            assert len(stored) == 2
+            cipher = main._get_broker_credentials_cipher()
+            decoded = {
+                row.broker: {
+                    "api_key": cipher.decrypt(row.api_key_encrypted.encode("utf-8")).decode("utf-8")
+                    if row.api_key_encrypted
+                    else None,
+                    "api_secret": cipher.decrypt(row.api_secret_encrypted.encode("utf-8")).decode("utf-8")
+                    if row.api_secret_encrypted
+                    else None,
+                }
+                for row in stored
+            }
+        assert decoded["binance"]["api_key"] == "binance-api-key-1234"
+        assert decoded["binance"]["api_secret"] == "binance-api-secret-9876"
+
+        update_resp = client.put(
+            "/users/me/broker-credentials",
+            json={
+                "credentials": [
+                    {"broker": "binance", "api_secret": "binance-api-secret-0000"}
+                ]
+            },
+            headers=headers,
+        )
+        assert update_resp.status_code == 200
+        updated_payload = update_resp.json()
+        binance_after = next(
+            item for item in updated_payload["credentials"] if item["broker"] == "binance"
+        )
+        assert binance_after["api_key_masked"].endswith("1234")
+        assert binance_after["api_secret_masked"].endswith("0000")
+
+        clear_resp = client.put(
+            "/users/me/broker-credentials",
+            json={
+                "credentials": [
+                    {"broker": "ibkr", "api_key": None, "api_secret": None}
+                ]
+            },
+            headers=headers,
+        )
+        assert clear_resp.status_code == 200
+        cleared_payload = clear_resp.json()
+        assert {item["broker"] for item in cleared_payload["credentials"]} == {"binance"}
+    finally:
+        app.dependency_overrides.pop(main.get_entitlements, None)
 
 
 def test_list_users_pagination(client, session_factory):

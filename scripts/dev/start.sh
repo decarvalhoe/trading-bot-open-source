@@ -30,5 +30,14 @@ if [[ "${USE_NATIVE:-0}" == "1" ]]; then
     exit 0
 fi
 
+if [[ -z "${BROKER_CREDENTIALS_ENCRYPTION_KEY:-}" ]]; then
+    echo "-> generating ephemeral broker credentials encryption key"
+    export BROKER_CREDENTIALS_ENCRYPTION_KEY="$(python - <<'PY'
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode('utf-8'))
+PY
+)"
+fi
+
 docker compose up -d --build
 echo "-> dev up. config_service: http://localhost:8000"

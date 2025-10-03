@@ -21,6 +21,41 @@ class PreferencesResponse(BaseModel):
     preferences: Dict[str, Any] = Field(default_factory=dict)
 
 
+class BrokerCredentialUpdate(BaseModel):
+    """Payload describing a broker credential update request."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    broker: str = Field(min_length=1)
+    api_key: Optional[str] = Field(default=None, max_length=4096)
+    api_secret: Optional[str] = Field(default=None, max_length=4096)
+
+
+class BrokerCredentialsUpdate(BaseModel):
+    """Wrapper for bulk broker credential updates."""
+
+    credentials: List[BrokerCredentialUpdate] = Field(default_factory=list)
+
+
+class BrokerCredentialStatus(BaseModel):
+    """Status of a stored broker credential without exposing secrets."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    broker: str
+    has_api_key: bool = False
+    has_api_secret: bool = False
+    api_key_masked: Optional[str] = None
+    api_secret_masked: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class BrokerCredentialsResponse(BaseModel):
+    """Collection of broker credential statuses."""
+
+    credentials: List[BrokerCredentialStatus] = Field(default_factory=list)
+
+
 class UserCreate(BaseModel):
     """Payload required to create or register a user."""
 
@@ -94,6 +129,10 @@ class OnboardingProgressResponse(BaseModel):
 
 
 __all__ = [
+    "BrokerCredentialStatus",
+    "BrokerCredentialsResponse",
+    "BrokerCredentialsUpdate",
+    "BrokerCredentialUpdate",
     "OnboardingProgressResponse",
     "OnboardingStep",
     "PreferencesResponse",

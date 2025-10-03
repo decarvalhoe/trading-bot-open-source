@@ -20,6 +20,7 @@
         data-session-endpoint="{{ request.url_for('account_session') }}"
         data-login-endpoint="{{ request.url_for('account_login') }}"
         data-logout-endpoint="{{ request.url_for('account_logout') }}"
+        data-broker-credentials-endpoint="{{ broker_credentials_endpoint }}"
       >
         <div class="account-fallback" aria-live="polite">
           <p class="text text--muted">{{ _('Activez JavaScript pour gérer votre session.') }}</p>

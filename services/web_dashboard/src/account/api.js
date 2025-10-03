@@ -67,6 +67,17 @@ export async function logout(endpoint) {
   });
 }
 
+export async function fetchBrokerCredentials(endpoint) {
+  return requestJson(endpoint, { method: "GET" });
+}
+
+export async function updateBrokerCredentials(endpoint, payload) {
+  return requestJson(endpoint, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
 export function normalizeSession(payload) {
   if (!payload || typeof payload !== "object") {
     return { authenticated: false, user: null };

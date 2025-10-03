@@ -1,6 +1,7 @@
 """FastAPI application exposing CRUD operations for user profiles."""
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List
@@ -16,6 +17,7 @@ from fastapi import (
     status,
 )
 from jose import jwt
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -23,6 +25,7 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
+    UniqueConstraint,
     func,
     select,
     text,
@@ -37,6 +40,10 @@ from libs.observability.metrics import setup_metrics
 from libs.secrets import get_secret
 
 from .schemas import (
+    BrokerCredentialStatus,
+    BrokerCredentialsResponse,
+    BrokerCredentialsUpdate,
+    BrokerCredentialUpdate,
     OnboardingProgressResponse,
     PreferencesResponse,
     PreferencesUpdate,
@@ -99,6 +106,34 @@ class UserPreferences(Base):
     )
 
 
+class UserBrokerCredential(Base):
+    """Encrypted broker credentials owned by a user."""
+
+    __tablename__ = "user_broker_credentials"
+    __table_args__ = (
+        UniqueConstraint("user_id", "broker", name="uq_user_broker_credentials"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    broker: Mapped[str] = mapped_column(String(64), nullable=False)
+    api_key_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    api_secret_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        server_onupdate=text("CURRENT_TIMESTAMP"),
+    )
+
+
 configure_logging("user-service")
 
 app = FastAPI(title="User Service", version="0.1.0")
@@ -110,6 +145,129 @@ install_entitlements_middleware(
 )
 app.add_middleware(RequestContextMiddleware, service_name="user-service")
 setup_metrics(app, service_name="user-service")
+
+logger = logging.getLogger(__name__)
+
+_BROKER_CREDENTIALS_CIPHER: Fernet | None = None
+
+
+def _normalise_secret_input(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value.strip() == "":
+        return None
+    return value
+
+
+def _load_broker_encryption_key() -> bytes:
+    key = get_secret("BROKER_CREDENTIALS_ENCRYPTION_KEY")
+    if not key:
+        raise RuntimeError("BROKER_CREDENTIALS_ENCRYPTION_KEY is not configured")
+    if isinstance(key, str):
+        key_bytes = key.encode("utf-8")
+    else:
+        key_bytes = key
+    try:
+        Fernet(key_bytes)
+    except ValueError as exc:  # pragma: no cover - configuration error
+        raise RuntimeError("Invalid broker credentials encryption key") from exc
+    return key_bytes
+
+
+def _get_broker_credentials_cipher() -> Fernet:
+    global _BROKER_CREDENTIALS_CIPHER
+    if _BROKER_CREDENTIALS_CIPHER is None:
+        key_bytes = _load_broker_encryption_key()
+        _BROKER_CREDENTIALS_CIPHER = Fernet(key_bytes)
+    return _BROKER_CREDENTIALS_CIPHER
+
+
+def _require_broker_cipher() -> Fernet:
+    try:
+        return _get_broker_credentials_cipher()
+    except RuntimeError as exc:
+        logger.error("Broker credentials encryption key misconfigured: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Broker credentials encryption key is not configured",
+        ) from exc
+
+
+def _encrypt_broker_secret(value: str | None) -> str | None:
+    cleaned = _normalise_secret_input(value)
+    if cleaned is None:
+        return None
+    cipher = _get_broker_credentials_cipher()
+    token = cipher.encrypt(cleaned.encode("utf-8"))
+    return token.decode("utf-8")
+
+
+def _decrypt_broker_secret(token: str | None) -> str | None:
+    if not token:
+        return None
+    cipher = _get_broker_credentials_cipher()
+    try:
+        decrypted = cipher.decrypt(token.encode("utf-8"))
+    except InvalidToken:
+        logger.warning("Unable to decrypt broker credential", exc_info=False)
+        return None
+    return decrypted.decode("utf-8")
+
+
+def _mask_secret(secret: str | None) -> str | None:
+    if not secret:
+        return None
+    length = len(secret)
+    if length <= 4:
+        return "•" * length
+    return "•" * (length - 4) + secret[-4:]
+
+
+def _serialise_broker_credential(
+    credential: UserBrokerCredential,
+) -> BrokerCredentialStatus:
+    api_key = _decrypt_broker_secret(credential.api_key_encrypted)
+    api_secret = _decrypt_broker_secret(credential.api_secret_encrypted)
+    return BrokerCredentialStatus(
+        broker=credential.broker,
+        has_api_key=bool(credential.api_key_encrypted),
+        has_api_secret=bool(credential.api_secret_encrypted),
+        api_key_masked=_mask_secret(api_key),
+        api_secret_masked=_mask_secret(api_secret),
+        updated_at=credential.updated_at,
+    )
+
+
+def _list_broker_credentials(
+    db: Session, user_id: int
+) -> BrokerCredentialsResponse:
+    _require_broker_cipher()
+    rows = (
+        db.scalars(
+            select(UserBrokerCredential)
+            .where(UserBrokerCredential.user_id == user_id)
+            .order_by(UserBrokerCredential.broker)
+        )
+    ).all()
+    return BrokerCredentialsResponse(
+        credentials=[_serialise_broker_credential(row) for row in rows]
+    )
+
+
+def _apply_broker_credential_update(
+    credential: UserBrokerCredential, payload: BrokerCredentialUpdate
+) -> bool:
+    updated = False
+    fields = payload.model_fields_set
+    if "api_key" in fields:
+        credential.api_key_encrypted = _encrypt_broker_secret(payload.api_key)
+        updated = True
+    if "api_secret" in fields:
+        credential.api_secret_encrypted = _encrypt_broker_secret(payload.api_secret)
+        updated = True
+    if updated:
+        credential.updated_at = datetime.now(timezone.utc)
+    return updated
 
 SENSITIVE_FIELDS = {"email", "phone", "marketing_opt_in"}
 
@@ -608,6 +766,60 @@ def reset_onboarding_progress(
     return _serialise_progress(progress)
 
 
+@app.get("/users/me/broker-credentials", response_model=BrokerCredentialsResponse)
+def get_my_broker_credentials(
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> BrokerCredentialsResponse:
+    """Return encrypted broker credentials for the authenticated user."""
+
+    _get_user_or_404(db, actor_id)
+    return _list_broker_credentials(db, actor_id)
+
+
+@app.put("/users/me/broker-credentials", response_model=BrokerCredentialsResponse)
+def update_my_broker_credentials(
+    payload: BrokerCredentialsUpdate,
+    actor_id: int = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db),
+) -> BrokerCredentialsResponse:
+    """Create, update or delete broker credentials for the authenticated user."""
+
+    _get_user_or_404(db, actor_id)
+    _require_broker_cipher()
+    modified = False
+    for entry in payload.credentials or []:
+        broker_raw = (entry.broker or "").strip()
+        if not broker_raw:
+            raise HTTPException(status_code=400, detail="Broker identifier is required")
+        broker = broker_raw.lower()
+        fields = entry.model_fields_set
+        if not ({"api_key", "api_secret"} & fields):
+            continue
+        credential = db.scalar(
+            select(UserBrokerCredential)
+            .where(UserBrokerCredential.user_id == actor_id)
+            .where(UserBrokerCredential.broker == broker)
+        )
+        if credential is None:
+            credential = UserBrokerCredential(user_id=actor_id, broker=broker)
+            db.add(credential)
+        updated = _apply_broker_credential_update(credential, entry)
+        if credential.api_key_encrypted is None and credential.api_secret_encrypted is None:
+            if credential.id is None:
+                db.expunge(credential)
+            else:
+                db.delete(credential)
+            modified = modified or updated or credential.id is not None
+        else:
+            if credential.broker != broker:
+                credential.broker = broker
+            modified = modified or updated
+    if modified:
+        db.commit()
+    return _list_broker_credentials(db, actor_id)
+
+
 @app.put("/users/me/preferences", response_model=PreferencesResponse)
 def update_preferences(
     payload: PreferencesUpdate,
@@ -632,6 +844,7 @@ __all__ = [
     "Base",
     "User",
     "UserPreferences",
+    "UserBrokerCredential",
     "OnboardingProgress",
     "require_auth",
     "get_entitlements",
