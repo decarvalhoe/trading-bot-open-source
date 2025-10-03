@@ -56,6 +56,12 @@ web_dashboard-e2e:
 	python -m playwright install --with-deps chromium firefox
 	python -m pytest services/web_dashboard/tests/e2e
 
+fix-makefile:
+	@python scripts/dev/fix_make_tabs.py Makefile
+
+# lance bootstrap dans le conteneur (robuste)
+demo-bootstrap:
+	docker compose exec auth_service python /app/scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
 
 migrate-generate:
 	@if [ -z "$(message)" ]; then \
@@ -69,10 +75,3 @@ migrate-up:
 
 migrate-down:
 	ALEMBIC_DATABASE_URL=$(ALEMBIC_DATABASE_URL) alembic -c $(ALEMBIC_CONFIG) downgrade $(DOWN_REVISION)
-
-fix-makefile:
-	@python scripts/dev/fix_make_tabs.py Makefile
-
-# lance bootstrap dans le conteneur (robuste)
-demo-bootstrap:
-	docker compose exec auth_service python /app/scripts/dev/bootstrap_demo.py BTCUSDT 0.25 --order-type market
