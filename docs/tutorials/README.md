@@ -9,8 +9,11 @@ with contributors and customer-facing teams.
 - Scope: runs `scripts/dev/bootstrap_demo.py` end-to-end against the demo stack,
   inspects `data/backtests/` outputs and demonstrates how to import the generated
   strategy into the algo engine.
-- Prerequisites: `pip install -r services/algo-engine/requirements.txt` and set
-  `AI_ASSISTANT_ENABLED=1` to reuse assistant-powered drafts when needed.
+- Prerequisites: `pip install -r services/algo-engine/requirements.txt`
+  (assistant auto-enabled) and an `OPENAI_API_KEY`; export
+  `AI_ASSISTANT_ENABLED=0` if you prefer to keep the assistant disabled while
+  following the notebook. See [`services/algo_engine/app/main.py`](../../services/algo_engine/app/main.py)
+  for the environment flag logic.
 
 ## Strategy designer screencast
 

@@ -10,10 +10,10 @@ Les tâches sont regroupées par criticité et se réfèrent aux services et bib
    - Générer et publier la documentation OpenAPI consolidée (`docs/api/user-auth.md`) avec exemples de requêtes front.
    - Ajouter des tests de régression pour les statuts d'erreur 4xx (email en doublon, TOTP invalide).
 
-2. **Persister les stratégies et exécutions**
-   - Externaliser `StrategyStore` et `OrderRouter` vers une base PostgreSQL/Redis afin de lever la limite in-memory.【F:services/algo-engine/app/main.py†L27-L74】【F:services/order-router/app/main.py†L33-L111】
-   - Documenter le schéma de persistance (`docs/algo-engine.md`, `docs/order-router.md`).
-   - Ajouter des migrations infra correspondantes.
+2. **Durcir la persistance trading**
+   - Industrialiser les migrations Alembic pour `algo-engine` et `order-router`, tests de rollback inclus.【F:services/algo_engine/app/repository.py†L46-L96】【F:services/order_router/app/main.py†L1702-L1775】
+   - Instrumenter les sessions SQLAlchemy (logs, métriques Prometheus) et documenter les procédures de reprise.
+   - Ajouter un plan de purge/archivage pour les stratégies et journaux d'ordres (rotation, rétention).
 
 3. **Renforcer la gestion des secrets**
    - Documenter les procédures Vault/Doppler/AWS en s'appuyant sur `libs/secrets` et fournir des manifests d'exemple.【F:libs/secrets/__init__.py†L1-L120】
@@ -21,8 +21,8 @@ Les tâches sont regroupées par criticité et se réfèrent aux services et bib
    - Ajouter une checklist de rotation dans `CONTRIBUTING.md`.
 
 4. **Tests contractuels multi-services**
-   - Créer des suites Schemathesis/Pydantic pour `market_data`, `order-router`, `algo-engine` (health, erreurs).【F:services/market_data/app/main.py†L1-L88】【F:services/order-router/app/main.py†L1-L143】【F:services/algo-engine/app/main.py†L1-L136】
-   - Intégrer ces suites dans la CI (workflow dédié).
+   - Créer des suites Schemathesis/Pydantic pour `market_data` et compléter `algo-engine`/`order-router` avec des scénarios persistance + risques.【F:services/market_data/app/main.py†L1-L88】【F:services/order_router/tests/test_order_router.py†L1-L256】【F:services/algo_engine/tests/test_backtests.py†L1-L184】
+   - Intégrer ces suites dans la CI (workflow dédié) et publier les rapports associés.
 
 ## 🟠 Criticité moyenne
 
