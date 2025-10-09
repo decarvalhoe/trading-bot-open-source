@@ -17,13 +17,14 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 AUTH_BASE_URL = (
     os.getenv("AUTH_BASE_URL")
+    or os.getenv("WEB_DASHBOARD_AUTH_SERVICE_URL")
     or os.getenv("AUTH_SERVICE_URL")
-    or "http://auth_service:8000"
+    or "http://auth-service:8011/"
 )
-REPORTS_BASE_URL = os.getenv("REPORTS_BASE_URL", "http://reports:8000")
-ALGO_BASE_URL = os.getenv("ALGO_ENGINE_BASE_URL", "http://algo_engine:8000")
-ROUTER_BASE_URL = os.getenv("ORDER_ROUTER_BASE_URL", "http://order_router:8000")
-MARKET_BASE_URL = os.getenv("MARKET_DATA_BASE_URL", "http://market_data:8000")
+REPORTS_BASE_URL = os.getenv("WEB_DASHBOARD_REPORTS_BASE_URL", "http://reports:8000/")
+ALGO_BASE_URL = os.getenv("WEB_DASHBOARD_ALGO_ENGINE_URL", "http://algo-engine:8000/")
+ROUTER_BASE_URL = os.getenv("WEB_DASHBOARD_ORDER_ROUTER_BASE_URL", "http://order-router:8000/")
+MARKET_BASE_URL = os.getenv("WEB_DASHBOARD_MARKETPLACE_URL", "http://marketplace:8000/")
 STATUS_TIMEOUT = float(os.getenv("WEB_DASHBOARD_STATUS_TIMEOUT", "5.0"))
 
 
