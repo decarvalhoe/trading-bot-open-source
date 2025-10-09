@@ -169,6 +169,8 @@ async def list_symbols(
 
     async def _load() -> list[dict[str, Any]]:
         if hasattr(connector, "list_symbols"):
+            if isinstance(connector, IBKRMarketConnector):
+                return await connector.list_symbols(pattern=search, limit=limit)
             return await connector.list_symbols(search=search, limit=limit)
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not supported")
 
