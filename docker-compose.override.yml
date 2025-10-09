@@ -8,6 +8,6 @@ services:
     ports:
       - "8022:8000"
     environment:
-      WEB_DASHBOARD_AUTH_SERVICE_URL: "http://localhost:8811"
+      WEB_DASHBOARD_AUTH_SERVICE_URL: "http://auth_service:8000"
       WEB_DASHBOARD_AUTH_COOKIE_SECURE: "false"
       WEB_DASHBOARD_AUTH_COOKIE_DOMAIN: ""
