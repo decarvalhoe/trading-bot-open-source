@@ -9,8 +9,14 @@ import StrategyExpressPage from "./pages/Strategies/StrategyExpressPage.jsx";
 import StrategyDocumentationPage from "./pages/Strategies/StrategyDocumentationPage.jsx";
 import HelpCenterPage from "./pages/Help/HelpCenterPage.jsx";
 import StatusPage from "./pages/Status/StatusPage.jsx";
+import OrdersPage from "./pages/trading/OrdersPage.jsx";
+import PositionsPage from "./pages/trading/PositionsPage.jsx";
+import ExecutePage from "./pages/trading/ExecutePage.jsx";
+import MarketPage from "./pages/MarketPage.jsx";
+import AlertsPage from "./pages/AlertsPage.jsx";
+import ReportsPage from "./pages/ReportsPage.jsx";
+import SettingsPage from "./pages/SettingsPage.jsx";
 import AccountLoginPage from "./pages/Account/AccountLoginPage.jsx";
-import AccountSettingsPage from "./pages/Account/AccountSettingsPage.jsx";
 import AccountRegisterPage from "./pages/Account/AccountRegisterPage.jsx";
 import NotFoundPage from "./pages/NotFound/NotFoundPage.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
@@ -41,6 +47,54 @@ export default function App() {
           element={(
             <ProtectedRoute>
               <MarketplacePage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/market"
+          element={(
+            <ProtectedRoute>
+              <MarketPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/trading/orders"
+          element={(
+            <ProtectedRoute>
+              <OrdersPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/trading/positions"
+          element={(
+            <ProtectedRoute>
+              <PositionsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/trading/execute"
+          element={(
+            <ProtectedRoute>
+              <ExecutePage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/alerts"
+          element={(
+            <ProtectedRoute>
+              <AlertsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/reports"
+          element={(
+            <ProtectedRoute>
+              <ReportsPage />
             </ProtectedRoute>
           )}
         />
@@ -85,13 +139,14 @@ export default function App() {
           )}
         />
         <Route
-          path="/account"
+          path="/account/settings"
           element={(
             <ProtectedRoute>
-              <AccountSettingsPage />
+              <SettingsPage />
             </ProtectedRoute>
           )}
         />
+        <Route path="/account" element={<Navigate to="/account/settings" replace />} />
         <Route path="/account/login" element={<AccountLoginPage />} />
         <Route path="/account/register" element={<AccountRegisterPage />} />
         <Route path="*" element={<NotFoundPage />} />

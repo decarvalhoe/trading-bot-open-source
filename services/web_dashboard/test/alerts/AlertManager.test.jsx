@@ -3,17 +3,10 @@ import { act } from "react";
 import userEvent from "@testing-library/user-event";
 import i18next from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AlertManager from "../../src/alerts/AlertManager.jsx";
-import { getWebSocketClient, resetWebSocketClient } from "../../src/lib/websocket.js";
-
-function createFetchResponse(data, status = 200) {
-  return Promise.resolve({
-    ok: status >= 200 && status < 300,
-    status,
-    json: () => Promise.resolve(data),
-    headers: { get: () => "application/json" },
-  });
-}
+import apiClient from "../../src/lib/api.js";
+import { getWebSocketClient } from "../../src/lib/websocket.js";
 
 async function createTestI18n(language = "fr") {
   const instance = i18next.createInstance();
@@ -32,11 +25,19 @@ async function createTestI18n(language = "fr") {
 async function renderAlerts(props) {
   const user = userEvent.setup();
   const i18n = await createTestI18n();
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   await act(async () => {
     render(
-      <I18nextProvider i18n={i18n}>
-        <AlertManager enableInitialFetch={false} {...props} />
-      </I18nextProvider>
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <AlertManager enableInitialFetch={false} {...props} />
+        </I18nextProvider>
+      </QueryClientProvider>
     );
     await Promise.resolve();
   });
@@ -70,12 +71,28 @@ describe("AlertManager", () => {
   ];
 
   beforeEach(() => {
-    resetWebSocketClient();
-    global.fetch = vi.fn();
+    const client = getWebSocketClient();
+    if (client?.subscribers?.clear) {
+      client.subscribers.clear();
+    }
+    if (client?.statusListeners?.clear) {
+      client.statusListeners.clear();
+    }
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(apiClient.alerts, "list").mockResolvedValue({ items: initialAlerts });
+    vi.spyOn(apiClient.alerts, "create").mockResolvedValue(initialAlerts[0]);
+    vi.spyOn(apiClient.alerts, "update").mockResolvedValue(initialAlerts[0]);
+    vi.spyOn(apiClient.alerts, "remove").mockResolvedValue();
   });
 
   afterEach(() => {
+    const client = getWebSocketClient();
+    if (client?.subscribers?.clear) {
+      client.subscribers.clear();
+    }
+    if (client?.statusListeners?.clear) {
+      client.statusListeners.clear();
+    }
     vi.restoreAllMocks();
   });
 
@@ -122,7 +139,7 @@ describe("AlertManager", () => {
       throttle_seconds: 900,
     };
 
-    global.fetch = vi.fn().mockReturnValueOnce(createFetchResponse(createdAlert, 201));
+    apiClient.alerts.create.mockResolvedValue(createdAlert);
 
     const user = await renderAlerts({
       initialAlerts,
@@ -159,11 +176,11 @@ describe("AlertManager", () => {
     await user.click(screen.getByRole("button", { name: /créer/i }));
 
     await waitFor(() => {
-      const lastCall = global.fetch.mock.calls.at(-1);
-      expect(lastCall[0]).toBe("/alerts");
-      expect(lastCall[1].method).toBe("POST");
-      expect(lastCall[1].headers.Authorization).toBe("Bearer demo-token");
-      const payload = JSON.parse(lastCall[1].body);
+      expect(apiClient.alerts.create).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Daily drawdown limit exceeded" }),
+        { endpoint: "/alerts" },
+      );
+      const payload = apiClient.alerts.create.mock.calls.at(-1)[0];
       expect(payload.title).toBe("Daily drawdown limit exceeded");
       expect(payload.rule.symbol).toBe("ETHUSDT");
       expect(payload.rule.conditions.pnl.enabled).toBe(true);
@@ -180,14 +197,7 @@ describe("AlertManager", () => {
   });
 
   it("affiche un message d'erreur lorsque la création échoue", async () => {
-    global.fetch = vi.fn().mockReturnValueOnce(
-      Promise.resolve({
-        ok: false,
-        status: 500,
-        json: () => Promise.resolve({ detail: "Erreur inattendue" }),
-        headers: { get: () => "application/json" },
-      })
-    );
+    apiClient.alerts.create.mockRejectedValue(new Error("Erreur inattendue"));
 
     const user = await renderAlerts({
       initialAlerts,
@@ -203,8 +213,16 @@ describe("AlertManager", () => {
     await user.type(screen.getByLabelText(/Symbole surveillé/i), "BTCUSDT");
     await user.click(screen.getByRole("button", { name: /créer/i }));
 
-    const errorMessage = await screen.findByRole("alert");
-    expect(errorMessage).toHaveTextContent(/erreur inattendue/i);
+    await waitFor(() => {
+      expect(apiClient.alerts.create).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Nouvelle alerte" }),
+        { endpoint: "/alerts" },
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Erreur inattendue/i)).toBeInTheDocument();
+    });
   });
 
   it("met à jour la liste à la réception d'un évènement temps réel", async () => {
@@ -231,8 +249,9 @@ describe("AlertManager", () => {
 
     const client = getWebSocketClient();
 
-    act(() => {
+    await act(async () => {
       client.publish("alerts.update", { items: [realtimeAlert], message: "Flux mis à jour" });
+      await Promise.resolve();
     });
 
     expect(await screen.findByText(/Breaking news on AAPL/i)).toBeInTheDocument();

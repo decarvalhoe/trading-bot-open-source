@@ -8,6 +8,12 @@ import { Button } from "../components/ui/button.jsx";
 
 const NAV_LINKS = [
   { to: "/dashboard", labelKey: "Tableau de bord" },
+  { to: "/trading/orders", labelKey: "Ordres" },
+  { to: "/trading/positions", labelKey: "Positions" },
+  { to: "/trading/execute", labelKey: "Passer un ordre" },
+  { to: "/market", labelKey: "Marché temps réel" },
+  { to: "/alerts", labelKey: "Alertes" },
+  { to: "/reports", labelKey: "Rapports" },
   { to: "/marketplace", labelKey: "Marketplace" },
   { to: "/dashboard/followers", labelKey: "Suivi copies" },
   { to: "/strategies", labelKey: "Stratégies" },
@@ -15,7 +21,7 @@ const NAV_LINKS = [
   { to: "/strategies/documentation", labelKey: "Documentation stratégies" },
   { to: "/help", labelKey: "Aide & formation" },
   { to: "/status", labelKey: "Statut services" },
-  { to: "/account", labelKey: "Compte & API" },
+  { to: "/account/settings", labelKey: "Compte & API" },
 ];
 
 function LanguageSwitcher() {
