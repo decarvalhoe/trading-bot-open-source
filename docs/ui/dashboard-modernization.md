@@ -10,6 +10,36 @@ Align modernization efforts for the trading dashboard SPA with the foundation al
 
 The modernization scope must build on these assets instead of re-implementing navigation, routing, or context plumbing.
 
+## Authentication & Session Round-trip
+
+The existing React shell already performs a complete cookie-backed authentication loop that the modernization effort must preserve.
+
+- `AuthProvider` reads the dashboard bootstrap config to resolve the `/account/login`, `/account/logout`, and `/account/session` endpoints exposed by the FastAPI service and stores them in context for consumers. When the provider mounts, it calls `fetchSession` with `credentials: "include"`, normalises the payload, and transitions the app into `authenticated`, `anonymous`, or `error` states while synchronising the bearer token stored by `ApiClient` for follow-up API calls.
+- `login` delegates to the dashboard service, then immediately refreshes the session so the SPA state is driven by the canonical `/account/session` response. `logout` always clears the stored token and re-fetches the session, even if the server-side logout fails, so the client mirrors server cookies.
+- `normalizeSession` tolerates payloads that provide `token` or `access_token`, ensuring the SPA keeps working as long as the dashboard service continues to return the canonical session shape.
+
+### Backend `/account/*` contract
+
+- `POST /account/login` calls the upstream auth service, sets secure `access_token` and `refresh_token` cookies, and then resolves the authenticated user profile through `_auth_me` so the SPA receives the same `AccountSession` structure as `/account/session`.
+- `GET /account/session` inspects the incoming cookies, attempts to refresh expired access tokens server-side, and returns `authenticated: true` only when a user profile is confirmed. Failed lookups clear cookies and emit `authenticated: false`.
+- `POST /account/logout` notifies the upstream auth service (best effort), clears both cookies, and responds with `authenticated: false`. Registration flows reuse the SPA shell but do not alter the session until the user explicitly logs in.
+
+Modernisation work must treat this loop as source of truth: client state changes only after `/account/session` resolves, and cookies remain the primary long-lived credential store.
+
+## API Integration Baseline
+
+The SPA already centralises HTTP calls through `src/lib/api.js`.
+
+- `ApiClient` encapsulates base URL resolution, bearer token persistence, query-string construction, and automatic `credentials: "include"` handling for the `/account/*` endpoints.
+- Feature-specific helpers (`alerts`, `strategies`, `orders`, `marketplace`, `dashboard`, `onboarding`, etc.) all call the dashboard service endpoints emitted by `_build_global_config` instead of targeting downstream microservices directly. They inherit consistent headers, error parsing, and token injection, and can be re-pointed via configuration when the backend proxy changes.
+- The same client instance is imported throughout the SPA, so once `AuthProvider` updates the stored bearer token the entire application benefits without per-module changes.
+
+### Modernization guardrails for auth & integrations
+
+- **Preserve the cookie/session contract.** Do not bypass `/account/login`, `/account/logout`, or `/account/session`; any UX improvements (e.g., session expiry banners, proactive refresh triggers) must continue to rely on those endpoints so that cookies remain authoritative.
+- **Reuse the central `ApiClient`.** New features must plug into the existing client namespaces or extend it with additional helper groups so that retries, headers, and credential handling stay consistent. Calling microservices directly from the SPA is out of scope unless the backend service is refactored in tandem.
+- **Target genuine enhancements.** Focus on surfacing clearer error states, optionally instrumenting session refresh telemetry, or collaborating with the backend if additional token metadata is required. Avoid inventing alternate auth flows or duplicating HTTP wrappers that the current client already covers.
+
 ## Active Navigation Inventory
 
 The current router and sidebar expose the following destinations. Each item is tagged to clarify whether the modernization effort must deliver a redesigned experience (`Redesign`) or preserve the existing UX with only integration polish (`Preserve`).
