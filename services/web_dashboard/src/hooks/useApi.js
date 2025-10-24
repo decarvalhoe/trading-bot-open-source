@@ -41,6 +41,7 @@ export function useApi(options = {}) {
       alerts: apiClient.alerts,
       reports: apiClient.reports,
       marketplace: apiClient.marketplace,
+      marketData: apiClient.marketData,
       strategies: apiClient.strategies,
       orders: apiClient.orders,
       dashboard: apiClient.dashboard,
