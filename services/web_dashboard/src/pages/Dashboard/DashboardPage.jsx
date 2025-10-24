@@ -6,6 +6,8 @@ import AlertHistory from "../../alerts/AlertHistory.jsx";
 import ReportsList from "../../reports/ReportsList.jsx";
 import OnboardingApp from "../../onboarding/OnboardingApp.jsx";
 import { bootstrap } from "../../bootstrap";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card.jsx";
+import { Badge } from "../../components/ui/badge.jsx";
 
 function PortfolioChartSection({ endpoint, currency }) {
   const { t } = useTranslation();
@@ -54,11 +56,12 @@ function PortfolioChartSection({ endpoint, currency }) {
 }
 
 function MetricsCard({ label, value, tone, badge }) {
+  const valueClassName = tone ? `metric-card__value metric-card__value--${tone}` : "metric-card__value";
   return (
     <article className="metric-card" role="listitem">
       <p className="metric-card__label">{label}</p>
-      <p className={`metric-card__value${tone ? ` metric-card__value--${tone}` : ""}`}>{value}</p>
-      {badge && <span className={`badge badge--${badge.variant}`}>{badge.label}</span>}
+      <p className={valueClassName}>{value}</p>
+      {badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : null}
     </article>
   );
 }
@@ -86,17 +89,15 @@ function MetricsSection({ metrics }) {
   }
 
   return (
-    <section className="card card--metrics" aria-labelledby="metrics-title">
-      <div className="card__header">
-        <h2 id="metrics-title" className="heading heading--lg">
-          {t("Performance")}
-        </h2>
-        <p className="text text--muted">
+    <Card aria-labelledby="metrics-title">
+      <CardHeader>
+        <CardTitle id="metrics-title">{t("Performance")}</CardTitle>
+        <CardDescription>
           {metrics.account && <span>Compte {metrics.account} · </span>}
           {metrics.as_of && <span>Mise à jour le {new Date(metrics.as_of).toLocaleDateString()}</span>}
-        </p>
-      </div>
-      <div className="card__body">
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
         {metrics.available ? (
           <div className="metrics-grid" role="list" aria-describedby="metrics-title">
             <MetricsCard
@@ -131,8 +132,8 @@ function MetricsSection({ metrics }) {
             {t("Basé sur {{count}} sessions", { count: metrics.sample_size })}
           </p>
         ) : null}
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -181,69 +182,67 @@ export default function DashboardPage() {
 
   return (
     <div className="dashboard">
-      <section className="card card--onboarding" aria-labelledby="onboarding-title">
-        <div className="card__header">
-          <h2 id="onboarding-title" className="heading heading--lg">
-            {t("Parcours d'onboarding")}
-          </h2>
-          <p className="text text--muted">
+      <Card aria-labelledby="onboarding-title">
+        <CardHeader>
+          <CardTitle id="onboarding-title">{t("Parcours d'onboarding")}</CardTitle>
+          <CardDescription>
             {t("Connectez votre broker, définissez votre stratégie et testez-la avant le go-live.")}
-          </p>
-        </div>
-        <div className="card__body">
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <OnboardingApp {...onboardingConfig} />
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
       <MetricsSection metrics={metrics} />
 
-      <section className="card" aria-labelledby="reports-title">
-        <div className="card__header">
-          <h2 id="reports-title" className="heading heading--lg">
-            {t("Rapports récents")}
-          </h2>
-          <p className="text text--muted">{t("Synthèse des rapports générés par le moteur de reporting.")}</p>
-        </div>
-        <div className="card__body">
+      <Card aria-labelledby="reports-title">
+        <CardHeader>
+          <CardTitle id="reports-title">{t("Rapports récents")}</CardTitle>
+          <CardDescription>
+            {t("Synthèse des rapports générés par le moteur de reporting.")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <ReportsList reports={reports} pageSize={reportsPageSize} />
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="card" aria-labelledby="chart-title">
-        <div className="card__header">
-          <h2 id="chart-title" className="heading heading--lg">
-            {t("Historique de performance")}
-          </h2>
-          <p className="text text--muted">{t("Évolution quotidienne de la valeur totale par portefeuille.")}</p>
-        </div>
-        <div className="card__body">
+      <Card aria-labelledby="chart-title">
+        <CardHeader>
+          <CardTitle id="chart-title">{t("Historique de performance")}</CardTitle>
+          <CardDescription>
+            {t("Évolution quotidienne de la valeur totale par portefeuille.")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <PortfolioChartSection endpoint={chartConfig.endpoint || "/portfolios/history"} currency={chartConfig.currency || "$"} />
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="card" aria-labelledby="alerts-title">
-        <div className="card__header">
-          <h2 id="alerts-title" className="heading heading--lg">
-            {t("Alertes actives")}
-          </h2>
-          <p className="text text--muted">{t("Déclenchements prioritaires provenant du moteur d'alertes.")}</p>
-        </div>
-        <div className="card__body">
+      <Card aria-labelledby="alerts-title">
+        <CardHeader>
+          <CardTitle id="alerts-title">{t("Alertes actives")}</CardTitle>
+          <CardDescription>
+            {t("Déclenchements prioritaires provenant du moteur d'alertes.")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <AlertManager initialAlerts={alertsConfig.initialItems || []} endpoint={alertsConfig.endpoint || "/alerts"} authToken={alertsConfig.token || ""} />
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="card" aria-labelledby="alerts-history-title">
-        <div className="card__header">
-          <h2 id="alerts-history-title" className="heading heading--lg">
-            {t("Historique")}
-          </h2>
-          <p className="text text--muted">{t("Déclenchements archivés par le moteur d'alertes.")}</p>
-        </div>
-        <div className="card__body">
+      <Card aria-labelledby="alerts-history-title">
+        <CardHeader>
+          <CardTitle id="alerts-history-title">{t("Historique")}</CardTitle>
+          <CardDescription>
+            {t("Déclenchements archivés par le moteur d'alertes.")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <AlertHistory endpoint={alertsConfig.historyEndpoint || "/alerts/history"} />
-        </div>
-      </section>
+        </CardContent>
+      </Card>
     </div>
   );
 }
