@@ -152,6 +152,43 @@ export class ApiClient {
       },
     };
 
+    this.marketData = {
+      price: (symbol, options = {}) => {
+        const targetSymbol = (options.symbol ?? symbol ?? "").toString().trim();
+        if (!targetSymbol) {
+          return Promise.reject(new Error("Symbol is required"));
+        }
+        const endpoint = options.endpoint || `/market/${encodeURIComponent(targetSymbol)}/price`;
+        const query = { ...(options.query || {}) };
+        if (options.depth !== undefined && options.depth !== null) {
+          query.depth = options.depth;
+        }
+        const finalQuery = Object.keys(query).length ? query : undefined;
+        return this.request(endpoint, {
+          method: "GET",
+          signal: options.signal,
+          query: finalQuery,
+        });
+      },
+      orderBook: (symbol, options = {}) => {
+        const targetSymbol = (options.symbol ?? symbol ?? "").toString().trim();
+        if (!targetSymbol) {
+          return Promise.reject(new Error("Symbol is required"));
+        }
+        const endpoint = options.endpoint || `/market/${encodeURIComponent(targetSymbol)}/order-book`;
+        const query = { ...(options.query || {}) };
+        if (options.depth !== undefined && options.depth !== null) {
+          query.depth = options.depth;
+        }
+        const finalQuery = Object.keys(query).length ? query : undefined;
+        return this.request(endpoint, {
+          method: "GET",
+          signal: options.signal,
+          query: finalQuery,
+        });
+      },
+    };
+
     this.reports = {
       list: (options = {}) =>
         this.request(options.endpoint || "/reports", {
