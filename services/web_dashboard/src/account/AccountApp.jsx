@@ -127,7 +127,7 @@ function useSession(endpoints) {
   return [state, load, setState];
 }
 
-function AccountApp({ endpoints }) {
+function AccountApp({ endpoints, onSessionChange }) {
   const [sessionState, reloadSession, setSessionState] = useSession(endpoints);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState(null);
@@ -137,6 +137,12 @@ function AccountApp({ endpoints }) {
   const [brokerError, setBrokerError] = useState(null);
   const [brokerSuccess, setBrokerSuccess] = useState(null);
   const [brokerSubmitting, setBrokerSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (typeof onSessionChange === "function") {
+      onSessionChange(sessionState);
+    }
+  }, [sessionState, onSessionChange]);
 
   const isAuthenticated = sessionState.status === "ready" && !!sessionState.user;
   const isAnonymous = sessionState.status === "anonymous" || sessionState.status === "ready";
@@ -545,7 +551,12 @@ AccountApp.propTypes = {
     login: PropTypes.string.isRequired,
     logout: PropTypes.string.isRequired,
     brokerCredentials: PropTypes.string.isRequired
-  }).isRequired
+  }).isRequired,
+  onSessionChange: PropTypes.func,
+};
+
+AccountApp.defaultProps = {
+  onSessionChange: undefined,
 };
 
 export default AccountApp;
