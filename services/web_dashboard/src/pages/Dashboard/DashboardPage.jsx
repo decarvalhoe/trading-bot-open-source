@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import PortfolioChart from "../../components/PortfolioChart.jsx";
 import AlertManager from "../../alerts/AlertManager.jsx";
@@ -8,51 +8,42 @@ import OnboardingApp from "../../onboarding/OnboardingApp.jsx";
 import { bootstrap } from "../../bootstrap";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card.jsx";
 import { Badge } from "../../components/ui/badge.jsx";
+import useApi from "../../hooks/useApi.js";
 
 function PortfolioChartSection({ endpoint, currency }) {
   const { t } = useTranslation();
-  const [state, setState] = useState({ status: "idle", items: [], currency });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setState((prev) => ({ ...prev, status: "loading" }));
-      try {
-        const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        if (cancelled) {
-          return;
-        }
-        setState({
-          status: "ready",
-          items: Array.isArray(payload.items) ? payload.items : [],
+  const { dashboard, useQuery } = useApi();
+  const {
+    data = { items: [], currency },
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["dashboard", "history", endpoint],
+    enabled: Boolean(endpoint),
+    initialData: { items: [], currency },
+    queryFn: async () => {
+      const payload = await dashboard.history({ endpoint });
+      if (payload && Array.isArray(payload.items)) {
+        return {
+          items: payload.items,
           currency: payload.currency || currency,
-        });
-      } catch (error) {
-        if (!cancelled) {
-          setState({ status: "error", items: [], currency, error });
-        }
+        };
       }
-    }
+      if (Array.isArray(payload)) {
+        return { items: payload, currency };
+      }
+      return { items: [], currency };
+    },
+  });
 
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [endpoint, currency]);
-
-  if (state.status === "loading") {
+  if (isLoading) {
     return <p className="text text--muted">{t("Chargement des données historiques…")}</p>;
   }
-  if (state.status === "error") {
+  if (isError) {
     return <p className="text text--critical">{t("Impossible de charger l'historique pour le moment.")}</p>;
   }
 
-  return <PortfolioChart history={state.items} currency={state.currency || currency} />;
+  return <PortfolioChart history={data.items} currency={data.currency || currency} />;
 }
 
 function MetricsCard({ label, value, tone, badge }) {
@@ -139,46 +130,37 @@ function MetricsSection({ metrics }) {
 
 export default function DashboardPage() {
   const { t } = useTranslation();
+  const { dashboard, useQuery } = useApi();
   const dashboardData = bootstrap?.data?.dashboard || {};
-  const [metrics, setMetrics] = useState(dashboardData.metrics || null);
-  const [reports, setReports] = useState(dashboardData.reports?.items || []);
   const onboardingConfig = dashboardData.onboarding || bootstrap?.config?.onboarding || {};
   const alertsConfig = dashboardData.alerts || bootstrap?.config?.alerts || {};
   const reportsPageSize = dashboardData.reports?.pageSize || 5;
   const chartConfig = dashboardData.chart || bootstrap?.config?.dashboard?.chart || {};
   const contextEndpoint = bootstrap?.config?.dashboard?.contextEndpoint || "/dashboard/context";
 
-  useEffect(() => {
-    if (metrics && reports.length) {
-      return;
-    }
-    let cancelled = false;
-    async function loadContext() {
-      try {
-        const response = await fetch(contextEndpoint, { headers: { Accept: "application/json" } });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        if (!cancelled && payload) {
-          if (payload.metrics) {
-            setMetrics(payload.metrics);
-          }
-          if (Array.isArray(payload.reports)) {
-            setReports(payload.reports);
-          }
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Impossible de charger le contexte du tableau de bord", error);
-        }
-      }
-    }
-    loadContext();
-    return () => {
-      cancelled = true;
-    };
-  }, [contextEndpoint, metrics, reports.length]);
+  const initialContext = useMemo(
+    () => ({
+      metrics: dashboardData.metrics || null,
+      reports: dashboardData.reports?.items || [],
+    }),
+    [dashboardData.metrics, dashboardData.reports?.items]
+  );
+
+  const { data: context = initialContext } = useQuery({
+    queryKey: ["dashboard", "context", contextEndpoint],
+    enabled: Boolean(contextEndpoint),
+    initialData: initialContext,
+    queryFn: async () => {
+      const payload = await dashboard.context({ endpoint: contextEndpoint });
+      return {
+        metrics: payload?.metrics || null,
+        reports: Array.isArray(payload?.reports) ? payload.reports : [],
+      };
+    },
+  });
+
+  const metrics = context.metrics || initialContext.metrics;
+  const reports = context.reports || initialContext.reports;
 
   return (
     <div className="dashboard">

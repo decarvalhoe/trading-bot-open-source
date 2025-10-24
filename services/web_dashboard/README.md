@@ -67,6 +67,26 @@ dans le contexte Jinja. Toute adaptation (nouvelle source, transformation
 supplémentaire) doit se faire dans ce module pour conserver une interface
 centralisée.
 
+### Configuration front-end (Vite)
+
+Le bundle React (dossier `src/`) consomme plusieurs variables d'environnement
+`VITE_*` injectées par Vite :
+
+- `VITE_API_BASE_URL` : URL de base utilisée pour préfixer les appels REST du
+  client (`/alerts`, `/strategies`, etc.). Lorsque cette valeur n'est pas
+  renseignée, le client tentera d'utiliser la table d'environnements ci-dessous.
+- `VITE_API_ENV` ou `VITE_API_ENVIRONMENT` : clé d'environnement (`local`,
+  `development`, `staging`, `production`, `test`) permettant de sélectionner
+  l'URL par défaut dans la table `VITE_API_URL_*`.
+- `VITE_API_URL_LOCAL`, `VITE_API_URL_DEVELOPMENT`, `VITE_API_URL_STAGING`,
+  `VITE_API_URL_PRODUCTION`, `VITE_API_URL_TEST` : URL candidates pour chaque
+  environnement. Elles ne sont utilisées que si `VITE_API_BASE_URL` est vide.
+- `VITE_API_TOKEN_STORAGE_KEY` : clé de stockage `localStorage` pour le token
+  JWT (par défaut `trading-bot-dashboard.jwt`).
+
+Ces variables sont résolues dans `src/lib/api.js` et permettent au client React
+de partager une configuration unique avec les tests et Storybook.
+
 ### Étendre le Strategy Designer
 
 Les composants du designer sont regroupés dans `src/strategies/designer/`. Chaque

@@ -3,6 +3,17 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ReportsList from "./ReportsList.jsx";
 
+const downloadMock = vi.fn();
+
+vi.mock("../hooks/useApi.js", () => ({
+  __esModule: true,
+  default: vi.fn(() => ({
+    reports: {
+      download: downloadMock,
+    },
+  })),
+}));
+
 const sampleReports = [
   {
     id: "1",
@@ -29,7 +40,7 @@ const sampleReports = [
 
 afterEach(() => {
   vi.restoreAllMocks();
-  Reflect.deleteProperty(globalThis, "fetch");
+  downloadMock.mockReset();
 });
 
 describe("ReportsList", () => {
@@ -51,11 +62,7 @@ describe("ReportsList", () => {
 
   it("triggers a download when clicking the action button", async () => {
     const blob = new Blob(["pdf"], { type: "application/pdf" });
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(blob),
-    });
-    globalThis.fetch = fetchMock;
+    downloadMock.mockResolvedValue(blob);
 
     const urlApi = globalThis.URL || window.URL;
     const hadCreate = typeof urlApi.createObjectURL === "function";
@@ -94,10 +101,7 @@ describe("ReportsList", () => {
     const downloadButton = screen.getByRole("button", { name: /télécharger/i });
     await user.click(downloadButton);
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://example.com/report.pdf",
-      expect.objectContaining({ headers: expect.any(Object) })
-    );
+    expect(downloadMock).toHaveBeenCalledWith("http://example.com/report.pdf");
     expect(createSpy).toHaveBeenCalled();
     expect(revokeSpy).toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalled();

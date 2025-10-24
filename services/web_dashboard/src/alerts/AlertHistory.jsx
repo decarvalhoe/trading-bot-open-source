@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import useApi from "../hooks/useApi.js";
 
 function formatDate(value, locale = "fr") {
   if (!value) {
@@ -21,91 +22,94 @@ function formatDate(value, locale = "fr") {
 
 function AlertHistory({ endpoint = "/alerts/history" }) {
   const { t, i18n } = useTranslation();
-  const [status, setStatus] = useState("idle");
-  const [items, setItems] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 10 });
+  const { alerts: alertsApi, useQuery } = useApi();
   const [filters, setFilters] = useState({ strategy: "", severity: "" });
-  const [availableFilters, setAvailableFilters] = useState({ strategies: [], severities: [] });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
-  const queryParams = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("page", pagination.page);
-    params.set("page_size", pagination.page_size || 10);
-    if (filters.strategy) {
-      params.set("strategy", filters.strategy);
-    }
-    if (filters.severity) {
-      params.set("severity", filters.severity);
-    }
-    return params.toString();
-  }, [pagination.page, pagination.page_size, filters.strategy, filters.severity]);
+  const queryParameters = useMemo(
+    () => ({
+      page,
+      page_size: pageSize,
+      ...(filters.strategy ? { strategy: filters.strategy } : {}),
+      ...(filters.severity ? { severity: filters.severity } : {}),
+    }),
+    [page, pageSize, filters.strategy, filters.severity]
+  );
 
-  useEffect(() => {
-    async function loadHistory() {
-      setStatus("loading");
-      try {
-        const url = `${endpoint}?${queryParams}`;
-        const response = await fetch(url, {
-          headers: { Accept: "application/json" },
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        setItems(Array.isArray(payload.items) ? payload.items : []);
-        const paginationPayload = payload.pagination || {};
-        setPagination((current) => ({
-          page: paginationPayload.page || current.page,
+  const {
+    data = {
+      items: [],
+      pagination: { page: 1, pages: 1, total: 0, page_size: pageSize },
+      availableFilters: { strategies: [], severities: [] },
+    },
+    isLoading,
+    isError,
+    isFetching,
+  } = useQuery({
+    queryKey: ["alerts", "history", endpoint, queryParameters],
+    keepPreviousData: true,
+    queryFn: async () => {
+      const payload = await alertsApi.history({ endpoint, query: queryParameters });
+      const paginationPayload = payload?.pagination || {};
+      const available = payload?.available_filters || {};
+      return {
+        items: Array.isArray(payload?.items) ? payload.items : [],
+        pagination: {
+          page: paginationPayload.page || paginationPayload.current_page || page,
           pages: paginationPayload.pages || paginationPayload.total_pages || 1,
-          total: paginationPayload.total ?? current.total,
-          page_size: paginationPayload.page_size || current.page_size,
-        }));
-        if (payload.available_filters) {
-          setAvailableFilters({
-            strategies: payload.available_filters.strategies || [],
-            severities: payload.available_filters.severities || [],
-          });
-        }
-        setStatus("ready");
-      } catch (fetchError) {
-        setStatus("error");
-      }
-    }
+          total: paginationPayload.total ?? paginationPayload.total_items ?? 0,
+          page_size: paginationPayload.page_size || paginationPayload.per_page || pageSize,
+        },
+        availableFilters: {
+          strategies: Array.isArray(available.strategies) ? available.strategies : [],
+          severities: Array.isArray(available.severities) ? available.severities : [],
+        },
+      };
+    },
+  });
 
-    loadHistory();
-  }, [endpoint, queryParams]);
+  const items = data.items;
+  const pagination = data.pagination;
+  const availableFilters = data.availableFilters;
+  const currentPage = pagination.page || page;
+  const totalPages = pagination.pages || 1;
 
-  const canPrevious = pagination.page > 1;
-  const canNext = pagination.page < (pagination.pages || 1);
+  const canPrevious = currentPage > 1;
+  const canNext = currentPage < totalPages;
 
   function handleSeverityChange(event) {
     setFilters((current) => ({ ...current, severity: event.target.value }));
-    setPagination((current) => ({ ...current, page: 1 }));
+    setPage(1);
   }
 
   function handleStrategyChange(event) {
     setFilters((current) => ({ ...current, strategy: event.target.value }));
-    setPagination((current) => ({ ...current, page: 1 }));
+    setPage(1);
   }
 
   function handlePageSizeChange(event) {
     const size = Number.parseInt(event.target.value, 10) || 10;
-    setPagination((current) => ({ ...current, page_size: size, page: 1 }));
+    setPageSize(size);
+    setPage(1);
   }
 
   function goToPreviousPage() {
     if (!canPrevious) {
       return;
     }
-    setPagination((current) => ({ ...current, page: Math.max(1, current.page - 1) }));
+    setPage(Math.max(1, currentPage - 1));
   }
 
   function goToNextPage() {
     if (!canNext) {
       return;
     }
-    setPagination((current) => ({ ...current, page: current.page + 1 }));
+    setPage(Math.min(totalPages, currentPage + 1));
   }
+
+  const isInitialLoading = isLoading && items.length === 0;
+  const showEmpty = !isLoading && !isFetching && !isError && items.length === 0;
 
   return (
     <section className="history-panel" aria-live="polite">
@@ -149,17 +153,17 @@ function AlertHistory({ endpoint = "/alerts/history" }) {
           </select>
         </label>
       </div>
-      {status === "loading" && (
+      {isInitialLoading && (
         <p className="text" role="status">
           {t("Chargement de l'historique…")}
         </p>
       )}
-      {status === "error" && (
+      {isError && (
         <p className="text text--critical" role="alert">
           {t("Impossible de récupérer l'historique pour le moment.")}
         </p>
       )}
-      {status === "ready" && items.length === 0 && (
+      {showEmpty && (
         <p className="text text--muted">
           {t("Aucun déclenchement enregistré pour ces filtres.")}
         </p>

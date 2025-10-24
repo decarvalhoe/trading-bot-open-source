@@ -6,6 +6,19 @@ import App from "./App.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import i18n from "./i18n/config.js";
 import "./index.css";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 document.documentElement.classList.add("dark");
 
@@ -20,11 +33,13 @@ const root = createRoot(container);
 root.render(
   <StrictMode>
     <I18nextProvider i18n={i18n}>
-      <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
     </I18nextProvider>
   </StrictMode>
 );

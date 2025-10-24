@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReviewForm from "./ReviewForm.jsx";
+import useApi from "../hooks/useApi.js";
 
 function formatPrice(priceCents, currency, locale) {
   const amount = Number(priceCents || 0) / 100;
@@ -20,6 +21,7 @@ function formatScore(value, formatter) {
 
 function ListingCard({ listing, reviewsEndpoint }) {
   const { t, i18n } = useTranslation();
+  const { client } = useApi();
   const [expanded, setExpanded] = useState(false);
   const [listingSummary, setListingSummary] = useState(listing);
   const [reviews, setReviews] = useState([]);
@@ -34,12 +36,12 @@ function ListingCard({ listing, reviewsEndpoint }) {
   const loadReviews = useCallback(async () => {
     setReviewsStatus("loading");
     try {
-      const response = await fetch(reviewsEndpoint, { headers: { Accept: "application/json" } });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = await response.json();
-      const items = Array.isArray(payload) ? payload : [];
+      const payload = await client.request(reviewsEndpoint, { method: "GET" });
+      const items = Array.isArray(payload?.items)
+        ? payload.items
+        : Array.isArray(payload)
+        ? payload
+        : [];
       setReviews(items);
       const totalRatings = items.reduce((sum, item) => sum + Number(item.rating || 0), 0);
       setListingSummary((prev) => ({
@@ -52,7 +54,7 @@ function ListingCard({ listing, reviewsEndpoint }) {
       console.error("Impossible de charger les avis", error);
       setReviewsStatus("error");
     }
-  }, [reviewsEndpoint]);
+  }, [client, reviewsEndpoint]);
 
   useEffect(() => {
     if (expanded && (reviewsStatus === "idle" || reviewsStatus === "error")) {
@@ -82,17 +84,10 @@ function ListingCard({ listing, reviewsEndpoint }) {
       setFormStatus("submitting");
       setFormError(null);
       try {
-        const response = await fetch(reviewsEndpoint, {
+        await client.request(reviewsEndpoint, {
           method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ rating, comment: comment || null }),
+          body: { rating, comment: comment || null },
         });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
         await loadReviews();
         setFormStatus("success");
         return true;
@@ -103,7 +98,7 @@ function ListingCard({ listing, reviewsEndpoint }) {
         return false;
       }
     },
-    [loadReviews, reviewsEndpoint, t]
+    [client, loadReviews, reviewsEndpoint, t]
   );
 
   const locale = i18n.language || "fr";
