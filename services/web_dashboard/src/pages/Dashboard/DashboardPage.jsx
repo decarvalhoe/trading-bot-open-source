@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import PortfolioChart from "../../components/PortfolioChart.jsx";
 import AlertManager from "../../alerts/AlertManager.jsx";
@@ -9,18 +9,45 @@ import { bootstrap } from "../../bootstrap";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card.jsx";
 import { Badge } from "../../components/ui/badge.jsx";
 import useApi from "../../hooks/useApi.js";
+import useWebSocket from "../../hooks/useWebSocket.js";
+
+function extractHistoryPayload(payload) {
+  if (!payload) {
+    return null;
+  }
+  if (Array.isArray(payload.items)) {
+    return payload;
+  }
+  if (Array.isArray(payload)) {
+    return { items: payload };
+  }
+  if (payload.payload && typeof payload.payload === "object") {
+    return extractHistoryPayload(payload.payload);
+  }
+  if (payload.detail && typeof payload.detail === "object") {
+    return extractHistoryPayload(payload.detail);
+  }
+  return null;
+}
 
 function PortfolioChartSection({ endpoint, currency }) {
   const { t } = useTranslation();
-  const { dashboard, useQuery } = useApi();
+  const { dashboard, useQuery, queryClient } = useApi();
+  const { subscribe, isConnected } = useWebSocket();
+  const queryKey = useMemo(() => ["dashboard", "history", endpoint], [endpoint]);
+  const [history, setHistory] = useState([]);
+  const [currentCurrency, setCurrentCurrency] = useState(currency);
   const {
     data = { items: [], currency },
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["dashboard", "history", endpoint],
+    queryKey,
     enabled: Boolean(endpoint),
     initialData: { items: [], currency },
+    refetchInterval: isConnected ? false : 30000,
+    refetchOnWindowFocus: !isConnected,
+    refetchIntervalInBackground: !isConnected,
     queryFn: async () => {
       const payload = await dashboard.history({ endpoint });
       if (payload && Array.isArray(payload.items)) {
@@ -36,6 +63,36 @@ function PortfolioChartSection({ endpoint, currency }) {
     },
   });
 
+  useEffect(() => {
+    const items = Array.isArray(data.items) ? data.items : [];
+    setHistory(items);
+    setCurrentCurrency(data.currency || currency);
+  }, [data.items, data.currency, currency]);
+
+  useEffect(() => {
+    const unsubscribe = subscribe(
+      ["portfolios", "portfolios.update", "portfolio.history", "trading.history"],
+      (event) => {
+        const detail =
+          extractHistoryPayload(event.payload) || extractHistoryPayload(event.message?.payload);
+        if (!detail || !Array.isArray(detail.items)) {
+          return;
+        }
+        setHistory(detail.items);
+        if (detail.currency) {
+          setCurrentCurrency(detail.currency);
+        }
+        queryClient.setQueryData(queryKey, (previous = { items: [], currency }) => ({
+          items: detail.items,
+          currency: detail.currency || previous.currency || currency,
+        }));
+      }
+    );
+    return () => {
+      unsubscribe();
+    };
+  }, [subscribe, queryClient, queryKey, currency]);
+
   if (isLoading) {
     return <p className="text text--muted">{t("Chargement des données historiques…")}</p>;
   }
@@ -43,7 +100,7 @@ function PortfolioChartSection({ endpoint, currency }) {
     return <p className="text text--critical">{t("Impossible de charger l'historique pour le moment.")}</p>;
   }
 
-  return <PortfolioChart history={data.items} currency={data.currency || currency} />;
+  return <PortfolioChart history={history} currency={currentCurrency || currency} />;
 }
 
 function MetricsCard({ label, value, tone, badge }) {

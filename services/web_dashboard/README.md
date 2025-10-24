@@ -83,6 +83,9 @@ Le bundle React (dossier `src/`) consomme plusieurs variables d'environnement
   environnement. Elles ne sont utilisées que si `VITE_API_BASE_URL` est vide.
 - `VITE_API_TOKEN_STORAGE_KEY` : clé de stockage `localStorage` pour le token
   JWT (par défaut `trading-bot-dashboard.jwt`).
+- `VITE_STREAMING_URL` : URL du WebSocket de streaming utilisé par le hook
+  `useWebSocket`. Lorsque cette valeur est vide ou invalide, les vues concernées
+  basculent automatiquement en mode polling React Query.
 
 Ces variables sont résolues dans `src/lib/api.js` et permettent au client React
 de partager une configuration unique avec les tests et Storybook.
@@ -109,6 +112,30 @@ le backend FastAPI.
 ### Filtrage des sessions InPlay
 
 La section « Setups en temps réel » propose un sélecteur de session (`Toutes les sessions`, `Londres`, `New York`, `Asie`). Le filtrage est appliqué côté navigateur et déclenche, si besoin, une requête `GET /inplay/watchlists/{id}?session=...` pour synchroniser l'instantané InPlay. Sans sélection particulière, toutes les sessions restent visibles et les mises à jour temps réel continuent d'être diffusées via le WebSocket.
+
+### Flux temps réel (WebSocket)
+
+Le fichier `src/lib/websocket.js` encapsule désormais la connexion au service de
+streaming (`VITE_STREAMING_URL`) : gestion des reconnexions exponentielles,
+abonnements par type d'évènement, publication manuelle (`publish`) et suivi du
+statut. Le hook `src/hooks/useWebSocket.js` ouvre la connexion au montage et
+expose une API `subscribe/reconnect` utilisée par :
+
+- `src/alerts/AlertManager.jsx` pour synchroniser les alertes actives et
+  afficher les messages temps réel.
+- `src/pages/Dashboard/DashboardPage.jsx` afin de mettre à jour le graphique de
+  performance lorsqu'un message `portfolios.*` est reçu.
+- `src/pages/Status/StatusPage.jsx` pour refléter l'état des services de
+  monitoring sans rechargement manuel.
+
+Lorsque la connexion WebSocket échoue (URL absente, environnement de test,
+erreur réseau), ces vues activent automatiquement un polling React Query via
+`refetchInterval` pour conserver des données fraîches.
+
+Les tests unitaires `services/web_dashboard/test/alerts/AlertManager.test.jsx`
+et `services/web_dashboard/test/status/StatusPage.test.jsx` simulent des
+messages temps réel grâce à `getWebSocketClient().publish(...)`. Exécutez-les
+avec `npm run test` (ou `yarn test`) depuis `services/web_dashboard/`.
 
 ## Installation manuelle
 
