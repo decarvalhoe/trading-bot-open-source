@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ListingCard from "./ListingCard.jsx";
 import useApi from "../hooks/useApi.js";
+import { Button, Form, FormControl, FormField, FormLabel, Input, Select } from "../components/ui/index.js";
 
 function buildQuery(filters) {
   const params = {};
@@ -96,76 +97,96 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
       </header>
 
       <section className="marketplace__filters" aria-label={t("Filtres de recherche")}>
-        <form
+        <Form
           className="marketplace-filters"
           onSubmit={(event) => {
             event.preventDefault();
           }}
         >
           <div className="marketplace-filters__row">
-            <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">{t("Rechercher")}</span>
-              <input
-                type="search"
-                name="search"
-                value={filters.search}
-                onChange={handleInputChange}
-                placeholder={t("Nom de stratégie")}
-                className="input"
-              />
-            </label>
-            <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">{t("Performance min.")}</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                name="minPerformance"
-                value={filters.minPerformance}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </label>
-            <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">{t("Risque max.")}</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                name="maxRisk"
-                value={filters.maxRisk}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </label>
-            <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">{t("Prix max. (USD)")}</span>
-              <input
-                type="number"
-                min="0"
-                name="maxPrice"
-                value={filters.maxPrice}
-                onChange={handleInputChange}
-                className="input"
-              />
-            </label>
-            <label className="marketplace-filters__field">
-              <span className="marketplace-filters__label">{t("Tri")}</span>
-              <select name="sort" value={filters.sort} onChange={handleInputChange} className="input">
-                {sortOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <FormField className="marketplace-filters__field">
+              <FormLabel htmlFor="marketplace-filter-search" className="marketplace-filters__label">
+                {t("Rechercher")}
+              </FormLabel>
+              <FormControl>
+                <Input
+                  id="marketplace-filter-search"
+                  type="search"
+                  name="search"
+                  value={filters.search}
+                  onChange={handleInputChange}
+                  placeholder={t("Nom de stratégie")}
+                />
+              </FormControl>
+            </FormField>
+            <FormField className="marketplace-filters__field">
+              <FormLabel htmlFor="marketplace-filter-min-performance" className="marketplace-filters__label">
+                {t("Performance min.")}
+              </FormLabel>
+              <FormControl>
+                <Input
+                  id="marketplace-filter-min-performance"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  name="minPerformance"
+                  value={filters.minPerformance}
+                  onChange={handleInputChange}
+                />
+              </FormControl>
+            </FormField>
+            <FormField className="marketplace-filters__field">
+              <FormLabel htmlFor="marketplace-filter-max-risk" className="marketplace-filters__label">
+                {t("Risque max.")}
+              </FormLabel>
+              <FormControl>
+                <Input
+                  id="marketplace-filter-max-risk"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  name="maxRisk"
+                  value={filters.maxRisk}
+                  onChange={handleInputChange}
+                />
+              </FormControl>
+            </FormField>
+            <FormField className="marketplace-filters__field">
+              <FormLabel htmlFor="marketplace-filter-max-price" className="marketplace-filters__label">
+                {t("Prix max. (USD)")}
+              </FormLabel>
+              <FormControl>
+                <Input
+                  id="marketplace-filter-max-price"
+                  type="number"
+                  min="0"
+                  name="maxPrice"
+                  value={filters.maxPrice}
+                  onChange={handleInputChange}
+                />
+              </FormControl>
+            </FormField>
+            <FormField className="marketplace-filters__field">
+              <FormLabel htmlFor="marketplace-filter-sort" className="marketplace-filters__label">
+                {t("Tri")}
+              </FormLabel>
+              <FormControl>
+                <Select id="marketplace-filter-sort" name="sort" value={filters.sort} onChange={handleInputChange}>
+                  {sortOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </FormControl>
+            </FormField>
           </div>
           <div className="marketplace-filters__actions">
-            <button type="button" className="button button--ghost" onClick={resetFilters} disabled={!hasActiveFilters}>
+            <Button type="button" variant="ghost" onClick={resetFilters} disabled={!hasActiveFilters}>
               {t("Réinitialiser")}
-            </button>
+            </Button>
           </div>
-        </form>
+        </Form>
       </section>
 
       <section className="marketplace__results" aria-live="polite">
