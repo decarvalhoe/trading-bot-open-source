@@ -66,7 +66,7 @@ from .help_progress import (
     get_learning_progress,
     record_learning_activity,
 )
-from .strategy_presets import STRATEGY_PRESETS, STRATEGY_PRESET_SUMMARIES
+from .strategy_presets import STRATEGY_PRESETS
 from .localization import LocalizationMiddleware, template_base_context
 from .routes import status as status_routes
 from pydantic import BaseModel, Field, ConfigDict, EmailStr, model_validator
@@ -83,6 +83,144 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 app.add_middleware(LocalizationMiddleware)
 app.include_router(status_routes.router)
+
+
+def _onboarding_api_config(request: Request, user_id: int) -> dict[str, str]:
+    return {
+        "progress_endpoint": str(request.url_for("api_get_onboarding_progress")),
+        "step_template": str(request.url_for("api_complete_onboarding_step", step_id="__STEP__")),
+        "reset_endpoint": str(request.url_for("api_reset_onboarding_progress")),
+        "user_id": str(user_id),
+        "credentials_endpoint": str(request.url_for("api_onboarding_get_credentials")),
+        "credentials_submit_endpoint": str(request.url_for("api_onboarding_update_credentials")),
+        "credentials_test_endpoint": str(request.url_for("api_onboarding_test_credentials")),
+        "credentials_delete_template": str(
+            request.url_for("api_onboarding_delete_credentials", broker="__BROKER__")
+        ),
+        "mode_endpoint": str(request.url_for("api_onboarding_get_mode")),
+        "mode_update_endpoint": str(request.url_for("api_onboarding_set_mode")),
+    }
+
+
+def _build_global_config(request: Request) -> dict[str, object]:
+    user_id = _extract_dashboard_user_id(request)
+    return {
+        "auth": {
+            "loginEndpoint": str(request.url_for("account_login")),
+            "logoutEndpoint": str(request.url_for("account_logout")),
+            "sessionEndpoint": str(request.url_for("account_session")),
+        },
+        "onboarding": _onboarding_api_config(request, user_id),
+        "alerts": {
+            "endpoint": str(request.url_for("list_alerts")),
+            "historyEndpoint": str(request.url_for("list_alert_history")),
+        },
+        "marketplace": {
+            "listingsEndpoint": str(request.url_for("list_marketplace_listings")),
+            "reviewsEndpointTemplate": str(
+                request.url_for("list_marketplace_listing_reviews", listing_id="__id__")
+            ),
+        },
+        "strategies": {
+            "designer": {
+                "saveEndpoint": str(request.url_for("save_strategy")),
+                "defaultName": "Nouvelle stratégie",
+                "defaultFormat": "yaml",
+                "presets": STRATEGY_PRESETS,
+            },
+            "backtest": {
+                "strategiesEndpoint": str(request.url_for("api_list_strategies")),
+                "runEndpointTemplate": str(
+                    request.url_for("run_strategy_backtest", strategy_id="__id__")
+                ),
+                "uiEndpointTemplate": str(
+                    request.url_for("get_strategy_backtest_ui", strategy_id="__id__")
+                ),
+                "historyEndpointTemplate": str(
+                    request.url_for("list_strategy_backtests", strategy_id="__id__")
+                ),
+                "historyPageSize": 5,
+                "defaultSymbol": "BTCUSDT",
+                "tradingViewConfigEndpoint": str(request.url_for("get_tradingview_config")),
+                "tradingViewUpdateEndpoint": str(request.url_for("update_tradingview_config")),
+            },
+            "assistant": {
+                "generateEndpoint": str(request.url_for("generate_strategy")),
+                "importEndpoint": str(request.url_for("import_assistant_strategy")),
+            },
+        },
+        "strategyExpress": {
+            "saveEndpoint": str(request.url_for("save_strategy")),
+            "runEndpoint": str(request.url_for("run_backtest")),
+            "historyEndpointTemplate": str(
+                request.url_for("list_strategy_backtests", strategy_id="__id__")
+            ),
+            "backtestDetailTemplate": str(
+                request.url_for("get_backtest", backtest_id="__id__")
+            ),
+            "defaults": {
+                "name": "Tendance BTCUSDT",
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "lookback_days": 60,
+                "initial_balance": 10_000,
+                "fast_length": 5,
+                "slow_length": 20,
+                "position_size": 1,
+            },
+        },
+        "strategyDocumentation": {
+            "endpoint": str(request.url_for("strategy_documentation_bundle")),
+        },
+        "help": {
+            "articlesEndpoint": str(request.url_for("list_help_articles")),
+        },
+        "status": {
+            "endpoint": str(request.url_for("status_overview")),
+        },
+        "account": {
+            "sessionEndpoint": str(request.url_for("account_session")),
+            "loginEndpoint": str(request.url_for("account_login")),
+            "logoutEndpoint": str(request.url_for("account_logout")),
+            "brokerCredentialsEndpoint": str(
+                request.url_for("api_get_broker_credentials")
+            ),
+        },
+        "followers": {
+            "endpoint": str(request.url_for("follower_context")),
+        },
+        "dashboard": {
+            "contextEndpoint": str(request.url_for("dashboard_context")),
+            "chart": {
+                "endpoint": str(request.url_for("portfolio_history")),
+            },
+        },
+    }
+
+
+def _render_spa(
+    request: Request,
+    page: str,
+    *,
+    data: dict[str, object] | None = None,
+    page_title: str | None = None,
+) -> HTMLResponse:
+    payload: dict[str, object] = {
+        "initialPath": request.url.path,
+        "page": page,
+        "data": {},
+        "config": _build_global_config(request),
+    }
+    if data:
+        payload["data"][page] = data
+    context = _template_context(
+        request,
+        {
+            "page_title": page_title,
+            "bootstrap_payload": payload,
+        },
+    )
+    return templates.TemplateResponse("index.html", context)
 
 
 def _template_context(request: Request, extra: dict[str, object] | None = None) -> dict[str, object]:
@@ -837,6 +975,18 @@ def list_portfolios() -> dict[str, object]:
 
     context = load_dashboard_context()
     return {"items": context.portfolios}
+
+
+@app.get("/dashboard/context", name="dashboard_context")
+def dashboard_context() -> dict[str, object]:
+    """Return the aggregated dashboard context."""
+
+    context = load_dashboard_context()
+    return {
+        "metrics": context.metrics.model_dump(mode="json") if context.metrics else None,
+        "reports": [report.model_dump(mode="json") for report in context.reports],
+        "alerts": [alert.model_dump(mode="json") for alert in context.alerts],
+    }
 
 
 @app.post("/positions/{position_id}/close")
@@ -1645,51 +1795,32 @@ async def api_update_broker_credentials(
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def render_dashboard(request: Request) -> HTMLResponse:
-    """Render an HTML dashboard that surfaces key trading signals."""
+    """Render the SPA entry point for the trading dashboard."""
 
     context = load_dashboard_context()
-    handshake_url = urljoin(STREAMING_BASE_URL, f"rooms/{STREAMING_ROOM_ID}/connection")
     alerts_token = os.getenv("WEB_DASHBOARD_ALERTS_TOKEN", "")
-    user_id = _extract_dashboard_user_id(request)
-    onboarding_api = {
-        "progress_endpoint": request.url_for("api_get_onboarding_progress"),
-        "step_template": request.url_for(
-            "api_complete_onboarding_step", step_id="__STEP__"
-        ),
-        "reset_endpoint": request.url_for("api_reset_onboarding_progress"),
-        "user_id": str(user_id),
-        "credentials_endpoint": request.url_for("api_onboarding_get_credentials"),
-        "credentials_submit_endpoint": request.url_for(
-            "api_onboarding_update_credentials"
-        ),
-        "credentials_test_endpoint": request.url_for("api_onboarding_test_credentials"),
-        "credentials_delete_template": request.url_for(
-            "api_onboarding_delete_credentials", broker="__BROKER__"
-        ),
-        "mode_endpoint": request.url_for("api_onboarding_get_mode"),
-        "mode_update_endpoint": request.url_for("api_onboarding_set_mode"),
+    metrics_payload = context.metrics.model_dump(mode="json") if context.metrics else None
+    reports_payload = [report.model_dump(mode="json") for report in context.reports]
+    alerts_payload = [alert.model_dump(mode="json") for alert in context.alerts]
+    dashboard_data = {
+        "metrics": metrics_payload,
+        "reports": {"items": reports_payload, "pageSize": 5},
+        "alerts": {
+            "initialItems": alerts_payload,
+            "endpoint": request.url_for("list_alerts"),
+            "historyEndpoint": request.url_for("list_alert_history"),
+            "token": alerts_token,
+        },
+        "chart": {
+            "endpoint": request.url_for("portfolio_history"),
+            "currency": (context.metrics.currency if context.metrics else "$"),
+        },
     }
-    return templates.TemplateResponse(
-        "dashboard.html",
-        _template_context(
-            request,
-            {
-                "context": context,
-                "streaming": {
-                    "handshake_url": handshake_url,
-                    "room_id": STREAMING_ROOM_ID,
-                    "viewer_id": STREAMING_VIEWER_ID,
-                },
-                "alerts_api": {
-                    "endpoint": request.url_for("list_alerts"),
-                    "history_endpoint": request.url_for("list_alert_history"),
-                    "token": alerts_token,
-                },
-                "active_page": "dashboard",
-                "annotation_status": request.query_params.get("annotation"),
-                "onboarding_api": onboarding_api,
-            },
-        ),
+    return _render_spa(
+        request,
+        "dashboard",
+        data=dashboard_data,
+        page_title="Trading Dashboard",
     )
 
 
@@ -1700,16 +1831,23 @@ def render_follower_dashboard(request: Request) -> HTMLResponse:
     viewer_id = request.headers.get("x-user-id") or request.query_params.get("viewer_id")
     viewer_id = viewer_id or DEFAULT_FOLLOWER_ID
     context = load_follower_dashboard(viewer_id)
-    return templates.TemplateResponse(
-        "follower.html",
-        _template_context(
-            request,
-            {
-                "context": context,
-                "active_page": "followers",
-            },
-        ),
+    data = context.model_dump(mode="json")
+    return _render_spa(
+        request,
+        "followers",
+        data=data,
+        page_title="Suivi copies",
     )
+
+
+@app.get("/dashboard/followers/context", name="follower_context")
+def follower_context(request: Request) -> dict[str, object]:
+    """Return copy-trading context for the current viewer."""
+
+    viewer_id = request.headers.get("x-user-id") or request.query_params.get("viewer_id")
+    viewer_id = viewer_id or DEFAULT_FOLLOWER_ID
+    context = load_follower_dashboard(viewer_id)
+    return context.model_dump(mode="json")
 
 
 @app.post("/dashboard/annotate")
@@ -1738,15 +1876,7 @@ def annotate_dashboard_order(
 def render_marketplace(request: Request) -> HTMLResponse:
     """Render the marketplace view that embeds the React catalogue."""
 
-    return templates.TemplateResponse(
-        "marketplace.html",
-        _template_context(
-            request,
-            {
-                "active_page": "marketplace",
-            },
-        ),
-    )
+    return _render_spa(request, "marketplace", page_title="Marketplace")
 
 
 def _format_marketplace_error(error: MarketplaceServiceError) -> dict[str, object]:
@@ -1801,38 +1931,21 @@ async def list_marketplace_listing_reviews(listing_id: int) -> list[dict[str, ob
 def _render_strategies_page(
     request: Request, *, initial_strategy: dict[str, Any] | None = None
 ) -> HTMLResponse:
-    save_endpoint = request.url_for("save_strategy")
-    ai_generate_endpoint = request.url_for("generate_strategy")
-    ai_import_endpoint = request.url_for("import_assistant_strategy")
-    upload_endpoint = request.url_for("upload_strategy_file")
-    backtest_config = {
-        "strategies_endpoint": request.url_for("api_list_strategies"),
-        "run_endpoint_template": request.url_for(
-            "run_strategy_backtest", strategy_id="__id__"
-        ),
-        "ui_endpoint_template": request.url_for(
-            "get_strategy_backtest_ui", strategy_id="__id__"
-        ),
-        "history_endpoint_template": request.url_for(
-            "list_strategy_backtests", strategy_id="__id__"
-        ),
+    config = _build_global_config(request)
+    strategies_config = config.get("strategies", {})
+    designer_config = dict(strategies_config.get("designer", {}))
+    if initial_strategy:
+        designer_config["initialStrategy"] = initial_strategy
+    strategies_data = {
+        "designer": designer_config,
+        "backtest": strategies_config.get("backtest", {}),
+        "assistant": strategies_config.get("assistant", {}),
     }
-    return templates.TemplateResponse(
-        "strategies.html",
-        _template_context(
-            request,
-            {
-                "save_endpoint": save_endpoint,
-                "ai_generate_endpoint": ai_generate_endpoint,
-                "ai_import_endpoint": ai_import_endpoint,
-                "upload_endpoint": upload_endpoint,
-                "preset_summaries": STRATEGY_PRESET_SUMMARIES,
-                "presets": STRATEGY_PRESETS,
-                "backtest_config": backtest_config,
-                "initial_strategy": initial_strategy,
-                "active_page": "strategies",
-            },
-        ),
+    return _render_spa(
+        request,
+        "strategies",
+        data=strategies_data,
+        page_title="Designer de stratégies",
     )
 
 
@@ -1847,33 +1960,13 @@ def render_strategies(request: Request) -> HTMLResponse:
 def render_one_click_strategy(request: Request) -> HTMLResponse:
     """Expose the one-click strategy creation workflow."""
 
-    save_endpoint = request.url_for("save_strategy")
-    run_endpoint = request.url_for("run_backtest")
-    backtest_detail_template = request.url_for("get_backtest", backtest_id="__id__")
-    history_endpoint_template = request.url_for(
-        "list_strategy_backtests", strategy_id="__id__"
-    )
-    defaults = {
-        "name": "Tendance BTCUSDT",
-        "symbol": "BTCUSDT",
-        "timeframe": "1h",
-        "lookback_days": 60,
-        "initial_balance": 10_000,
-        "fast_length": 5,
-        "slow_length": 20,
-        "position_size": 1,
-    }
-    context = {
-        "save_endpoint": save_endpoint,
-        "run_endpoint": run_endpoint,
-        "backtest_detail_template": backtest_detail_template,
-        "history_endpoint_template": history_endpoint_template,
-        "defaults": defaults,
-        "active_page": "strategies-new",
-    }
-    return templates.TemplateResponse(
-        "strategies_new.html",
-        _template_context(request, context),
+    config = _build_global_config(request)
+    data = config.get("strategyExpress", {})
+    return _render_spa(
+        request,
+        "strategyExpress",
+        data=data,
+        page_title="Stratégie express",
     )
 
 
@@ -1882,16 +1975,68 @@ def render_strategy_documentation(request: Request) -> HTMLResponse:
     """Expose the declarative strategy schema and tutorials."""
 
     documentation = load_strategy_documentation()
-    return templates.TemplateResponse(
-        "strategy_documentation.html",
-        _template_context(
-            request,
-            {
-                "documentation": documentation,
-                "active_page": "strategy-docs",
-            },
-        ),
+    tutorials = [
+        {
+            "slug": tutorial.slug,
+            "title": tutorial.title,
+            "notes_html": tutorial.notes_html,
+            "embed_kind": tutorial.embed_kind,
+            "embed_title": tutorial.embed_title,
+            "embed_url": tutorial.embed_url,
+            "embed_html": tutorial.embed_html,
+            "source_url": tutorial.source_url,
+        }
+        for tutorial in documentation.tutorials
+    ]
+    data = {
+        "schema_version": documentation.schema_version,
+        "body_html": documentation.body_html,
+        "tutorials": tutorials,
+    }
+    return _render_spa(
+        request,
+        "strategyDocumentation",
+        data=data,
+        page_title="Documentation stratégies",
     )
+
+
+@app.get("/status", response_class=HTMLResponse)
+def render_status_page(request: Request) -> HTMLResponse:
+    """Render the service status overview inside the SPA."""
+
+    data = {"endpoint": request.url_for("status_overview")}
+    return _render_spa(
+        request,
+        "status",
+        data=data,
+        page_title="Statut services",
+    )
+
+
+@app.get("/strategies/documentation/bundle", name="strategy_documentation_bundle")
+def strategy_documentation_bundle() -> dict[str, object]:
+    """Return the strategy documentation bundle in JSON."""
+
+    documentation = load_strategy_documentation()
+    tutorials = [
+        {
+            "slug": tutorial.slug,
+            "title": tutorial.title,
+            "notes_html": tutorial.notes_html,
+            "embed_kind": tutorial.embed_kind,
+            "embed_title": tutorial.embed_title,
+            "embed_url": tutorial.embed_url,
+            "embed_html": tutorial.embed_html,
+            "source_url": tutorial.source_url,
+        }
+        for tutorial in documentation.tutorials
+    ]
+    return {
+        "schema_version": documentation.schema_version,
+        "body_html": documentation.body_html,
+        "tutorials": tutorials,
+    }
 
 
 def _build_help_article_payload(article: HelpArticle) -> HelpArticlePayload:
@@ -1931,17 +2076,21 @@ def render_help_center(request: Request) -> HTMLResponse:
 
     help_content = load_help_center()
     progress = get_learning_progress(HELP_DEFAULT_USER_ID, len(help_content.articles))
-    return templates.TemplateResponse(
-        "help_center.html",
-        _template_context(
-            request,
-            {
-                "help_content": help_content,
-                "progress": progress,
-                "articles_endpoint": request.url_for("list_help_articles"),
-                "active_page": "help",
-            },
-        ),
+    help_data = {
+        "faq": [_build_help_article_payload(article) for article in help_content.faq],
+        "guides": [_build_help_article_payload(article) for article in help_content.guides],
+        "resources": [_build_help_article_payload(article) for article in help_content.webinars],
+        "progress": _build_learning_progress_payload(progress),
+        "articlesEndpoint": request.url_for("list_help_articles"),
+    }
+    help_data["resources"].extend(
+        [_build_help_article_payload(article) for article in help_content.notebooks]
+    )
+    return _render_spa(
+        request,
+        "help",
+        data=help_data,
+        page_title="Aide & formation",
     )
 
 
@@ -2045,41 +2194,24 @@ async def account_logout(request: Request, response: Response) -> AccountSession
     return AccountSession(authenticated=False)
 
 
-def _account_template_context(request: Request) -> dict[str, object]:
-    return _template_context(
-        request,
-        {
-            "active_page": "account",
-            "broker_credentials_endpoint": request.url_for(
-                "api_get_broker_credentials"
-            ),
-        },
-    )
-
-
-def _account_register_template_context(
-    request: Request,
-    *,
-    email: str | None = None,
-    error_message: str | None = None,
+def _account_register_payload(
+    *, email: str | None = None, error_message: str | None = None
 ) -> dict[str, object]:
-    return _template_context(
-        request,
-        {
-            "active_page": "account",
-            "form_email": email or "",
-            "error_message": error_message,
-        },
-    )
+    return {
+        "formEmail": email or "",
+        "errorMessage": error_message,
+    }
 
 
 @app.get("/account/register", response_class=HTMLResponse, name="render_account_register")
 def render_account_register(request: Request) -> HTMLResponse:
     """Render the user registration form."""
 
-    return templates.TemplateResponse(
-        "account/register.html",
-        _account_register_template_context(request),
+    return _render_spa(
+        request,
+        "accountRegister",
+        data=_account_register_payload(),
+        page_title="Créer un compte",
     )
 
 
@@ -2098,16 +2230,14 @@ async def submit_account_register(
         )
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, str) else "Service d'authentification indisponible."
-        context = _account_register_template_context(
+        response = _render_spa(
             request,
-            email=str(email),
-            error_message=detail,
+            "accountRegister",
+            data=_account_register_payload(email=str(email), error_message=detail),
+            page_title="Créer un compte",
         )
-        return templates.TemplateResponse(
-            "account/register.html",
-            context,
-            status_code=exc.status_code or status.HTTP_502_BAD_GATEWAY,
-        )
+        response.status_code = exc.status_code or status.HTTP_502_BAD_GATEWAY
+        return response
 
     if service_response.status_code < 400:
         login_url = request.url_for("render_account_login")
@@ -2115,30 +2245,28 @@ async def submit_account_register(
         return RedirectResponse(redirect_target, status_code=status.HTTP_303_SEE_OTHER)
 
     error_message = _extract_auth_error(service_response)
-    context = _account_register_template_context(
+    response = _render_spa(
         request,
-        email=str(email),
-        error_message=error_message,
+        "accountRegister",
+        data=_account_register_payload(email=str(email), error_message=error_message),
+        page_title="Créer un compte",
     )
-    return templates.TemplateResponse(
-        "account/register.html",
-        context,
-        status_code=service_response.status_code,
-    )
+    response.status_code = service_response.status_code
+    return response
 
 
 @app.get("/account", response_class=HTMLResponse)
 def render_account(request: Request) -> HTMLResponse:
     """Render the account and API key management page."""
 
-    return templates.TemplateResponse("account.html", _account_template_context(request))
+    return _render_spa(request, "account", page_title="Compte & API")
 
 
 @app.get("/account/login", response_class=HTMLResponse, name="render_account_login")
 def render_account_login(request: Request) -> HTMLResponse:
     """Expose a dedicated login entry point that reuses the account view."""
 
-    return templates.TemplateResponse("account.html", _account_template_context(request))
+    return _render_spa(request, "account", page_title="Compte & API")
 
 
 @app.get("/")

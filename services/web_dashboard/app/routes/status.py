@@ -4,21 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import os
-from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Request, status as http_status
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, status as http_status
 
 from ..config import default_service_url
-from ..localization import template_base_context
-
 router = APIRouter(tags=["Status"])
-
-TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 STATUS_TIMEOUT = float(os.getenv("WEB_DASHBOARD_STATUS_TIMEOUT", "5.0"))
 
@@ -110,17 +102,15 @@ def _service_detail(status_code: int | None) -> str | None:
     return f"HTTP {status_code} - Réponse inattendue"
 
 
-@router.get("/status", response_class=HTMLResponse, name="render_status_page")
-async def status_page(request: Request) -> HTMLResponse:
-    """Display the status page for core services."""
+@router.get("/status/overview", name="status_overview")
+async def status_overview() -> dict[str, Any]:
+    """Return the aggregated health status for core services."""
 
     services: list[dict[str, Any]] = []
-
     for service in _service_definitions():
         base_url = os.getenv(service["env"], service["default"])
         health_url = f"{base_url.rstrip('/')}/health"
         is_up, status_code = await _check_service(health_url)
-
         services.append(
             {
                 "name": service["name"],
@@ -135,13 +125,8 @@ async def status_page(request: Request) -> HTMLResponse:
             }
         )
 
-    context: dict[str, Any] = {"request": request}
-    context.update(template_base_context(request))
-    context.update(
-        {
-            "services": services,
-            "checked_at": datetime.now(timezone.utc),
-            "status_codes": STATUS_CODES,
-        }
-    )
-    return templates.TemplateResponse(request, "status.html", context)
+    return {
+        "services": services,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "status_codes": STATUS_CODES,
+    }

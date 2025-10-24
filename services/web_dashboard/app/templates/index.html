@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="{{ current_language }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ page_title or _('Trading Dashboard') }}</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div id="root">
+      <noscript>{{ _('Activez JavaScript pour utiliser le tableau de bord.') }}</noscript>
+    </div>
+    <script id="i18n-bootstrap" type="application/json">
+      {{ i18n_bundle|tojson }}
+    </script>
+    <script id="dashboard-bootstrap" type="application/json">
+      {{ bootstrap_payload|tojson }}
+    </script>
+    <script type="module" src="/static/dist/app.js"></script>
+  </body>
+</html>
