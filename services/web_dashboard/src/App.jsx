@@ -7,6 +7,9 @@ import MarketplacePage from "./pages/Marketplace/MarketplacePage.jsx";
 import StrategiesPage from "./pages/Strategies/StrategiesPage.jsx";
 import StrategyExpressPage from "./pages/Strategies/StrategyExpressPage.jsx";
 import StrategyDocumentationPage from "./pages/Strategies/StrategyDocumentationPage.jsx";
+import StrategyDesignerPage from "./pages/Strategies/StrategyDesignerPage.jsx";
+import StrategyBacktestPage from "./pages/Strategies/StrategyBacktestPage.jsx";
+import AIStrategyAssistantPage from "./pages/Strategies/AIStrategyAssistantPage.jsx";
 import HelpCenterPage from "./pages/Help/HelpCenterPage.jsx";
 import StatusPage from "./pages/Status/StatusPage.jsx";
 import OrdersPage from "./pages/trading/OrdersPage.jsx";
@@ -20,6 +23,7 @@ import AccountLoginPage from "./pages/Account/AccountLoginPage.jsx";
 import AccountRegisterPage from "./pages/Account/AccountRegisterPage.jsx";
 import NotFoundPage from "./pages/NotFound/NotFoundPage.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import OnboardingPage from "./pages/Onboarding/OnboardingPage.jsx";
 
 export default function App() {
   return (
@@ -107,6 +111,30 @@ export default function App() {
           )}
         />
         <Route
+          path="/strategies/designer"
+          element={(
+            <ProtectedRoute>
+              <StrategyDesignerPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/strategies/backtest"
+          element={(
+            <ProtectedRoute>
+              <StrategyBacktestPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/strategies/ai-assistant"
+          element={(
+            <ProtectedRoute>
+              <AIStrategyAssistantPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/strategies/new"
           element={(
             <ProtectedRoute>
@@ -119,6 +147,14 @@ export default function App() {
           element={(
             <ProtectedRoute>
               <StrategyDocumentationPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/onboarding"
+          element={(
+            <ProtectedRoute>
+              <OnboardingPage />
             </ProtectedRoute>
           )}
         />
