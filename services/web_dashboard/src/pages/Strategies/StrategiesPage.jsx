@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { StrategyDesigner } from "../../strategies/designer/index.js";
 import { StrategyBacktestConsole } from "../../strategies/backtest/index.js";
 import { AIStrategyAssistant } from "../../strategies/assistant/index.js";
+import StrategiesList from "./StrategiesList.jsx";
 import { bootstrap } from "../../bootstrap";
 
 export default function StrategiesPage() {
@@ -21,6 +22,8 @@ export default function StrategiesPage() {
           {t("Assemblez conditions, indicateurs et actions avant d'envoyer votre stratégie vers l'algo-engine.")}
         </p>
       </header>
+
+      <StrategiesList pageSize={5} />
 
       <section className="card card--designer" aria-labelledby="designer-card-title">
         <div className="card__header">
