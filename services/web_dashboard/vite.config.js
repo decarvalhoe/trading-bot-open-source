@@ -6,7 +6,8 @@ export default defineConfig({
   build: {
     outDir: "app/static/dist",
     emptyOutDir: false,
-    assetsDir: ".",
+    assetsDir: "assets",
+    cssCodeSplit: false,
     rollupOptions: {
       input: {
         app: "src/main.jsx"
@@ -14,7 +15,12 @@ export default defineConfig({
       output: {
         entryFileNames: () => "app.js",
         chunkFileNames: "[name].[hash].js",
-        assetFileNames: "[name].[hash][extname]"
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.endsWith(".css")) {
+            return "assets/index.css";
+          }
+          return "assets/[name].[hash][extname]";
+        }
       }
     }
   },

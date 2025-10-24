@@ -5,6 +5,9 @@ import { I18nextProvider } from "react-i18next";
 import App from "./App.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import i18n from "./i18n/config.js";
+import "./index.css";
+
+document.documentElement.classList.add("dark");
 
 const container = document.getElementById("root");
 
