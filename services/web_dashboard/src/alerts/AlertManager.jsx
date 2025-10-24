@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import AlertForm from "./AlertForm.jsx";
 import AlertTable from "./AlertTable.jsx";
 import useApi from "../hooks/useApi.js";
+import useWebSocket from "../hooks/useWebSocket.js";
 
 function generateId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -107,6 +108,22 @@ function normaliseList(alerts) {
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
+function extractRealtimeDetail(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  if (Array.isArray(payload.items) || payload.message || payload.type) {
+    return payload;
+  }
+  if (payload.payload && typeof payload.payload === "object") {
+    return extractRealtimeDetail(payload.payload);
+  }
+  if (payload.detail && typeof payload.detail === "object") {
+    return extractRealtimeDetail(payload.detail);
+  }
+  return null;
+}
+
 function AlertManager({
   initialAlerts = [],
   endpoint = "/alerts",
@@ -116,6 +133,7 @@ function AlertManager({
   const baseEndpoint = useMemo(() => endpoint.replace(/\/$/, ""), [endpoint]);
   const apiOptions = authToken ? { token: authToken } : {};
   const { alerts: alertsApi, useQuery, useMutation, queryClient } = useApi(apiOptions);
+  const { subscribe, isConnected, status: streamingStatus, error: streamingError } = useWebSocket();
   const queryKey = useMemo(() => ["alerts", baseEndpoint], [baseEndpoint]);
   const [alerts, setAlerts] = useState(() => normaliseList(initialAlerts));
   const [formMode, setFormMode] = useState("create");
@@ -125,6 +143,7 @@ function AlertManager({
   const [pendingId, setPendingId] = useState(null);
 
   const fetchEnabled = enableInitialFetch && Boolean(baseEndpoint);
+  const pollingInterval = isConnected ? false : 15000;
 
   const {
     data: fetchedAlerts = normaliseList(initialAlerts),
@@ -136,6 +155,9 @@ function AlertManager({
     queryKey,
     enabled: fetchEnabled,
     initialData: normaliseList(initialAlerts),
+    refetchInterval: pollingInterval,
+    refetchOnWindowFocus: !isConnected,
+    refetchIntervalInBackground: !isConnected,
     queryFn: async () => {
       const payload = await alertsApi.list({ endpoint: baseEndpoint });
       const items = Array.isArray(payload?.items)
@@ -161,8 +183,7 @@ function AlertManager({
   }, [fetchError]);
 
   useEffect(() => {
-    function handleRealtimeUpdate(event) {
-      const detail = event.detail;
+    const applyRealtimeUpdate = (detail) => {
       if (!detail || !Array.isArray(detail.items)) {
         return;
       }
@@ -173,22 +194,55 @@ function AlertManager({
         const type = detail.type || "info";
         setBanner({ type, message: detail.message });
       }
-    }
-
-    function handleRealtimeError(event) {
-      const message = event.detail?.message || "Flux temps réel indisponible.";
-      setBanner({ type: "error", message });
-    }
-
-    document.addEventListener("alerts:update", handleRealtimeUpdate);
-    document.addEventListener("alerts:fallback", handleRealtimeUpdate);
-    document.addEventListener("alerts:error", handleRealtimeError);
-    return () => {
-      document.removeEventListener("alerts:update", handleRealtimeUpdate);
-      document.removeEventListener("alerts:fallback", handleRealtimeUpdate);
-      document.removeEventListener("alerts:error", handleRealtimeError);
     };
-  }, [queryClient, queryKey]);
+
+    const unsubscribeUpdates = subscribe(["alerts", "alerts.update"], (event) => {
+      const detail =
+        extractRealtimeDetail(event.payload) || extractRealtimeDetail(event.message?.payload);
+      if (detail) {
+        applyRealtimeUpdate(detail);
+      }
+    });
+
+    const unsubscribeFallback = subscribe(["alerts.fallback"], (event) => {
+      const detail =
+        extractRealtimeDetail(event.payload) || extractRealtimeDetail(event.message?.payload);
+      if (detail) {
+        applyRealtimeUpdate(detail);
+        const message =
+          detail.message || "Connexion temps réel indisponible. Données issues du dernier instantané.";
+        setBanner({ type: detail.type || "warning", message });
+      }
+    });
+
+    const unsubscribeErrors = subscribe(["alerts.error"], (event) => {
+      const detail =
+        extractRealtimeDetail(event.payload) || extractRealtimeDetail(event.message?.payload);
+      const message = detail?.message || "Connexion temps réel impossible pour les alertes.";
+      setBanner({ type: "error", message });
+    });
+
+    return () => {
+      unsubscribeUpdates();
+      unsubscribeFallback();
+      unsubscribeErrors();
+    };
+  }, [queryClient, queryKey, subscribe]);
+
+  useEffect(() => {
+    if (!isConnected && (streamingStatus === "error" || streamingStatus === "unsupported")) {
+      if (streamingError) {
+        setBanner((current) => current || { type: "error", message: streamingError.message });
+      } else {
+        setBanner((current) =>
+          current || {
+            type: "warning",
+            message: "Flux temps réel indisponible. Rafraîchissement par sondage activé.",
+          }
+        );
+      }
+    }
+  }, [isConnected, streamingStatus, streamingError]);
 
   const createAlert = useMutation({
     mutationFn: (data) => alertsApi.create(data, { endpoint: baseEndpoint }),

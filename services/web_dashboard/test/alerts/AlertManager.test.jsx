@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import i18next from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
 import AlertManager from "../../src/alerts/AlertManager.jsx";
+import { getWebSocketClient, resetWebSocketClient } from "../../src/lib/websocket.js";
 
 function createFetchResponse(data, status = 200) {
   return Promise.resolve({
@@ -69,6 +70,7 @@ describe("AlertManager", () => {
   ];
 
   beforeEach(() => {
+    resetWebSocketClient();
     global.fetch = vi.fn();
     vi.spyOn(window, "confirm").mockReturnValue(true);
   });
@@ -227,10 +229,10 @@ describe("AlertManager", () => {
       channels: [],
     };
 
-    await act(async () => {
-      document.dispatchEvent(
-        new CustomEvent("alerts:update", { detail: { items: [realtimeAlert], message: "Flux mis à jour" } })
-      );
+    const client = getWebSocketClient();
+
+    act(() => {
+      client.publish("alerts.update", { items: [realtimeAlert], message: "Flux mis à jour" });
     });
 
     expect(await screen.findByText(/Breaking news on AAPL/i)).toBeInTheDocument();
