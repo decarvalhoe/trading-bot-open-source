@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import useApi from "../hooks/useApi.js";
 
 const STATUS_PRESENTATION = {
   success: { label: "Terminé", className: "badge--success" },
@@ -74,7 +75,7 @@ function ensurePageSize(value) {
   return Math.max(1, Math.floor(numeric));
 }
 
-async function triggerDownload(report, setError, setDownloading) {
+async function triggerDownload(report, setError, setDownloading, downloadReport) {
   const { downloadUrl, reportType, filename, uid } = report;
   if (!downloadUrl) {
     setError("Téléchargement indisponible pour ce rapport.");
@@ -83,15 +84,7 @@ async function triggerDownload(report, setError, setDownloading) {
   setError(null);
   setDownloading(uid);
   try {
-    const response = await fetch(downloadUrl, {
-      headers: {
-        Accept: "application/pdf,application/octet-stream",
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const blob = await response.blob();
+    const blob = await downloadReport(downloadUrl);
     if (typeof window === "undefined") {
       return;
     }
@@ -119,6 +112,7 @@ async function triggerDownload(report, setError, setDownloading) {
 }
 
 function ReportsList({ reports = [], pageSize = 5 }) {
+  const { reports: reportsApi } = useApi();
   const normalisedReports = useMemo(() => {
     if (!Array.isArray(reports)) {
       return [];
@@ -155,7 +149,7 @@ function ReportsList({ reports = [], pageSize = 5 }) {
   };
 
   const handleDownload = (report) => {
-    triggerDownload(report, setError, setDownloading);
+    triggerDownload(report, setError, setDownloading, (endpoint) => reportsApi.download(endpoint));
   };
 
   if (!normalisedReports.length) {

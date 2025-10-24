@@ -1,29 +1,31 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ListingCard from "./ListingCard.jsx";
+import useApi from "../hooks/useApi.js";
 
 function buildQuery(filters) {
-  const params = new URLSearchParams();
+  const params = {};
   if (filters.search) {
-    params.set("search", filters.search);
+    params.search = filters.search;
   }
   if (filters.minPerformance) {
-    params.set("min_performance", filters.minPerformance);
+    params.min_performance = filters.minPerformance;
   }
   if (filters.maxRisk) {
-    params.set("max_risk", filters.maxRisk);
+    params.max_risk = filters.maxRisk;
   }
   if (filters.maxPrice) {
-    params.set("max_price", filters.maxPrice);
+    params.max_price = filters.maxPrice;
   }
   if (filters.sort) {
-    params.set("sort", filters.sort);
+    params.sort = filters.sort;
   }
-  return params.toString();
+  return params;
 }
 
 function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
   const { t } = useTranslation();
+  const { marketplace, useQuery } = useApi();
   const [filters, setFilters] = useState({
     search: "",
     minPerformance: "",
@@ -31,7 +33,6 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
     maxPrice: "",
     sort: "created_desc",
   });
-  const [state, setState] = useState({ status: "idle", items: [], error: null });
 
   const sortOptions = useMemo(
     () => [
@@ -47,36 +48,26 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
     [t]
   );
 
-  useEffect(() => {
-    const abort = new AbortController();
-    async function load() {
-      setState((prev) => ({ ...prev, status: "loading", error: null }));
-      try {
-        const query = buildQuery(filters);
-        const response = await fetch(
-          query ? `${listingsEndpoint}?${query}` : listingsEndpoint,
-          {
-            headers: { Accept: "application/json" },
-            signal: abort.signal,
-          }
-        );
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        if (!abort.signal.aborted) {
-          setState({ status: "ready", items: payload || [], error: null });
-        }
-      } catch (error) {
-        if (!abort.signal.aborted) {
-          console.error("Impossible de charger les listings", error);
-          setState({ status: "error", items: [], error });
-        }
+  const queryParams = useMemo(() => buildQuery(filters), [filters]);
+
+  const {
+    data: listings = [],
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["marketplace", listingsEndpoint, queryParams],
+    keepPreviousData: true,
+    queryFn: async () => {
+      const payload = await marketplace.listings({ endpoint: listingsEndpoint, query: queryParams });
+      if (Array.isArray(payload?.items)) {
+        return payload.items;
       }
-    }
-    load();
-    return () => abort.abort();
-  }, [filters, listingsEndpoint]);
+      if (Array.isArray(payload)) {
+        return payload;
+      }
+      return [];
+    },
+  });
 
   const hasActiveFilters = useMemo(
     () =>
@@ -178,16 +169,16 @@ function MarketplaceApp({ listingsEndpoint, reviewsEndpointTemplate }) {
       </section>
 
       <section className="marketplace__results" aria-live="polite">
-        {state.status === "loading" && <p className="text">{t("Chargement des listings…")}</p>}
-        {state.status === "error" && (
+        {isLoading && <p className="text">{t("Chargement des listings…")}</p>}
+        {isError && (
           <p className="text text--critical">{t("Impossible de récupérer les listings pour le moment.")}</p>
         )}
-        {state.status === "ready" && state.items.length === 0 && (
+        {!isLoading && !isError && listings.length === 0 && (
           <p className="text text--muted">{t("Aucune stratégie ne correspond à vos filtres.")}</p>
         )}
-        {state.status === "ready" && state.items.length > 0 && (
+        {!isLoading && !isError && listings.length > 0 && (
           <div className="marketplace-grid" role="list">
-            {state.items.map((listing) => (
+            {listings.map((listing) => (
               <ListingCard
                 key={listing.id}
                 listing={listing}

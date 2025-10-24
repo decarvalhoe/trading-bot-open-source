@@ -1,7 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { bootstrap } from "../bootstrap";
-import { fetchSession, login as apiLogin, logout as apiLogout } from "../account/api";
+import {
+  fetchSession,
+  login as apiLogin,
+  logout as apiLogout,
+  normalizeSession,
+} from "../account/api.js";
+import apiClient from "../lib/api.js";
 
 const AuthContext = createContext({
   status: "loading",
@@ -28,19 +34,27 @@ function resolveEndpoints() {
 
 export function AuthProvider({ children }) {
   const endpoints = useMemo(resolveEndpoints, []);
-  const [state, setState] = useState({ status: "loading", user: null, error: null });
+  const [state, setState] = useState({ status: "loading", user: null, error: null, token: null });
 
   const refreshSession = useCallback(async () => {
     setState((prev) => ({ ...prev, status: "loading" }));
     try {
-      const session = await fetchSession(endpoints.session);
+      const rawSession = await fetchSession(endpoints.session);
+      const session = normalizeSession(rawSession);
       if (session?.authenticated && session.user) {
-        setState({ status: "authenticated", user: session.user, error: null });
+        if (session.token) {
+          apiClient.setToken(session.token);
+        } else {
+          apiClient.clearToken();
+        }
+        setState({ status: "authenticated", user: session.user, error: null, token: session.token });
       } else {
-        setState({ status: "anonymous", user: null, error: null });
+        apiClient.clearToken();
+        setState({ status: "anonymous", user: null, error: null, token: null });
       }
     } catch (error) {
-      setState({ status: "error", user: null, error: error.message || "Session invalide" });
+      apiClient.clearToken();
+      setState({ status: "error", user: null, error: error.message || "Session invalide", token: null });
     }
   }, [endpoints.session]);
 
@@ -56,7 +70,8 @@ export function AuthProvider({ children }) {
         await refreshSession();
         return { ok: true };
       } catch (error) {
-        setState({ status: "anonymous", user: null, error: error.message || "Connexion impossible" });
+        apiClient.clearToken();
+        setState({ status: "anonymous", user: null, error: error.message || "Connexion impossible", token: null });
         return { ok: false, error };
       }
     },
@@ -67,6 +82,7 @@ export function AuthProvider({ children }) {
     try {
       await apiLogout(endpoints.logout);
     } finally {
+      apiClient.clearToken();
       await refreshSession();
     }
   }, [endpoints.logout, refreshSession]);
@@ -78,6 +94,7 @@ export function AuthProvider({ children }) {
       logout,
       refresh: refreshSession,
       endpoints,
+      token: state.token,
     }),
     [state, login, logout, refreshSession, endpoints]
   );

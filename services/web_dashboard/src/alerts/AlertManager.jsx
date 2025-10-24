@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import AlertForm from "./AlertForm.jsx";
 import AlertTable from "./AlertTable.jsx";
+import useApi from "../hooks/useApi.js";
 
 function generateId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -112,82 +113,52 @@ function AlertManager({
   authToken = "",
   enableInitialFetch = true,
 }) {
+  const baseEndpoint = useMemo(() => endpoint.replace(/\/$/, ""), [endpoint]);
+  const apiOptions = authToken ? { token: authToken } : {};
+  const { alerts: alertsApi, useQuery, useMutation, queryClient } = useApi(apiOptions);
+  const queryKey = useMemo(() => ["alerts", baseEndpoint], [baseEndpoint]);
   const [alerts, setAlerts] = useState(() => normaliseList(initialAlerts));
-  const [loading, setLoading] = useState(false);
   const [formMode, setFormMode] = useState("create");
   const [activeAlert, setActiveAlert] = useState(null);
   const [formError, setFormError] = useState(null);
   const [banner, setBanner] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
   const [pendingId, setPendingId] = useState(null);
 
-  const baseEndpoint = useMemo(() => endpoint.replace(/\/$/, ""), [endpoint]);
+  const fetchEnabled = enableInitialFetch && Boolean(baseEndpoint);
 
-  const buildHeaders = useCallback(
-    (withBody = false) => {
-      const headers = {
-        Accept: "application/json",
-      };
-      if (withBody) {
-        headers["Content-Type"] = "application/json";
-      }
-      if (authToken) {
-        headers.Authorization = `Bearer ${authToken}`;
-      }
-      return headers;
+  const {
+    data: fetchedAlerts = normaliseList(initialAlerts),
+    isFetching,
+    isLoading,
+    error: fetchError,
+    refetch,
+  } = useQuery({
+    queryKey,
+    enabled: fetchEnabled,
+    initialData: normaliseList(initialAlerts),
+    queryFn: async () => {
+      const payload = await alertsApi.list({ endpoint: baseEndpoint });
+      const items = Array.isArray(payload?.items)
+        ? payload.items
+        : Array.isArray(payload)
+        ? payload
+        : [];
+      return normaliseList(items);
     },
-    [authToken]
-  );
-
-  const request = useCallback(
-    async (method, resource = "", body) => {
-      const path = resource ? `/${String(resource).replace(/^\//, "")}` : "";
-      const url = `${baseEndpoint}${path}`;
-      const response = await fetch(url, {
-        method,
-        headers: buildHeaders(body !== undefined),
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-      let payload = null;
-      const contentType = response.headers?.get?.("content-type") || "";
-      if (contentType.includes("application/json")) {
-        payload = await response.json();
-      }
-      if (!response.ok) {
-        const detail = payload?.detail || payload?.message || payload?.error;
-        const error = new Error(detail || "Le service d'alertes a renvoyé une erreur.");
-        error.status = response.status;
-        throw error;
-      }
-      return payload || {};
-    },
-    [baseEndpoint, buildHeaders]
-  );
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const payload = await request("GET");
-      if (payload && Array.isArray(payload.items)) {
-        setAlerts(normaliseList(payload.items));
-      }
-      setBanner(null);
-    } catch (error) {
-      setBanner({
-        type: "error",
-        message: error.message || "Impossible de récupérer les alertes.",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [request]);
+  });
 
   useEffect(() => {
-    if (!enableInitialFetch) {
-      return;
+    setAlerts(fetchedAlerts);
+  }, [fetchedAlerts]);
+
+  useEffect(() => {
+    if (fetchError) {
+      setBanner({
+        type: "error",
+        message: fetchError.message || "Impossible de récupérer les alertes.",
+      });
     }
-    refresh();
-  }, [refresh, enableInitialFetch]);
+  }, [fetchError]);
 
   useEffect(() => {
     function handleRealtimeUpdate(event) {
@@ -195,7 +166,9 @@ function AlertManager({
       if (!detail || !Array.isArray(detail.items)) {
         return;
       }
-      setAlerts(normaliseList(detail.items));
+      const nextAlerts = normaliseList(detail.items);
+      setAlerts(nextAlerts);
+      queryClient.setQueryData(queryKey, nextAlerts);
       if (detail.message) {
         const type = detail.type || "info";
         setBanner({ type, message: detail.message });
@@ -215,43 +188,101 @@ function AlertManager({
       document.removeEventListener("alerts:fallback", handleRealtimeUpdate);
       document.removeEventListener("alerts:error", handleRealtimeError);
     };
-  }, []);
+  }, [queryClient, queryKey]);
+
+  const createAlert = useMutation({
+    mutationFn: (data) => alertsApi.create(data, { endpoint: baseEndpoint }),
+    onSuccess: (result) => {
+      const created = normaliseAlert(result);
+      if (created) {
+        setAlerts((previous) => normaliseList([created, ...previous]));
+        queryClient.setQueryData(queryKey, (previous) =>
+          normaliseList([created, ...(Array.isArray(previous) ? previous : [])])
+        );
+      }
+      queryClient.invalidateQueries({ queryKey });
+      setBanner({ type: "success", message: "Alerte créée avec succès." });
+      setFormMode("create");
+      setActiveAlert(null);
+      setFormError(null);
+    },
+    onError: (error) => {
+      setFormError(error.message || "Impossible de créer l'alerte.");
+    },
+  });
+
+  const updateAlert = useMutation({
+    mutationFn: (data) => {
+      if (!activeAlert) {
+        throw new Error("Alerte introuvable.");
+      }
+      return alertsApi.update(activeAlert.id, data, { endpoint: baseEndpoint });
+    },
+    onSuccess: (result) => {
+      const updated = normaliseAlert({ ...activeAlert, ...result });
+      if (updated) {
+        setAlerts((previous) =>
+          normaliseList(
+            previous.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
+          )
+        );
+        queryClient.setQueryData(queryKey, (previous) =>
+          normaliseList(
+            (Array.isArray(previous) ? previous : []).map((item) =>
+              item.id === updated.id ? { ...item, ...updated } : item
+            )
+          )
+        );
+      }
+      queryClient.invalidateQueries({ queryKey });
+      setBanner({ type: "success", message: "Alerte mise à jour." });
+      setFormMode("create");
+      setActiveAlert(null);
+      setFormError(null);
+    },
+    onError: (error) => {
+      setFormError(error.message || "Impossible de mettre à jour l'alerte.");
+    },
+  });
+
+  const deleteAlert = useMutation({
+    mutationFn: (alertId) => alertsApi.remove(alertId, { endpoint: baseEndpoint }),
+    onSuccess: (_, alertId) => {
+      setAlerts((previous) => previous.filter((item) => item.id !== alertId));
+      queryClient.setQueryData(queryKey, (previous) =>
+        normaliseList((Array.isArray(previous) ? previous : []).filter((item) => item.id !== alertId))
+      );
+      setBanner({ type: "success", message: "Alerte supprimée." });
+      if (activeAlert && activeAlert.id === alertId) {
+        setFormMode("create");
+        setActiveAlert(null);
+      }
+    },
+    onError: (error) => {
+      setBanner({ type: "error", message: error.message || "Impossible de supprimer l'alerte." });
+    },
+    onSettled: () => {
+      setPendingId(null);
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
 
   const handleCreate = useCallback(
     async (data) => {
-      setSubmitting(true);
-      setFormError(null);
       try {
-        const payload = await request("POST", "", data);
-        const created = normaliseAlert(payload);
-        setAlerts((previous) => {
-          if (!created) {
-            return previous;
-          }
-          const existingIndex = previous.findIndex((item) => item.id === created.id);
-          if (existingIndex >= 0) {
-            const clone = [...previous];
-            clone[existingIndex] = { ...clone[existingIndex], ...created };
-            return normaliseList(clone);
-          }
-          return normaliseList([created, ...previous]);
-        });
-        setBanner({ type: "success", message: "Alerte créée avec succès." });
-        setFormMode("create");
-        setActiveAlert(null);
+        await createAlert.mutateAsync(data);
       } catch (error) {
-        setFormError(error.message || "Impossible de créer l'alerte.");
-      } finally {
-        setSubmitting(false);
+        // l'erreur est gérée dans onError
       }
     },
-    [request]
+    [createAlert]
   );
 
   const handleEdit = useCallback((alert) => {
     setFormMode("edit");
     setActiveAlert(alert);
     setFormError(null);
+    setBanner(null);
   }, []);
 
   const handleCancelEdit = useCallback(() => {
@@ -262,36 +293,13 @@ function AlertManager({
 
   const handleUpdate = useCallback(
     async (data) => {
-      if (!activeAlert) {
-        return;
-      }
-      setSubmitting(true);
-      setFormError(null);
       try {
-        const payload = await request("PUT", activeAlert.id, data);
-        const updated = normaliseAlert({ ...activeAlert, ...payload });
-        setAlerts((previous) => {
-          if (!updated) {
-            return previous;
-          }
-          const index = previous.findIndex((item) => item.id === activeAlert.id);
-          if (index < 0) {
-            return previous;
-          }
-          const clone = [...previous];
-          clone[index] = { ...clone[index], ...updated };
-          return normaliseList(clone);
-        });
-        setBanner({ type: "success", message: "Alerte mise à jour." });
-        setFormMode("create");
-        setActiveAlert(null);
+        await updateAlert.mutateAsync(data);
       } catch (error) {
-        setFormError(error.message || "Impossible de mettre à jour l'alerte.");
-      } finally {
-        setSubmitting(false);
+        // handled by onError
       }
     },
-    [activeAlert, request]
+    [updateAlert]
   );
 
   const handleDelete = useCallback(
@@ -299,27 +307,23 @@ function AlertManager({
       if (!alert) {
         return;
       }
-      const confirmed = typeof window !== "undefined" ? window.confirm(`Supprimer l'alerte "${alert.title}" ?`) : true;
+      const confirmed =
+        typeof window !== "undefined" ? window.confirm(`Supprimer l'alerte "${alert.title}" ?`) : true;
       if (!confirmed) {
         return;
       }
       setPendingId(alert.id);
       try {
-        await request("DELETE", alert.id);
-        setAlerts((previous) => previous.filter((item) => item.id !== alert.id));
-        if (activeAlert && activeAlert.id === alert.id) {
-          setFormMode("create");
-          setActiveAlert(null);
-        }
-        setBanner({ type: "success", message: "Alerte supprimée." });
+        await deleteAlert.mutateAsync(alert.id);
       } catch (error) {
-        setBanner({ type: "error", message: error.message || "Impossible de supprimer l'alerte." });
-      } finally {
-        setPendingId(null);
+        // handled by onError
       }
     },
-    [activeAlert, request]
+    [deleteAlert]
   );
+
+  const loading = fetchEnabled && (isLoading || (isFetching && alerts.length === 0));
+  const submitting = createAlert.isPending || updateAlert.isPending;
 
   return (
     <section className="alerts-manager" aria-labelledby="alerts-title">
