@@ -2,15 +2,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import i18next from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AlertHistory from "../../src/alerts/AlertHistory.jsx";
-
-function createFetchResponse(data, status = 200) {
-  return Promise.resolve({
-    ok: status >= 200 && status < 300,
-    status,
-    json: () => Promise.resolve(data),
-  });
-}
+import apiClient from "../../src/lib/api.js";
 
 async function createTestI18n(language = "fr") {
   const instance = i18next.createInstance();
@@ -27,14 +21,28 @@ async function createTestI18n(language = "fr") {
 }
 
 function renderWithI18n(ui, language = "fr") {
-  return createTestI18n(language).then((i18n) =>
-    render(<I18nextProvider i18n={i18n}>{ui}</I18nextProvider>)
-  );
+  return createTestI18n(language).then((i18n) => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>{ui}</I18nextProvider>
+      </QueryClientProvider>,
+    );
+  });
 }
 
 describe("AlertHistory", () => {
   beforeEach(() => {
-    global.fetch = vi.fn();
+    vi.spyOn(apiClient.alerts, "history").mockResolvedValue({
+      items: [],
+      pagination: { page: 1, pages: 1, total: 0, page_size: 10 },
+      available_filters: { strategies: [], severities: [] },
+    });
   });
 
   afterEach(() => {
@@ -85,8 +93,9 @@ describe("AlertHistory", () => {
       available_filters: { strategies: ["Momentum", "Mean Reversion"], severities: ["critical", "warning"] },
     };
 
-    global.fetch.mockResolvedValueOnce(createFetchResponse(firstPage));
-    global.fetch.mockResolvedValueOnce(createFetchResponse(secondPage));
+    apiClient.alerts.history
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(secondPage);
 
     const user = userEvent.setup();
     await renderWithI18n(<AlertHistory endpoint="/alerts/history" />);
@@ -97,10 +106,9 @@ describe("AlertHistory", () => {
     await user.click(screen.getByRole("button", { name: /suivant/i }));
 
     await waitFor(() => {
-      const lastCall = global.fetch.mock.calls.at(-1);
-      expect(lastCall[0]).toBe("/alerts/history?page=2&page_size=10");
-      expect(lastCall[1]).toMatchObject({
-        headers: { Accept: "application/json" },
+      expect(apiClient.alerts.history).toHaveBeenLastCalledWith({
+        endpoint: "/alerts/history",
+        query: { page: 2, page_size: 10 },
       });
     });
     expect(await screen.findByText(/Liquidity alert/)).toBeInTheDocument();
@@ -113,20 +121,20 @@ describe("AlertHistory", () => {
       available_filters: { strategies: ["Momentum"], severities: ["critical"] },
     };
 
-    global.fetch.mockResolvedValue(createFetchResponse(pagePayload));
+    apiClient.alerts.history.mockResolvedValue(pagePayload);
 
     const user = userEvent.setup();
     await renderWithI18n(<AlertHistory endpoint="/alerts/history" />);
 
-    expect(await screen.findByLabelText(/Sévérité/i)).toBeInTheDocument();
+    const severitySelect = await screen.findByLabelText(/Sévérité/i);
+    await screen.findByRole("option", { name: /critical/i });
 
-    await user.selectOptions(screen.getByLabelText(/Sévérité/i), "critical");
+    await user.selectOptions(severitySelect, "critical");
 
     await waitFor(() => {
-      const lastCall = global.fetch.mock.calls.at(-1);
-      expect(lastCall[0]).toBe("/alerts/history?page=1&page_size=10&severity=critical");
-      expect(lastCall[1]).toMatchObject({
-        headers: { Accept: "application/json" },
+      expect(apiClient.alerts.history).toHaveBeenLastCalledWith({
+        endpoint: "/alerts/history",
+        query: { page: 1, page_size: 10, severity: "critical" },
       });
     });
   });
