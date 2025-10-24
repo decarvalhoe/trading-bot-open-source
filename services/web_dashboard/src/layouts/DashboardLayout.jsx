@@ -1,10 +1,10 @@
-import React, { Fragment, useMemo } from "react";
+import React from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Listbox, Transition } from "@headlessui/react";
-import { ArrowRightOnRectangleIcon, CheckIcon, ChevronUpDownIcon, GlobeAltIcon } from "@heroicons/react/24/outline";
+import { ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/button.jsx";
+import LanguageSwitcher from "../components/LanguageSwitcher.jsx";
 
 const NAV_LINKS = [
   { to: "/dashboard", labelKey: "Tableau de bord" },
@@ -23,74 +23,6 @@ const NAV_LINKS = [
   { to: "/status", labelKey: "Statut services" },
   { to: "/account/settings", labelKey: "Compte & API" },
 ];
-
-function LanguageSwitcher() {
-  const { t, i18n } = useTranslation();
-  const languages = useMemo(
-    () =>
-      (i18n.languages || []).map((code) => ({
-        code,
-        label: code.toUpperCase(),
-      })),
-    [i18n.languages],
-  );
-
-  const activeLanguage = languages.find((item) => item.code === i18n.language) || languages[0];
-
-  const handleSelect = (item) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("lang", item.code);
-    window.location.href = url.toString();
-  };
-
-  if (!languages.length) {
-    return null;
-  }
-
-  return (
-    <Listbox value={activeLanguage} onChange={handleSelect}>
-      <div>
-        <Listbox.Label className="visually-hidden">{t("Langue")}</Listbox.Label>
-        <div className="relative mt-4">
-          <Listbox.Button className="inline-flex w-full items-center justify-between gap-3 rounded-xl border border-slate-800/60 bg-slate-900/70 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 shadow-inner shadow-slate-950/40">
-            <span className="inline-flex items-center gap-2">
-              <GlobeAltIcon aria-hidden="true" className="h-4 w-4 text-slate-400" />
-              {activeLanguage?.label}
-            </span>
-            <ChevronUpDownIcon aria-hidden="true" className="h-4 w-4 text-slate-500" />
-          </Listbox.Button>
-          <Transition
-            as={Fragment}
-            leave="transition ease-in duration-100"
-            leaveFrom="opacity-100"
-            leaveTo="opacity-0"
-          >
-            <Listbox.Options className="absolute right-0 z-50 mt-2 w-40 overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-900/90 p-1 text-xs text-slate-200 shadow-xl shadow-slate-950/50 backdrop-blur">
-              {languages.map((item) => (
-                <Listbox.Option
-                  key={item.code}
-                  value={item}
-                  className={({ active }) =>
-                    `flex cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2 transition ${
-                      active ? "bg-slate-800/70 text-white" : "text-slate-300"
-                    }`
-                  }
-                >
-                  {({ selected }) => (
-                    <>
-                      <span className="font-semibold">{item.label}</span>
-                      {selected ? <CheckIcon aria-hidden="true" className="h-4 w-4" /> : null}
-                    </>
-                  )}
-                </Listbox.Option>
-              ))}
-            </Listbox.Options>
-          </Transition>
-        </div>
-      </div>
-    </Listbox>
-  );
-}
 
 export default function DashboardLayout() {
   const { t } = useTranslation();

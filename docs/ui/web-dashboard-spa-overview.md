@@ -12,7 +12,7 @@
 
 ## Layout Composition
 - `src/layouts/DashboardLayout.jsx` supplies the structural shell: sidebar navigation, header, main content, and footer.
-  - Sidebar lists all primary navigation links, highlights the active route, and includes a language switcher using Headless UI's `Listbox` with i18next locales.
+  - Sidebar lists all primary navigation links, highlights the active route, and includes a language switcher using Headless UI's `Listbox` with i18next locales. Language changes are applied immediately via `i18n.changeLanguage` and persisted to `localStorage`, and the same selector also appears on the settings page for easier discovery.
   - Header displays the authenticated user identity and exposes a logout button tied to the auth context.
   - `<Outlet />` renders nested page content and is keyed by pathname for transitions, while the footer displays demo context messaging.
 
