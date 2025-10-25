@@ -233,17 +233,61 @@ export function StrategiesListView({ pageSize = 10, api }) {
       const endpoint = `/strategies/${encodeURIComponent(id)}/clone`;
       return strategiesApi.create({}, { endpoint });
     },
-    onSuccess: () => {
+    onMutate: async () => {
+      setFeedback(null);
+      await queryClient.cancelQueries({ queryKey: listQueryKey });
+      const previous = queryClient.getQueryData(listQueryKey);
+      return { previous };
+    },
+    onSuccess: (data) => {
+      const newItem = normaliseListItem(data, strategies.length);
+      if (newItem) {
+        queryClient.setQueryData(listQueryKey, (previous) => {
+          if (!previous) {
+            return previous;
+          }
+
+          const items = Array.isArray(previous.items) ? previous.items : [];
+          const alreadyExists = items.some((item) => String(item.id) === String(newItem.id));
+          const previousTotal = Number.isFinite(previous.total)
+            ? Number(previous.total)
+            : items.length;
+
+          if (alreadyExists) {
+            return {
+              ...previous,
+              items: items.map((item) =>
+                String(item.id) === String(newItem.id)
+                  ? { ...item, ...newItem, raw: { ...item.raw, ...newItem.raw } }
+                  : item
+              ),
+            };
+          }
+
+          const nextItems = previous.page === 1 ? [newItem, ...items] : items;
+          const trimmedItems = previous.page === 1 ? nextItems.slice(0, size) : nextItems;
+
+          return {
+            ...previous,
+            items: trimmedItems,
+            total: previousTotal + 1,
+          };
+        });
+      }
+
       setFeedback({ type: "success", message: "Stratégie clonée avec succès." });
     },
-    onError: (mutationError) => {
+    onError: (mutationError, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(listQueryKey, context.previous);
+      }
       setFeedback({
         type: "error",
         message: mutationError?.message || "Impossible de cloner la stratégie.",
       });
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["strategies", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["strategies", "list"], refetchType: "inactive" });
     },
   });
 

@@ -162,6 +162,7 @@ describe("StrategiesListView", () => {
     await user.click(screen.getAllByRole("button", { name: /cloner/i })[0]);
     await waitFor(() => expect(createMock).toHaveBeenCalled());
     expect(createMock).toHaveBeenCalledWith({}, { endpoint: "/strategies/strat-2/clone" });
+    expect(await screen.findByText("Momentum Gamma (Clone)")).toBeInTheDocument();
     expect(screen.getByText("Stratégie clonée avec succès.")).toBeInTheDocument();
   });
 });
