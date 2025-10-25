@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { OneClickStrategyBuilder } from "../../strategies/simple/index.js";
 import { bootstrap } from "../../bootstrap";
+import StrategyToolPageShell from "./StrategyToolPageShell.jsx";
 
 export default function StrategyExpressPage() {
   const { t } = useTranslation();
@@ -9,14 +10,12 @@ export default function StrategyExpressPage() {
     bootstrap?.data?.strategyExpress || bootstrap?.config?.strategyExpress || {};
 
   return (
-    <div className="strategy-express-page">
-      <header className="page-header">
-        <h1 className="heading heading--xl">{t("Stratégie express")}</h1>
-        <p className="text text--muted">
-          {t("Créez une stratégie en quelques clics et lancez un backtest instantané.")}
-        </p>
-      </header>
+    <StrategyToolPageShell
+      className="strategy-express-page"
+      title={t("Stratégie express")}
+      description={t("Créez une stratégie en quelques clics et lancez un backtest instantané.")}
+    >
       <OneClickStrategyBuilder {...config} />
-    </div>
+    </StrategyToolPageShell>
   );
 }

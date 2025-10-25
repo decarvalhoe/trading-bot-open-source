@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { AIStrategyAssistant } from "../../strategies/assistant/index.js";
 import { bootstrap } from "../../bootstrap";
+import StrategyToolPageShell from "./StrategyToolPageShell.jsx";
 
 export default function AIStrategyAssistantPage() {
   const { t } = useTranslation();
@@ -15,17 +16,14 @@ export default function AIStrategyAssistantPage() {
     {};
 
   return (
-    <div className="strategy-assistant-page">
-      <header className="page-header">
-        <h1 className="heading heading--xl">{t("Assistant IA pour stratégies")}</h1>
-        <p className="text text--muted">
-          {t(
-            "Décrivez votre idée en langage naturel pour obtenir des suggestions et un brouillon de stratégie."
-          )}
-        </p>
-      </header>
-
+    <StrategyToolPageShell
+      className="strategy-assistant-page"
+      title={t("Assistant IA pour stratégies")}
+      description={t(
+        "Décrivez votre idée en langage naturel pour obtenir des suggestions et un brouillon de stratégie."
+      )}
+    >
       <AIStrategyAssistant {...config} />
-    </div>
+    </StrategyToolPageShell>
   );
 }
