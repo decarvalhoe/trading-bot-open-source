@@ -66,6 +66,21 @@ you use `make demo-up` the compose file seeds the following defaults:
 Adjust these variables in your environment or override them in `docker-compose.override.yml` when
 pointing the dashboard at remote services.
 
+### Streaming defaults consumed by demo services
+
+`make demo-up` also wires the streaming ingest settings shared by `order-router`, `reports`, and the
+dashboard:
+
+| Variable | Default | Used by |
+| -------- | ------- | ------- |
+| `STREAMING_INGEST_URL` | `http://streaming:8000` | Order router, reports, streaming gateway |
+| `STREAMING_SERVICE_TOKEN` | `reports-token` | Order router (ingest authentication) |
+| `STREAMING_ROOM_ID` | `public-room` | Order router, dashboard widgets |
+
+Keep these defaults aligned across `.env.dev` and your shell so every service receives consistent
+values during local demos. Override them if you expose the streaming stack on a different host or
+rotate the shared token.
+
 With the stack running you can seed demo credentials, entitlements and sample alerts directly from
 the compose network:
 
