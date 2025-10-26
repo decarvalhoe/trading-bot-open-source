@@ -9,11 +9,27 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U trading -d trading -h localhost
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli ping | grep -q PONG
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   auth_service:
     build:
@@ -37,9 +53,20 @@ services:
       AUTH_SERVICE_SESSION_COOKIE_NAME: ${AUTH_SERVICE_SESSION_COOKIE_NAME:-auth_session}
       AUTH_SERVICE_SESSION_COOKIE_SAMESITE: ${AUTH_SERVICE_SESSION_COOKIE_SAMESITE:-none}
       AUTH_SERVICE_SESSION_COOKIE_SECURE: ${AUTH_SERVICE_SESSION_COOKIE_SECURE:-false}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8011:8000"
 
@@ -52,8 +79,18 @@ services:
     environment:
       PYTHONPATH: /app
       DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
       - "8012:8000"
 
@@ -70,9 +107,20 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -94,10 +142,22 @@ services:
       STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
       STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN:-reports-token}
       STREAMING_ROOM_ID: ${STREAMING_ROOM_ID:-public-room}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - postgres
-      - redis
-      - streaming
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      streaming:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -118,9 +178,20 @@ services:
       ORDER_ROUTER_URL: http://order_router:8000
       ORDER_ROUTER_TIMEOUT: "5.0"
       ORDER_ROUTER_API_KEY: ${ORDER_ROUTER_API_KEY:-demo-router-key}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - order_router
-      - market_data
+      order_router:
+        condition: service_healthy
+      market_data:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -145,8 +216,18 @@ services:
       IBKR_HOST: ${IBKR_HOST:-ibkr-gateway}
       IBKR_PORT: ${IBKR_PORT:-4001}
       IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-1}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -172,10 +253,22 @@ services:
       STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
       STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN:-reports-token}
       STREAMING_ROOM_ID: ${STREAMING_ROOM_ID:-public-room}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - postgres
-      - redis
-      - market_data
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      market_data:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -201,12 +294,26 @@ services:
       ALERT_ENGINE_REPORTS_URL: http://reports:8000
       ALERT_ENGINE_NOTIFICATION_URL: http://notification_service:8000
       ALERT_ENGINE_STREAM_SYMBOLS: ${ALERT_ENGINE_STREAM_SYMBOLS:-BTCUSDT,ETHUSDT}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - postgres
-      - redis
-      - market_data
-      - reports
-      - notification_service
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      market_data:
+        condition: service_healthy
+      reports:
+        condition: service_healthy
+      notification_service:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -232,8 +339,18 @@ services:
       NOTIFICATION_SERVICE_TWILIO_ACCOUNT_SID: ${NOTIFICATION_SERVICE_TWILIO_ACCOUNT_SID:-demo-sid}
       NOTIFICATION_SERVICE_TWILIO_AUTH_TOKEN: ${NOTIFICATION_SERVICE_TWILIO_AUTH_TOKEN:-demo-token}
       NOTIFICATION_SERVICE_TWILIO_FROM_NUMBER: ${NOTIFICATION_SERVICE_TWILIO_FROM_NUMBER:-+10000000000}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -258,8 +375,18 @@ services:
       STREAMING_SERVICE_TOKEN_REPORTS: ${STREAMING_SERVICE_TOKEN_REPORTS:-reports-token}
       STREAMING_SERVICE_TOKEN_INPLAY: ${STREAMING_SERVICE_TOKEN_INPLAY:-inplay-token}
       STREAMING_ENTITLEMENTS_CAPABILITY: ${STREAMING_ENTITLEMENTS_CAPABILITY:-can.stream_public}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -291,9 +418,20 @@ services:
       STREAMING_GATEWAY_DISCORD_CLIENT_ID: ${STREAMING_GATEWAY_DISCORD_CLIENT_ID:-demo-discord-id}
       STREAMING_GATEWAY_DISCORD_CLIENT_SECRET: ${STREAMING_GATEWAY_DISCORD_CLIENT_SECRET:-demo-discord-secret}
       STREAMING_GATEWAY_DISCORD_BOT_TOKEN: ${STREAMING_GATEWAY_DISCORD_BOT_TOKEN:-demo-discord-bot-token}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - streaming
-      - redis
+      streaming:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -314,9 +452,20 @@ services:
       INPLAY_REDIS_URL: redis://redis:6379/3
       STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
       STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN_INPLAY:-inplay-token}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - redis
-      - streaming
+      redis:
+        condition: service_healthy
+      streaming:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -346,11 +495,24 @@ services:
       WEB_DASHBOARD_ORDER_ROUTER_BASE_URL: http://order_router:8000/
       WEB_DASHBOARD_ALERTS_TOKEN: ${WEB_DASHBOARD_ALERTS_TOKEN:-demo-alerts-token}
       WEB_DASHBOARD_ALERT_EVENTS_DATABASE_URL: sqlite:////data/alert_events.db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').getcode()==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - alert_engine
-      - reports
-      - streaming_gateway
-      - streaming
+      alert_engine:
+        condition: service_healthy
+      reports:
+        condition: service_healthy
+      streaming_gateway:
+        condition: service_healthy
+      streaming:
+        condition: service_healthy
     volumes:
       - ./infra/migrations:/app/infra/migrations:ro
       - ./scripts:/app/scripts:ro
@@ -369,19 +531,39 @@ services:
       - ./infra/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
     ports:
       - "9090:9090"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://localhost:9090/-/healthy
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - auth_service
-      - user_service
-      - order_router
-      - algo_engine
-      - market_data
-      - reports
-      - alert_engine
-      - notification_service
-      - streaming
-      - streaming_gateway
-      - inplay
-      - web_dashboard
+      auth_service:
+        condition: service_healthy
+      user_service:
+        condition: service_healthy
+      order_router:
+        condition: service_healthy
+      algo_engine:
+        condition: service_healthy
+      market_data:
+        condition: service_healthy
+      reports:
+        condition: service_healthy
+      alert_engine:
+        condition: service_healthy
+      notification_service:
+        condition: service_healthy
+      streaming:
+        condition: service_healthy
+      streaming_gateway:
+        condition: service_healthy
+      inplay:
+        condition: service_healthy
+      web_dashboard:
+        condition: service_healthy
 
   grafana:
     image: grafana/grafana:10.4.5
@@ -395,8 +577,17 @@ services:
       - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
     ports:
       - "3000:3000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://localhost:3000/api/health
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
 
 volumes:
   pgdata: {}
