@@ -27,6 +27,7 @@ native-down:
 
 demo-up:
 	docker compose up -d postgres redis
+	docker compose run --rm db_migrations
 	docker compose up -d --build auth_service user_service billing_service streaming streaming_gateway market_data \
 	order_router algo_engine reports alert_engine notification_service inplay web_dashboard \
 	prometheus grafana
