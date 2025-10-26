@@ -26,12 +26,12 @@ native-down:
 	./scripts/dev/native_down.sh
 
 demo-up:
-        docker compose up -d postgres redis
-        until docker compose exec -T postgres pg_isready -U trading -d trading >/dev/null 2>&1; do \
-                echo "Waiting for postgres to be ready..."; \
-                sleep 1; \
-        done
-        docker compose run --rm db_migrations
+	docker compose up -d postgres redis
+	until docker compose exec -T postgres pg_isready -U trading -d trading >/dev/null 2>&1; do \
+	        echo "Waiting for postgres to be ready..."; \
+	        sleep 1; \
+	done
+	docker compose run --rm db_migrations
 	docker compose up -d --build auth_service user_service billing_service streaming streaming_gateway market_data \
 	order_router algo_engine reports alert_engine notification_service inplay web_dashboard \
 	prometheus grafana
