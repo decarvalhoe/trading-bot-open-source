@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
+
+if [[ "${RUN_MIGRATIONS}" != "1" ]]; then
+  exit 0
+fi
+
+if ! command -v alembic >/dev/null 2>&1; then
+  exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"

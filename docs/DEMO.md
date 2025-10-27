@@ -81,6 +81,15 @@ Keep these defaults aligned across `.env.dev` and your shell so every service re
 values during local demos. Override them if you expose the streaming stack on a different host or
 rotate the shared token.
 
+### Database migration toggle
+
+Containers built from `infra/docker/fastapi-service.Dockerfile` honour a `RUN_MIGRATIONS`
+environment variable. It defaults to `1` (run Alembic on startup) via `.env.dev`, and
+`docker-compose.yml` overrides it to `0` for stateless services such as `streaming`,
+`streaming_gateway`, `inplay`, `notification_service`, and `web_dashboard`. Leave the flag enabled
+for services backed by PostgreSQL (`billing_service`, `order_router`, `market_data`, `reports`,
+`alert_engine`) so they apply schema updates automatically.
+
 With the stack running you can seed demo credentials, entitlements and sample alerts directly from
 the compose network:
 

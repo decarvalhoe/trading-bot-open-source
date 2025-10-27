@@ -127,6 +127,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "1"
       DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
     healthcheck:
@@ -160,6 +161,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "1"
       DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
       STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
       STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN:-reports-token}
@@ -197,6 +199,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "0"
       ORDER_ROUTER_URL: http://order_router:8000
       ORDER_ROUTER_TIMEOUT: "5.0"
       ORDER_ROUTER_API_KEY: ${ORDER_ROUTER_API_KEY:-demo-router-key}
@@ -231,6 +234,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "1"
       MARKET_DATA_DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
       TRADINGVIEW_HMAC_SECRET: ${TRADINGVIEW_HMAC_SECRET:-demo-hmac-secret}
       BINANCE_API_KEY: ${BINANCE_API_KEY:-demo-binance-key}
@@ -267,6 +271,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "1"
       REPORTS_DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
       REPORTS_CELERY_BROKER: redis://redis:6379/0
       REPORTS_CELERY_BACKEND: redis://redis:6379/1
@@ -309,6 +314,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "1"
       ALERT_ENGINE_DATABASE_URL: postgresql+psycopg2://trading:trading@postgres:5432/trading
       ALERT_ENGINE_EVENTS_DATABASE_URL: sqlite:////data/alert_events.db
       ALERT_ENGINE_MARKET_DATA_URL: http://market_data:8000
@@ -354,6 +360,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "0"
       NOTIFICATION_SERVICE_EVENTS_DATABASE_URL: sqlite:////data/alert_events.db
       NOTIFICATION_SERVICE_SLACK_DEFAULT_WEBHOOK: ${NOTIFICATION_SERVICE_SLACK_DEFAULT_WEBHOOK:-https://hooks.slack.com/services/demo}
       NOTIFICATION_SERVICE_TELEGRAM_BOT_TOKEN: ${NOTIFICATION_SERVICE_TELEGRAM_BOT_TOKEN:-demo-telegram-token}
@@ -391,6 +398,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "0"
       STREAMING_PIPELINE_BACKEND: ${STREAMING_PIPELINE_BACKEND:-memory}
       STREAMING_REDIS_URL: redis://redis:6379/2
       STREAMING_NATS_URL: ${STREAMING_NATS_URL:-nats://nats:4222}
@@ -426,6 +434,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "0"
       STREAMING_GATEWAY_REDIS_URL: redis://redis:6379/2
       STREAMING_GATEWAY_NATS_URL: ${STREAMING_GATEWAY_NATS_URL:-nats://nats:4222}
       STREAMING_GATEWAY_PUBLIC_BASE_URL: http://streaming_gateway:8000
@@ -471,6 +480,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "0"
       INPLAY_REDIS_URL: redis://redis:6379/3
       STREAMING_INGEST_URL: ${STREAMING_INGEST_URL:-http://streaming:8000}
       STREAMING_SERVICE_TOKEN: ${STREAMING_SERVICE_TOKEN_INPLAY:-inplay-token}
@@ -505,6 +515,7 @@ services:
     env_file:
       - .env.dev
     environment:
+      RUN_MIGRATIONS: "0"
       WEB_DASHBOARD_STREAMING_BASE_URL: http://streaming_gateway:8000
       WEB_DASHBOARD_STREAMING_ROOM_ID: ${WEB_DASHBOARD_STREAMING_ROOM_ID:-public-room}
       WEB_DASHBOARD_STREAMING_VIEWER_ID: ${WEB_DASHBOARD_STREAMING_VIEWER_ID:-demo-viewer}

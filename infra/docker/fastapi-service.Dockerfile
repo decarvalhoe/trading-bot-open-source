@@ -29,8 +29,9 @@ COPY infra ./infra
 COPY scripts ./scripts
 COPY services/${SERVICE_DIR} /app/service/${SERVICE_PACKAGE}
 
-ENV PYTHONPATH="/app/service:/app"
+ENV PYTHONPATH="/app/service:/app" \
+    RUN_MIGRATIONS=1
 
 RUN chmod +x ./scripts/run_migrations.sh
 
-CMD ["bash", "-c", "./scripts/run_migrations.sh && exec uvicorn ${SERVICE_PACKAGE}.${SERVICE_MODULE}:app --host 0.0.0.0 --port 8000"]
+CMD ["bash", "-c", "if [ \"${RUN_MIGRATIONS:-1}\" = \"1\" ]; then ./scripts/run_migrations.sh || exit 1; fi; exec uvicorn ${SERVICE_PACKAGE}.${SERVICE_MODULE}:app --host 0.0.0.0 --port 8000"]

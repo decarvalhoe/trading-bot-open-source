@@ -8,6 +8,7 @@ services:
     ports:
       - "8022:8000"
     environment:
+      RUN_MIGRATIONS: "0"
       WEB_DASHBOARD_AUTH_SERVICE_URL: "http://auth_service:8000"
       WEB_DASHBOARD_AUTH_COOKIE_SECURE: "false"
       WEB_DASHBOARD_AUTH_COOKIE_DOMAIN: ""
